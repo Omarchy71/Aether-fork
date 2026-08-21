@@ -1,7 +1,7 @@
 {
-  "version": "1.4.2",
+  "version": "1.5.0",
   "version_code": 1,
   "is_beta": false,
-  "changelog": "• Fixed a critical crash on Android 8 (API 26) related to OkHttp connection pool.\n• Added a new connection widget for the home screen.\n• Improved 'Tunnel Whole Device' logic to correctly override Split Tunneling settings.",
-  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.4.2"
+  "changelog": "🚀 Core engine updated with performance optimizations\n\n✨ New Features:\n• Smart Auto-Detect: Automatically scans your network and applies the best protocol, MTU, bypass, and transport settings\n• Smart Disconnection Alert: Shows an immediate notification with a reconnect button when VPN drops unexpectedly\n• Re-Test button to re-run the full network auto-detection\n• Internet Speed Test: Measure download, upload, ping & jitter with real-time live stats\n• Speed Test Settings: Choose server (Cloudflare/Ofakino), display unit (MB/s or Mb/s), test size, and ping samples\n• Manual Protocol Selection: Choose MASQUE, WireGuard, or Gool with recommended settings directly from Auto-Detect screen\n\n🔧 Improvements:\n• More accurate latency measurement using multi-sample TCP/HTTPS probes with median calculation\n• Improved DPI detection and ISP fingerprinting\n• Better network environment analysis for optimal protocol selection\n• Speed Test progress card now shows real-time ping, download speed, and upload speed during testing\n\n🐛 Bug Fixes:\n• Fixed notification crash on Android when VPN disconnects unexpectedly\n• Fixed connection status not updating correctly after unexpected disconnection\n• Fixed overlay spacing issue on Windows protocol detection screen\n• Fixed status bar padding on Android protocol detection screen",
+  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.6.0"
 }

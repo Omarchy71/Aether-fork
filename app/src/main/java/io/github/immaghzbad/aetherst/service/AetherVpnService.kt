@@ -21,11 +21,12 @@ import io.github.immaghzbad.aetherst.core.HevTun2SocksEngine
 import io.github.immaghzbad.aetherst.core.HevTun2SocksNative
 import io.github.immaghzbad.aetherst.core.LocalSocksProxyServer
 import io.github.immaghzbad.aetherst.core.RoutingEngine
+import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.core.SocksTunBridge
-import io.github.immaghzbad.aetherst.data.AetherConfigRepository
-import io.github.immaghzbad.aetherst.data.LogRepository
-import io.github.immaghzbad.aetherst.model.ConnectionStatus
-import io.github.immaghzbad.aetherst.model.TunnelEngine
+import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
@@ -51,11 +52,16 @@ class AetherVpnService : VpnService() {
     private var startupJob: Job? = null
     private var statsJob: Job? = null
 
+    private var isUserInitiatedStop = false
+    private var wasEverRunning = false
+
     companion object {
         const val ACTION_START = "io.github.immaghzbad.aetherst.ACTION_START"
         const val ACTION_STOP = "io.github.immaghzbad.aetherst.ACTION_STOP"
         const val CHANNEL_ID = "aether_vpn_status_v2"
+        const val ALERT_CHANNEL_ID = "aether_vpn_alerts"
         const val NOTIFICATION_ID = 1001
+        const val ALERT_NOTIFICATION_ID = 1003
 
         fun startVpn(context: Context): Boolean = runCatching {
             val intent = Intent(context, AetherVpnService::class.java).apply { action = ACTION_START }
@@ -82,7 +88,7 @@ class AetherVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        LogRepository.initialize(this)
+        LogRepository.initialize(getSettings(PlatformContext(this)))
         createNotificationChannel()
         
         val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -93,7 +99,7 @@ class AetherVpnService : VpnService() {
         }
 
         scope.launch {
-            AetherConfigRepository.getInstance(this@AetherVpnService).config.collect {
+            AetherConfigRepository.getInstance(getSettings(PlatformContext(this@AetherVpnService))).config.collect {
                 routingEngine?.clearCache()
             }
         }
@@ -102,9 +108,12 @@ class AetherVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                isUserInitiatedStop = false
+                showInitialNotification()
                 startAttempt(commandCounter.incrementAndGet())
             }
             ACTION_STOP -> {
+                isUserInitiatedStop = true
                 stopVpnService(commandCounter.incrementAndGet())
             }
         }
@@ -112,8 +121,36 @@ class AetherVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        isUserInitiatedStop = false
         LogRepository.w("[VpnService] VPN revoked by system or other app")
-        stopVpnService(commandCounter.incrementAndGet())
+        val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
+        
+        scope.launch {
+            val attemptId = activeAttemptId.getAndSet(0)
+            startupJob?.cancelAndJoin()
+            stopStatsJob()
+            
+            
+            
+            stateMutex.withLock {
+                hevEngine?.requestStop()
+                hevEngine = null
+                localBridge?.stop()
+                localBridge = null
+                socksBridge?.stop()
+                socksBridge = null
+                closeVpnInterface(attemptId)
+            }
+
+            if (config.connectionMode != ConnectionMode.PROXY_ONLY) {
+                getController().stop()
+            } else {
+                LogRepository.i("[VpnService] Revoked but keeping core alive for Proxy Mode")
+            }
+            
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
         super.onRevoke()
     }
 
@@ -131,8 +168,7 @@ class AetherVpnService : VpnService() {
                 id
             }
 
-            showInitialNotification()
-            runCatching { wakeLock?.acquire(24 * 60 * 60 * 1000L) }
+            runCatching { wakeLock?.acquire(4 * 60 * 60 * 1000L) }
 
             try {
                 getController().start()
@@ -142,7 +178,7 @@ class AetherVpnService : VpnService() {
                 }
 
                 ensureCurrentAttempt(attemptId)
-                val config = AetherConfigRepository.getInstance(this@AetherVpnService).config.value
+                val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(this@AetherVpnService))).config.value
 
                 LogRepository.i("[VpnService] Core ready, establishing TUN")
                 routingEngine = RoutingEngine(config.routingRules)
@@ -153,9 +189,8 @@ class AetherVpnService : VpnService() {
                 val descriptor = vpnInterface ?: throw IllegalStateException("TUN descriptor unavailable")
 
                 val effectiveEngine = if (
-                    !config.tunnelAllApps &&
                     config.tunnelEngine == TunnelEngine.HEV_TUN2SOCKS &&
-                    (config.blockedPackages.isNotEmpty() || config.routingRules.any { it.mode != io.github.immaghzbad.aetherst.model.RoutingMode.TUNNEL })
+                    (config.routingRules.isNotEmpty() || config.blockedPackages.isNotEmpty())
                 ) {
                     TunnelEngine.SOCKS_TUN_BRIDGE
                 } else {
@@ -191,12 +226,13 @@ class AetherVpnService : VpnService() {
                         socksHost = config.socksHost,
                         socksPort = config.socksPort.toIntOrNull() ?: 1819,
                         mtu = 1280,
-                        blockedPackagesProvider = { if (config.tunnelAllApps) emptySet() else config.blockedPackages },
+                        blockedPackagesProvider = { config.blockedPackages },
                         routingEngine = routingEngine!!
                     ).apply { start() }
                 }
 
                 LogRepository.i("[VpnService] VPN tunnel active")
+                wasEverRunning = true
                 startStatsJob()
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -226,7 +262,7 @@ class AetherVpnService : VpnService() {
             .setSession("AetherST Tunnel")
             .setConfigureIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), pendingFlags))
 
-        val config = AetherConfigRepository.getInstance(this).config.value
+        val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
         if (config.ipv6Leak && Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) {
             runCatching { builder.addRoute("::", 0) }
         }
@@ -256,6 +292,9 @@ class AetherVpnService : VpnService() {
     private suspend fun rollback(attemptId: Long, reason: String) {
         LogRepository.e("[VpnService] Rollback: $reason")
         stopStatsJob()
+        if (wasEverRunning && !isUserInitiatedStop) {
+            showDisconnectionAlert(reason)
+        }
         cleanupResources(attemptId)
         getController().stop()
     }
@@ -340,7 +379,6 @@ class AetherVpnService : VpnService() {
             ConnectionStatus.RECONNECTING -> "Reconnecting..."
             ConnectionStatus.STOPPING -> "Disconnecting..."
             ConnectionStatus.ERROR -> "Connection error"
-            else -> ""
         }
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(text))
@@ -365,14 +403,56 @@ class AetherVpnService : VpnService() {
             .build()
     }
 
+    private fun showDisconnectionAlert(reason: String) {
+        try {
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            val contentIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), flags)
+            val reconnectIntent = PendingIntent.getService(
+                this, 2,
+                Intent(this, AetherVpnService::class.java).apply { action = ACTION_START },
+                flags
+            )
+
+            val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+                .setContentTitle("⚠️ VPN Disconnected")
+                .setContentText("Connection lost unexpectedly. Tap to reconnect.")
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText("AetherST Tunnel was disconnected unexpectedly.\nReason: $reason\n\nTap 'Reconnect' to restore your secure connection.")
+                )
+                .setSmallIcon(R.drawable.ic_stat_aether)
+                .setAutoCancel(true)
+                .setContentIntent(contentIntent)
+                .addAction(android.R.drawable.ic_popup_sync, "Reconnect", reconnectIntent)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setColor(0xFFFF3B30.toInt())
+                .build()
+
+            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(ALERT_NOTIFICATION_ID, notification)
+            LogRepository.i("[VpnService] Disconnection alert notification sent")
+        } catch (e: Exception) {
+            LogRepository.e("[VpnService] Failed to send disconnection alert: ${e.message}")
+        }
+    }
+
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "AetherST Tunnel", NotificationManager.IMPORTANCE_DEFAULT).apply {
+        val statusChannel = NotificationChannel(CHANNEL_ID, "AetherST Tunnel", NotificationManager.IMPORTANCE_DEFAULT).apply {
             setSound(null, null)
             enableVibration(false)
             enableLights(false)
             setShowBadge(false)
         }
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+        val alertChannel = NotificationChannel(ALERT_CHANNEL_ID, "AetherST Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Notifications for unexpected disconnections"
+            enableVibration(true)
+            enableLights(true)
+            setShowBadge(true)
+        }
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(statusChannel)
+        manager.createNotificationChannel(alertChannel)
     }
 
     override fun onDestroy() {
