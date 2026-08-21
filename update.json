@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
+  "version": "1.4.2",
   "version_code": 1,
   "is_beta": false,
   "changelog": "• Smart Auto-Detect for optimal protocol & MTU settings\n• Smart Disconnection Alert with reconnect button\n• Internet Speed Test (download, upload, ping, jitter)\n• Manual Protocol Selection: MASQUE, WireGuard, Gool\n• Improved latency measurement & DPI detection\n• Fixed notification crash on unexpected VPN disconnect",
