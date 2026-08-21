@@ -15,8 +15,8 @@ import androidx.core.app.NotificationCompat
 import io.github.immaghzbad.aetherst.MainActivity
 import io.github.immaghzbad.aetherst.R
 import io.github.immaghzbad.aetherst.core.ConnectionController
-import io.github.immaghzbad.aetherst.data.LogRepository
-import io.github.immaghzbad.aetherst.model.ConnectionStatus
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicLong
 
@@ -107,7 +107,6 @@ class AetherProxyService : Service() {
             ConnectionStatus.RECONNECTING -> "Reconnecting..."
             ConnectionStatus.STOPPING -> "Stopping proxy..."
             ConnectionStatus.ERROR -> "Proxy error"
-            else -> ""
         }
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(text))

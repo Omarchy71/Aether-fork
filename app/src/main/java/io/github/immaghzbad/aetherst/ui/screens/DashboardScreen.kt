@@ -24,16 +24,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.immaghzbad.aetherst.data.IpInfo
-import io.github.immaghzbad.aetherst.data.PingState
-import io.github.immaghzbad.aetherst.model.*
+import io.github.immaghzbad.aetherst.shared.data.IpInfo
+import io.github.immaghzbad.aetherst.shared.data.PingState
+import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -58,9 +58,10 @@ fun DashboardScreen(
     onRefreshIpInfo: () -> Unit = {},
     onRefreshPing: () -> Unit = {},
     onShowToast: (String, Boolean) -> Unit = { _, _ -> },
-    bottomContentPadding: Dp = 0.dp
+    appVersion: String = "1.5.0",
+    bottomContentPadding: Dp = 0.dp,
 ) {
-    var showProxyOverlay by remember { mutableStateOf(true) }
+    var showProxyOverlay by remember { mutableStateOf(value = true) }
 
     LaunchedEffect(connectionStatus) {
         if (connectionStatus != ConnectionStatus.RUNNING) {
@@ -117,7 +118,7 @@ fun DashboardScreen(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (config.connectionMode == ConnectionMode.PROXY_ONLY && connectionStatus == ConnectionStatus.RUNNING) {
+                        if ((config.connectionMode == ConnectionMode.PROXY_ONLY) && (connectionStatus == ConnectionStatus.RUNNING)) {
                             IconButton(
                                 onClick = { showProxyOverlay = true },
                                 modifier = Modifier.size((32 * scaleFactor).dp)
@@ -136,7 +137,7 @@ fun DashboardScreen(
                             color = IosGroupBg
                         ) {
                             Text(
-                                text = "v1.4.2",
+                                text = "v$appVersion",
                                 modifier = Modifier.padding(horizontal = (12 * scaleFactor).dp, vertical = (6 * scaleFactor).dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
@@ -279,7 +280,8 @@ fun ProxyOverlayPill(
     onCopy: (String) -> Unit,
     scaleFactor: Float
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     val socksAddress = "$host:$socksPort"
     val httpAddress = "$host:$httpPort"
 
@@ -312,7 +314,9 @@ fun ProxyOverlayPill(
                     label = "SOCKS5",
                     address = socksAddress,
                     onCopy = {
-                        clipboardManager.setText(AnnotatedString(socksAddress))
+                        scope.launch {
+                            clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText(null, socksAddress)))
+                        }
                         onCopy(socksAddress)
                     },
                     scaleFactor = scaleFactor
@@ -321,7 +325,9 @@ fun ProxyOverlayPill(
                     label = "HTTP",
                     address = httpAddress,
                     onCopy = {
-                        clipboardManager.setText(AnnotatedString(httpAddress))
+                        scope.launch {
+                            clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText(null, httpAddress)))
+                        }
                         onCopy(httpAddress)
                     },
                     scaleFactor = scaleFactor
@@ -576,7 +582,8 @@ fun IosStatusHeroCard(
 
                 Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
 
-                val clipboardManager = LocalClipboardManager.current
+                val clipboard = LocalClipboard.current
+                val scope = rememberCoroutineScope()
 
                 Surface(
                     modifier = Modifier
@@ -586,7 +593,9 @@ fun IosStatusHeroCard(
                             onClick = { onRefreshIpInfo() },
                             onLongClick = {
                                 if (ipInfo.ip.isNotEmpty()) {
-                                    clipboardManager.setText(AnnotatedString(ipInfo.ip))
+                                    scope.launch {
+                                        clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText(null, ipInfo.ip)))
+                                    }
                                     onShowToast("IP address copied to clipboard", false)
                                 }
                             }

@@ -6,28 +6,67 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Surface
-import androidx.compose.ui.Modifier
-import io.github.immaghzbad.aetherst.ui.theme.MyApplicationTheme
-import io.github.immaghzbad.aetherst.ui.AetherViewModel
-import io.github.immaghzbad.aetherst.ui.screens.MainScreen
+import androidx.activity.result.contract.ActivityResultContracts
+import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.shared.App
+import io.github.immaghzbad.aetherst.shared.platform.Bridge
 
 class MainActivity : ComponentActivity() {
+
+    private var pendingSaveContent: String? = null
+    private var saveCallback: ((Boolean) -> Unit)? = null
+    private var pickCallback: ((String?) -> Unit)? = null
+
+    private val saveLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) {
+            try {
+                contentResolver.openOutputStream(uri)?.use { os ->
+                    os.write(pendingSaveContent?.toByteArray() ?: ByteArray(0))
+                }
+                saveCallback?.invoke(true)
+            } catch (_: Exception) {
+                saveCallback?.invoke(false)
+            }
+        } else {
+            saveCallback?.invoke(false)
+        }
+        pendingSaveContent = null
+        saveCallback = null
+    }
+
+    private val pickLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                val content = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                pickCallback?.invoke(content)
+            } catch (_: Exception) {
+                pickCallback?.invoke(null)
+            }
+        } else {
+            pickCallback?.invoke(null)
+        }
+        pickCallback = null
+    }
+
     @SuppressLint("SourceLockedOrientationActivity")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        Bridge.saveFile = { fileName, content, onResult ->
+            pendingSaveContent = content
+            saveCallback = onResult
+            saveLauncher.launch(fileName)
+        }
+        
+        Bridge.pickFile = { onResult ->
+            pickCallback = onResult
+            pickLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+        }
+
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
-        val viewModel = AetherViewModel(applicationContext)
-
         setContent {
-            MyApplicationTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(viewModel = viewModel)
-                }
-            }
+            App(PlatformContext(this))
         }
     }
 }

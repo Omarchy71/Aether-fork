@@ -1,7 +1,7 @@
 package io.github.immaghzbad.aetherst.core
 
 import androidx.annotation.Keep
-import io.github.immaghzbad.aetherst.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
 
 @Keep
 object HevTun2SocksNative {

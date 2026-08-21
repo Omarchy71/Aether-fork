@@ -1,17 +1,28 @@
 package io.github.immaghzbad.aetherst.ui.screens
 
 import android.net.Uri
-import java.io.File
-import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -24,17 +35,31 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,8 +74,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import io.github.immaghzbad.aetherst.model.RoutingMode
-import io.github.immaghzbad.aetherst.model.RoutingRule
+import io.github.immaghzbad.aetherst.shared.model.RoutingMode
+import io.github.immaghzbad.aetherst.shared.model.RoutingRule
 
 private val IosCardBg = Color(0xFF1C1C1E)
 private val IosSecondaryLabel = Color(0xFF8E8E93)
@@ -69,6 +94,7 @@ fun RoutingRulesScreen(
     onValidatePattern: (String) -> Boolean,
     onExportRules: () -> Unit,
     onImportRules: (Uri) -> Unit,
+    onImportInternalRules: (String) -> Unit,
     onResolveConflict: (List<RoutingRule>, Boolean) -> Unit,
     onCancelImport: () -> Unit,
     onClearImportError: () -> Unit,
@@ -87,23 +113,6 @@ fun RoutingRulesScreen(
     var showHelpDialog by remember { mutableStateOf(false) }
     var showInternalButton by remember { mutableStateOf(false) }
     var showInternalRulesDialog by remember { mutableStateOf(false) }
-    
-    val context = LocalContext.current
-    val importInternalAsset = { assetName: String ->
-        try {
-            val cacheFile = File(context.cacheDir, assetName)
-            context.assets.open(assetName).use { input ->
-                cacheFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            onImportRules(Uri.fromFile(cacheFile))
-            onShowToast("Rules imported from internal storage", false)
-            showInternalRulesDialog = false
-        } catch (e: Exception) {
-            onShowToast("Error: ${e.message}", true)
-        }
-    }
     
     var ruleToDelete by remember { mutableStateOf<String?>(null) }
     var showClearAllConfirmation by remember { mutableStateOf(false) }
@@ -151,7 +160,10 @@ fun RoutingRulesScreen(
     if (showInternalRulesDialog) {
         InternalRulesDialog(
             onDismiss = { showInternalRulesDialog = false },
-            onImport = importInternalAsset,
+            onImport = {
+                onImportInternalRules(it)
+                showInternalRulesDialog = false
+            },
             scaleFactor = scaleFactor
         )
     }

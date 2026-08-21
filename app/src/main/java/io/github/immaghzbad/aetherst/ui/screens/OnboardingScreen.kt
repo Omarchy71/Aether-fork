@@ -20,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.immaghzbad.aetherst.model.*
+import io.github.immaghzbad.aetherst.shared.model.*
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -215,9 +215,10 @@ private fun ProtocolTestStep(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        if (state.error != null) {
+        val currentError = state.error
+        if (currentError != null) {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(text = state.error, color = Color(0xFFFF3B30), fontSize = 12.sp, textAlign = TextAlign.Center)
+            Text(text = currentError, color = Color(0xFFFF3B30), fontSize = 12.sp, textAlign = TextAlign.Center)
         }
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -389,10 +390,11 @@ private fun NotificationPermissionStep(state: OnboardingState, onRequest: () -> 
         ) {
             Text("Enable Notifications", fontWeight = FontWeight.Bold, color = Color.White)
         }
-        if (state.error != null) {
+        val currentError = state.error
+        if (currentError != null) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = state.error,
+                text = currentError,
                 color = Color(0xFFFF9500),
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,

@@ -9,7 +9,8 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.system.OsConstants
-import io.github.immaghzbad.aetherst.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.model.RoutingMode
 import java.io.BufferedOutputStream
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -25,6 +26,8 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -80,7 +83,16 @@ class SocksTunBridge(
     private val isRunning = AtomicBoolean(false)
     private var readThread: Thread? = null
     private var writeThread: Thread? = null
-    private val executor = Executors.newCachedThreadPool()
+    private val maxThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+    private val executor = ThreadPoolExecutor(
+        maxThreads, maxThreads,
+        60L, TimeUnit.SECONDS,
+        LinkedBlockingQueue(256),
+        ThreadFactory { r ->
+            Thread(r, "Aether-Sock-${r.hashCode().toString(16)}").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.CallerRunsPolicy()
+    )
     private val tunOutputQueue = LinkedBlockingQueue<ByteArray>(32768)
     private val tcpSessions = ConcurrentHashMap<FlowKey, TcpSession>()
     private val udpSessions = ConcurrentHashMap<FlowKey, UdpSession>()
@@ -280,7 +292,7 @@ class SocksTunBridge(
                 val payload = packet.copyOfRange(hLen + 8, len)
                 val domain = extractDomainName(payload, payload.size)
                 val dstIpStr = InetAddress.getByAddress(packet.copyOfRange(16, 20)).hostAddress ?: ""
-                if (domain != null && routingEngine.resolve(dstIpStr, 53, domain, null, null).mode == io.github.immaghzbad.aetherst.model.RoutingMode.BLOCK) {
+                if (domain != null && routingEngine.resolve(dstIpStr, 53, domain, null, null).mode == RoutingMode.BLOCK) {
                     LogRepository.i("[DnsGuard] [Block] domain=$domain", "DnsGuard")
                     val nxResponse = buildDnsNXResponse(payload)
                     if (nxResponse != null) {
@@ -400,7 +412,7 @@ class SocksTunBridge(
                 val payload = packet.copyOfRange(offset + 8, len)
                 val domain = extractDomainName(payload, payload.size)
                 val dstIpStr = InetAddress.getByAddress(packet.copyOfRange(24, 40)).hostAddress ?: ""
-                if (domain != null && routingEngine.resolve(dstIpStr, 53, domain, null, null).mode == io.github.immaghzbad.aetherst.model.RoutingMode.BLOCK) {
+                if (domain != null && routingEngine.resolve(dstIpStr, 53, domain, null, null).mode == RoutingMode.BLOCK) {
                     LogRepository.i("[DnsGuard] [Block] domain=$domain", "DnsGuard")
                     val nxResponse = buildDnsNXResponse(payload)
                     if (nxResponse != null) {
@@ -470,6 +482,7 @@ class SocksTunBridge(
     }
 
     private fun underlyingNetwork(): Network? {
+        @Suppress("DEPRECATION")
         val candidates = connectivityManager.allNetworks.filter { network ->
             val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return@filter false
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
@@ -614,7 +627,7 @@ class SocksTunBridge(
                 var synAckSent = false
                 var sniffedDomain: String? = null
 
-                if (decision.mode == io.github.immaghzbad.aetherst.model.RoutingMode.TUNNEL && cachedDomain == null && (serverPort == 80 || serverPort == 443)) {
+                if (decision.mode == RoutingMode.TUNNEL && cachedDomain == null && (serverPort == 80 || serverPort == 443)) {
                     val synAck = if (version == 4) {
                         buildTcp4(bytesToInt(serverIp), bytesToInt(clientIp), serverPort, clientPort, null, mySeq.get(), myAck.get(), 0x12)
                     } else {
@@ -641,7 +654,7 @@ class SocksTunBridge(
                     }
                 }
 
-                val requestedDirect = decision.mode == io.github.immaghzbad.aetherst.model.RoutingMode.DIRECT
+                val requestedDirect = decision.mode == RoutingMode.DIRECT
                 val directNetwork = if (requestedDirect) underlyingNetwork() else null
                 val useDirect = requestedDirect && directNetwork != null && (version == 4 || supportsIpv6(directNetwork))
 
@@ -664,7 +677,7 @@ class SocksTunBridge(
                     return
                 }
 
-                if (decision.mode == io.github.immaghzbad.aetherst.model.RoutingMode.BLOCK) {
+                if (decision.mode == RoutingMode.BLOCK) {
                     if (synAckSent) {
                         val rst = if (version == 4) {
                             buildTcp4(bytesToInt(serverIp), bytesToInt(clientIp), serverPort, clientPort, null, mySeq.get(), myAck.get(), 0x04)
@@ -743,9 +756,11 @@ class SocksTunBridge(
                     out.write(data)
 
                     var count = 0
+                    var drainBytes = data.size
                     while (count < 64) {
                         val next = queue.poll() ?: break
                         out.write(next)
+                        drainBytes += next.size
                         count++
                     }
 
@@ -843,7 +858,7 @@ class SocksTunBridge(
                 val targetDomain = DnsMap.get(targetIpStr)
                 
                 val decision = routingEngine.resolve(targetIpStr, serverPort, targetDomain, null, null)
-                val requestedDirect = decision.mode == io.github.immaghzbad.aetherst.model.RoutingMode.DIRECT
+                val requestedDirect = decision.mode == RoutingMode.DIRECT
                 val directNetwork = if (requestedDirect) underlyingNetwork() else null
                 val isDirect = requestedDirect && directNetwork != null && (version == 4 || supportsIpv6(directNetwork))
 
@@ -865,7 +880,7 @@ class SocksTunBridge(
                     return
                 }
                 
-                if (decision.mode == io.github.immaghzbad.aetherst.model.RoutingMode.BLOCK) {
+                if (decision.mode == RoutingMode.BLOCK) {
                     close()
                     return
                 }

@@ -1,10 +1,8 @@
 package io.github.immaghzbad.aetherst.core
 
 import android.content.Context
-import io.github.immaghzbad.aetherst.data.LogRepository
-import io.github.immaghzbad.aetherst.model.AetherConfig
-import io.github.immaghzbad.aetherst.model.AetherProtocol
-import io.github.immaghzbad.aetherst.model.ConnectionStatus
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -80,9 +78,6 @@ class AetherProcessRunner(private val context: Context) {
                     }
 
                     retryCount++
-                    if (connectionStatus.value == ConnectionStatus.RUNNING) {
-                        retryCount = 1
-                    }
                 }
             }
         }
@@ -112,13 +107,22 @@ class AetherProcessRunner(private val context: Context) {
 
             commandList.add(
                 when (config.ipMode) {
-                    io.github.immaghzbad.aetherst.model.AetherIpMode.IPV4 -> "-4"
-                    io.github.immaghzbad.aetherst.model.AetherIpMode.IPV6 -> "-6"
-                    io.github.immaghzbad.aetherst.model.AetherIpMode.DUAL -> "--dual"
-                }
+                    AetherIpMode.IPV4 -> "-4"
+                    AetherIpMode.IPV6 -> "-6"
+                    AetherIpMode.DUAL -> "--dual"
+                },
             )
 
             if (config.h2Mode) commandList.add("--h2")
+            if (config.echEnabled) commandList.add("--ech")
+            if (config.echEnabled) commandList.add("auto")
+            
+            if (config.httpProxyEnabled) {
+                val httpBindHost = bindAddress.substringBefore(':')
+                commandList.add("--http-proxy")
+                commandList.add("$httpBindHost:${config.httpPort}")
+            }
+
             if (config.h2Fragment) {
                 commandList.add("--fragment")
                 commandList.add("--fragment-size")
@@ -152,7 +156,7 @@ class AetherProcessRunner(private val context: Context) {
 
             if (config.noProfileRetry) commandList.add("--no-profile-retry")
 
-            if (config.teamName.isNotEmpty() && config.protocol != AetherProtocol.ZERO_TRUST) {
+            if (config.teamName.isNotEmpty() && (config.protocol != AetherProtocol.ZERO_TRUST)) {
                 commandList.add("--team")
                 commandList.add(config.teamName)
             }
@@ -181,6 +185,11 @@ class AetherProcessRunner(private val context: Context) {
                 commandList.add(config.dnsList)
             }
 
+            if (config.upstreamProxy.isNotEmpty()) {
+                commandList.add("--upstream")
+                commandList.add(config.upstreamProxy)
+            }
+
             val pb = ProcessBuilder(commandList)
             pb.directory(context.filesDir)
 
@@ -191,11 +200,16 @@ class AetherProcessRunner(private val context: Context) {
             env["AETHER_IP"] = config.ipMode.rawValue
             env["AETHER_SOCKS"] = bindAddress
 
-            if (routingFile != null) {
-                env["AETHER_ROUTES_FILE"] = routingFile.absolutePath
-            }
+            routingFile?.let { env["AETHER_ROUTES_FILE"] = it.absolutePath }
 
             if (config.h2Mode) env["AETHER_MASQUE_HTTP2"] = "1"
+            if (config.echEnabled) env["AETHER_ECH"] = "auto"
+            
+            if (config.httpProxyEnabled) {
+                val httpBindHost = bindAddress.substringBefore(':')
+                env["AETHER_HTTP_PROXY"] = "$httpBindHost:${config.httpPort}"
+            }
+
             if (config.h2Fragment) {
                 env["AETHER_MASQUE_H2_FRAGMENT"] = "1"
                 env["AETHER_MASQUE_H2_FRAGMENT_SIZE"] = config.fragmentSize
@@ -229,6 +243,13 @@ class AetherProcessRunner(private val context: Context) {
             if (config.accessToken.isNotEmpty()) env["AETHER_ACCESS_TOKEN"] = config.accessToken
             if (config.useGateway) env["AETHER_GATEWAY"] = "1"
             if (config.dnsList.isNotEmpty()) env["AETHER_DNS"] = config.dnsList
+            if (config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
+            env["AETHER_ROUTE_SNIFF"] = if (config.routeSniffing) "1" else "0"
+            env["AETHER_ROUTE_SNIFF_MS"] = config.sniffingTimeoutMs.toString()
+            env["AETHER_REPROVISION"] = if (config.reprovision) "1" else "0"
+
+            env["AETHER_PERF_PROFILE"] = config.perfProfile.rawValue
+            env["AETHER_LOG_LEVEL"] = config.coreLogLevel.rawValue
 
             pb.redirectErrorStream(true)
 
@@ -383,7 +404,7 @@ class AetherProcessRunner(private val context: Context) {
 
     private fun writeRoutingFile(config: AetherConfig): java.io.File? {
         val rules = config.routingRules
-        val block = rules.filter { it.mode == io.github.immaghzbad.aetherst.model.RoutingMode.BLOCK }
+        val block = rules.filter { it.mode == RoutingMode.BLOCK }
 
         if (block.isEmpty()) return null
 

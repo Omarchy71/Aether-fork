@@ -86,7 +86,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import io.github.immaghzbad.aetherst.model.OnboardingStep
+import io.github.immaghzbad.aetherst.shared.model.AetherConfig
+import io.github.immaghzbad.aetherst.shared.model.OnboardingStep
+import io.github.immaghzbad.aetherst.shared.model.RoutingMode
+import io.github.immaghzbad.aetherst.shared.model.RoutingRule
+import io.github.immaghzbad.aetherst.shared.model.TunnelEngine
 import io.github.immaghzbad.aetherst.ui.AetherViewModel
 import io.github.immaghzbad.aetherst.ui.OnboardingViewModel
 import io.github.immaghzbad.aetherst.ui.components.IosToast
@@ -113,6 +117,7 @@ private fun Context.isIgnoringBatteryOptimizations(): Boolean {
     return powerManager?.isIgnoringBatteryOptimizations(packageName) ?: true
 }
 
+@Suppress("unused")
 @SuppressLint("BatteryLife")
 @Composable
 fun MainScreen(viewModel: AetherViewModel) {
@@ -137,7 +142,7 @@ fun MainScreen(viewModel: AetherViewModel) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                if (currentStep == OnboardingStep.BATTERY_OPTIMIZATION && context.isIgnoringBatteryOptimizations()) {
+                if (((currentStep == OnboardingStep.BATTERY_OPTIMIZATION)) && context.isIgnoringBatteryOptimizations()) {
                     onboardingViewModel.moveToNextStep()
                 }
                 viewModel.checkBatteryOptimizationStatus()
@@ -204,13 +209,13 @@ fun MainScreen(viewModel: AetherViewModel) {
                         }
                     }
                 },
-                onFinish = onboardingViewModel::moveToNextStep
+                onFinish = onboardingViewModel::moveToNextStep,
             )
         } else if (crashLog != null) {
             CrashReportScreen(
                 crashLog = crashLog!!,
                 onRestart = { viewModel.clearCrashLog() },
-                onShowToast = { viewModel.showToast(it) }
+                onShowToast = { msg -> viewModel.showToast(msg) }
             )
         } else if (updateInfo != null) {
             UpdateScreen(
@@ -235,7 +240,7 @@ fun MainScreen(viewModel: AetherViewModel) {
 private fun DashboardContent(viewModel: AetherViewModel) {
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
-    var showSplitTunneling by remember { mutableStateOf(false) }
+    var showSplitTunneling by remember { mutableStateOf(value = false) }
     
     val config by viewModel.config.collectAsStateWithLifecycle()
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
@@ -250,7 +255,7 @@ private fun DashboardContent(viewModel: AetherViewModel) {
     val isOptimizingMtu by viewModel.isOptimizingMtu.collectAsStateWithLifecycle()
     val isWaitingForLoginCode by viewModel.isWaitingForLoginCode.collectAsStateWithLifecycle()
     val scrollToZeroTrust by viewModel.scrollToZeroTrust.collectAsStateWithLifecycle()
-    var showRoutingRules by remember { mutableStateOf(false) }
+    var showRoutingRules by remember { mutableStateOf(value = false) }
 
     LaunchedEffect(scrollToZeroTrust) {
         if (scrollToZeroTrust) {
@@ -272,7 +277,7 @@ private fun DashboardContent(viewModel: AetherViewModel) {
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (!isGranted) {
-            viewModel.showToast("Notification permission required", true)
+            viewModel.showToast(message = "Notification permission required", isError = true)
         }
     }
 
@@ -325,7 +330,8 @@ private fun DashboardContent(viewModel: AetherViewModel) {
                             onUpdateProtocol = { proto -> viewModel.updateConfig(config.copy(protocol = proto)) },
                             onRefreshIpInfo = { viewModel.refreshIpInfo() },
                             onRefreshPing = { viewModel.refreshPing() },
-                            onShowToast = { msg, err -> viewModel.showToast(msg, err) },
+                            onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
+                            appVersion = io.github.immaghzbad.aetherst.BuildConfig.VERSION_NAME,
                             bottomContentPadding = BarContentHeight + navBarHeight
                         )
                         1 -> SettingsScreen(
@@ -333,16 +339,16 @@ private fun DashboardContent(viewModel: AetherViewModel) {
                             isBatteryOptimized = isBatteryOptimized,
                             scrollToSection = scrollToZeroTrust,
                             onSectionScrolled = { viewModel.onZeroTrustScrolled() },
-                            onUpdateConfig = { viewModel.updateConfig(it) },
-                            onUpdateTunnelEngine = { viewModel.updateTunnelEngine(it) },
-                            onApplyPreset = { preset ->
+                            onUpdateConfig = { cfg: AetherConfig -> viewModel.updateConfig(cfg) },
+                            onUpdateTunnelEngine = { engine: TunnelEngine -> viewModel.updateTunnelEngine(engine) },
+                            onApplyPreset = { preset: String ->
                                 viewModel.applyPreset(preset)
                             },
                             onOpenSplitTunneling = { showSplitTunneling = true },
                             onOpenRoutingRules = { showRoutingRules = true },
                             onResetAll = { viewModel.resetAllSettings() },
                             onExportBackup = { viewModel.exportFullBackup(context) },
-                            onImportBackup = { viewModel.importFullBackup(it, context) },
+                            onImportBackup = { uri: android.net.Uri -> viewModel.importFullBackup(uri, context) },
                             onOptimizeMtu = { viewModel.optimizeMtu() },
                             isOptimizingMtu = isOptimizingMtu,
                             onRequestBatteryOptimization = {
@@ -356,16 +362,16 @@ private fun DashboardContent(viewModel: AetherViewModel) {
                                     context.startActivity(intent)
                                 }
                             },
-                            onShowToast = { msg, err -> viewModel.showToast(msg, err) },
+                            onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
                             bottomContentPadding = BarContentHeight + navBarHeight
                         )
-                        2 -> LogsScreen(viewModel = viewModel, onShowToast = { msg, err -> viewModel.showToast(msg, err) }, bottomContentPadding = BarContentHeight + navBarHeight)
+                        2 -> LogsScreen(viewModel = viewModel, onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) }, bottomContentPadding = BarContentHeight + navBarHeight)
                         3 -> AboutUsScreen(bottomContentPadding = BarContentHeight + navBarHeight)
                         99 -> SplitTunnelingScreen(
                             apps = installedApps,
                             excludedPackages = config.excludedPackages,
                             blockedPackages = config.blockedPackages,
-                            onUpdateMode = { pkg, mode -> viewModel.updateAppSplitTunnelingMode(pkg, mode) },
+                            onUpdateMode = { pkg: String, mode: Int -> viewModel.updateAppSplitTunnelingMode(pkg, mode) },
                             onBack = { showSplitTunneling = false },
                             scaleFactor = scaleFactor
                         )
@@ -373,18 +379,19 @@ private fun DashboardContent(viewModel: AetherViewModel) {
                             rules = config.routingRules,
                             importConflictRules = importConflictRules,
                             importErrorMessage = importErrorMessage,
-                            onAddRule = { pattern, mode -> viewModel.addRoutingRule(pattern, mode) },
-                            onRemoveRule = { pattern -> viewModel.removeRoutingRule(pattern) },
-                            onUpdateMode = { pattern, mode -> viewModel.updateRoutingRuleMode(pattern, mode) },
+                            onAddRule = { pattern: String, mode: RoutingMode -> viewModel.addRoutingRule(pattern, mode) },
+                            onRemoveRule = { pattern: String -> viewModel.removeRoutingRule(pattern) },
+                            onUpdateMode = { pattern: String, mode: RoutingMode -> viewModel.updateRoutingRuleMode(pattern, mode) },
                             onClearAllRules = { viewModel.clearAllRoutingRules() },
                             onCleanPattern = { viewModel.cleanRoutingPattern(it) },
                             onValidatePattern = { viewModel.isValidRoutingPattern(it) },
                             onExportRules = { viewModel.exportRoutingRules(context) },
-                            onImportRules = { viewModel.importRoutingRules(it, context) },
-                            onResolveConflict = { rules, replace -> viewModel.resolveConflict(rules, replace) },
+                            onImportRules = { uri: android.net.Uri -> viewModel.importRoutingRules(uri, context) },
+                            onImportInternalRules = { viewModel.importInternalRoutingRules(it) },
+                            onResolveConflict = { rules: List<RoutingRule>, replace: Boolean -> viewModel.resolveConflict(rules, replace) },
                             onCancelImport = { viewModel.cancelImport() },
                             onClearImportError = { viewModel.clearImportError() },
-                            onShowToast = { msg, err -> viewModel.showToast(msg, err) },
+                            onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
                             onBack = { showRoutingRules = false },
                             scaleFactor = scaleFactor
                         )
@@ -490,9 +497,11 @@ fun ZeroTrustLoginDialog(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword,
                         imeAction = androidx.compose.ui.text.input.ImeAction.Done
                     ),
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { 
-                        if (code.length == 6) onSubmit(code)
-                    }),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = { 
+                            if (code.length == 6) onSubmit(code)
+                        }
+                    ),
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(IosNavActiveBlue),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.Center) {

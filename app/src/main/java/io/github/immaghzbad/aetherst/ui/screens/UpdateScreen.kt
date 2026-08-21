@@ -16,7 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.immaghzbad.aetherst.model.UpdateInfo
+import io.github.immaghzbad.aetherst.shared.model.UpdateInfo
 
 private val IosActiveBlue = Color(0xFF007AFF)
 private val IosCardBg = Color(0xFF1C1C1E)

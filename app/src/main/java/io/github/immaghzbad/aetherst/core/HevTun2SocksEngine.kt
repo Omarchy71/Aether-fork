@@ -1,7 +1,7 @@
 package io.github.immaghzbad.aetherst.core
 
 import android.os.ParcelFileDescriptor
-import io.github.immaghzbad.aetherst.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope

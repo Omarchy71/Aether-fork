@@ -14,7 +14,7 @@
         tools:ignore="PackageVisibilityPolicy,QueryAllPackagesPermission" />
 
     <application
-        android:name=".AetherSTApp"
+        android:name="io.github.immaghzbad.aetherst.AetherSTApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

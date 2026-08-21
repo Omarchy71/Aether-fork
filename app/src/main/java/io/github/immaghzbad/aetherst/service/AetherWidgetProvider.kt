@@ -10,7 +10,11 @@ import androidx.core.graphics.toColorInt
 import android.widget.RemoteViews
 import io.github.immaghzbad.aetherst.R
 import io.github.immaghzbad.aetherst.core.ConnectionController
-import io.github.immaghzbad.aetherst.model.ConnectionStatus
+import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.platform.getSettings
+import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
+import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
 
 class AetherWidgetProvider : AppWidgetProvider() {
 
@@ -23,7 +27,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
             val componentName = ComponentName(context, AetherWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
             val status = ConnectionController.status.value
-            val config = io.github.immaghzbad.aetherst.data.AetherConfigRepository.getInstance(context).config.value
+            val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(context))).config.value
             
             for (appWidgetId in appWidgetIds) {
                 updateAppWidget(context, appWidgetManager, appWidgetId, status, config.protocol)
@@ -35,7 +39,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int,
             status: ConnectionStatus,
-            currentProtocol: io.github.immaghzbad.aetherst.model.AetherProtocol
+            currentProtocol: AetherProtocol
         ) {
             val views = RemoteViews(context.packageName, R.layout.aether_widget)
 
@@ -66,10 +70,9 @@ class AetherWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_button, android.R.drawable.ic_lock_power_off)
             views.setInt(R.id.widget_button, "setBackgroundResource", buttonRes)
 
-            // Protocols selection UI
-            setupProtocolButton(context, views, R.id.proto_masque, io.github.immaghzbad.aetherst.model.AetherProtocol.MASQUE, currentProtocol)
-            setupProtocolButton(context, views, R.id.proto_wire, io.github.immaghzbad.aetherst.model.AetherProtocol.WG, currentProtocol)
-            setupProtocolButton(context, views, R.id.proto_gool, io.github.immaghzbad.aetherst.model.AetherProtocol.GOOL, currentProtocol)
+            setupProtocolButton(context, views, R.id.proto_masque, AetherProtocol.MASQUE, currentProtocol)
+            setupProtocolButton(context, views, R.id.proto_wire, AetherProtocol.WG, currentProtocol)
+            setupProtocolButton(context, views, R.id.proto_gool, AetherProtocol.GOOL, currentProtocol)
 
             val toggleIntent = Intent(context, AetherWidgetProvider::class.java).apply {
                 action = ACTION_TOGGLE
@@ -86,8 +89,8 @@ class AetherWidgetProvider : AppWidgetProvider() {
             context: Context,
             views: RemoteViews,
             viewId: Int,
-            protocol: io.github.immaghzbad.aetherst.model.AetherProtocol,
-            currentProtocol: io.github.immaghzbad.aetherst.model.AetherProtocol
+            protocol: AetherProtocol,
+            currentProtocol: AetherProtocol
         ) {
             val isActive = protocol == currentProtocol
             val bgRes = if (isActive) R.drawable.widget_protocol_active_bg else R.drawable.widget_protocol_inactive_bg
@@ -109,7 +112,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         val status = ConnectionController.status.value
-        val config = io.github.immaghzbad.aetherst.data.AetherConfigRepository.getInstance(context).config.value
+        val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(context))).config.value
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId, status, config.protocol)
         }
@@ -117,7 +120,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        val repository = io.github.immaghzbad.aetherst.data.AetherConfigRepository.getInstance(context)
+        val repository = AetherConfigRepository.getInstance(getSettings(PlatformContext(context)))
         
         when (intent.action) {
             ACTION_TOGGLE -> {
@@ -129,8 +132,20 @@ class AetherWidgetProvider : AppWidgetProvider() {
                     return
                 }
 
+                if (android.net.VpnService.prepare(context) != null) {
+                    val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(launchIntent)
+                    return
+                }
+
                 val status = ConnectionController.status.value
-                if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.STARTING || status == ConnectionStatus.VALIDATING) {
+                if (status == ConnectionStatus.STARTING || status == ConnectionStatus.VALIDATING) {
+                    return
+                }
+
+                if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.RECONNECTING) {
                     AetherVpnService.stopVpn(context)
                 } else {
                     AetherVpnService.startVpn(context)
@@ -138,7 +153,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
             }
             ACTION_CHANGE_PROTOCOL -> {
                 val protocolName = intent.getStringExtra("protocol") ?: return
-                val nextProtocol = io.github.immaghzbad.aetherst.model.AetherProtocol.valueOf(protocolName)
+                val nextProtocol = AetherProtocol.valueOf(protocolName)
                 val currentConfig = repository.config.value
                 
                 if (currentConfig.protocol != nextProtocol) {

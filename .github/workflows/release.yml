@@ -3,7 +3,7 @@ name: Build & Release Multi-APK
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-android'
 
 jobs:
   build:

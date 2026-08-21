@@ -47,7 +47,7 @@ fun CrashReportScreen(
     val systemInfo = """
         Device: $deviceName
         Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})
-        App Version: 1.4.2 (Code 1)
+        App Version: 1.5.0 (Code 1)
     """.trimIndent()
     
     val fullReport = "$systemInfo\n\n--- Crash Log ---\n$crashLog"
@@ -142,7 +142,7 @@ fun CrashReportScreen(
                 HorizontalDivider(color = Color(0xFF2C2C2E), modifier = Modifier.padding(vertical = 10.dp))
                 InfoRow(label = "System Version", value = "Android ${Build.VERSION.RELEASE}")
                 HorizontalDivider(color = Color(0xFF2C2C2E), modifier = Modifier.padding(vertical = 10.dp))
-                InfoRow(label = "AetherST Build", value = "1.4.2 (1)")
+                InfoRow(label = "AetherST Build", value = "1.5.0 (1)")
             }
         }
 

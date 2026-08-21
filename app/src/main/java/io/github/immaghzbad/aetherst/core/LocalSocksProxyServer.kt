@@ -1,14 +1,17 @@
 package io.github.immaghzbad.aetherst.core
 
 import android.net.VpnService
-import io.github.immaghzbad.aetherst.model.RoutingMode
+import io.github.immaghzbad.aetherst.shared.model.RoutingMode
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LocalSocksProxyServer(
@@ -21,7 +24,16 @@ class LocalSocksProxyServer(
 ) {
     private val isRunning = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
-    private val executor = Executors.newCachedThreadPool()
+    private val maxThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+    private val executor = ThreadPoolExecutor(
+        maxThreads, maxThreads,
+        60L, TimeUnit.SECONDS,
+        LinkedBlockingQueue(256),
+        ThreadFactory { r ->
+            Thread(r, "Aether-SockProxy-${r.hashCode().toString(16)}").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.CallerRunsPolicy()
+    )
     private var mainThread: Thread? = null
 
     fun start() {

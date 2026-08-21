@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,19 +51,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.immaghzbad.aetherst.model.AetherLogLevel
-import io.github.immaghzbad.aetherst.model.LogEntry
-import io.github.immaghzbad.aetherst.model.LogLevel
+import io.github.immaghzbad.aetherst.shared.model.AetherLogLevel
+import io.github.immaghzbad.aetherst.shared.model.LogEntry
+import io.github.immaghzbad.aetherst.shared.model.LogLevel
 import io.github.immaghzbad.aetherst.ui.AetherViewModel
+import kotlinx.coroutines.launch
 
 private val IosCardBg = Color(0xFF1C1C1E)
 private val IosSecondaryLabel = Color(0xFF8E8E93)
@@ -334,7 +336,8 @@ fun IosLogLineItem(
     onShowToast: (String, Boolean) -> Unit = { _, _ -> },
     scaleFactor: Float = 1f
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     val levelColor = when (entry.level) {
         LogLevel.INFO -> IosActiveGreen
         LogLevel.WARN -> IosWarnAmber
@@ -352,7 +355,9 @@ fun IosLogLineItem(
                 onClick = {},
                 onLongClick = {
                     val logText = "[${entry.timestamp}] [${entry.level.name}] [${entry.tag}] ${entry.message}"
-                    clipboardManager.setText(AnnotatedString(logText))
+                    scope.launch {
+                        clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText(null, logText)))
+                    }
                     onShowToast("Log line copied to clipboard", false)
                 }
             )

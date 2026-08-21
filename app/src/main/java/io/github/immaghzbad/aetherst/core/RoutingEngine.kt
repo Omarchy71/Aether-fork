@@ -1,7 +1,7 @@
 package io.github.immaghzbad.aetherst.core
 
-import io.github.immaghzbad.aetherst.model.RoutingMode
-import io.github.immaghzbad.aetherst.model.RoutingRule
+import io.github.immaghzbad.aetherst.shared.model.RoutingMode
+import io.github.immaghzbad.aetherst.shared.model.RoutingRule
 import java.net.InetAddress
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap

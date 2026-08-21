@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.immaghzbad.aetherst.core.AetherRegistrationRunner
-import io.github.immaghzbad.aetherst.data.AetherConfigRepository
-import io.github.immaghzbad.aetherst.model.*
+import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.platform.getSettings
+import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +20,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 class OnboardingViewModel(context: Context) : ViewModel() {
 
-    private val repository = AetherConfigRepository.getInstance(context)
+    private val repository = AetherConfigRepository.getInstance(getSettings(PlatformContext(context)))
     private val registrationRunner = AetherRegistrationRunner(context)
     private val currentSessionId = AtomicLong(0)
     private var testJob: Job? = null

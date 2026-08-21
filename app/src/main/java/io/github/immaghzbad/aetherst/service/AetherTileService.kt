@@ -9,8 +9,10 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import io.github.immaghzbad.aetherst.MainActivity
 import io.github.immaghzbad.aetherst.R
-import io.github.immaghzbad.aetherst.data.AetherConfigRepository
-import io.github.immaghzbad.aetherst.model.ConnectionStatus
+import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.platform.getSettings
+import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,7 +38,7 @@ class AetherTileService : TileService() {
     }
 
     override fun onClick() {
-        val repo = AetherConfigRepository.getInstance(this)
+        val repo = AetherConfigRepository.getInstance(getSettings(PlatformContext(this)))
         if (!repo.isOnboardingComplete.value) {
             startApp()
             return

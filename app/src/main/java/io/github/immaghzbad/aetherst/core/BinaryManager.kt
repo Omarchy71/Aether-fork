@@ -2,7 +2,7 @@ package io.github.immaghzbad.aetherst.core
 
 import android.content.Context
 import android.os.Build
-import io.github.immaghzbad.aetherst.data.LogRepository
+import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import java.io.File
 import java.io.IOException
 

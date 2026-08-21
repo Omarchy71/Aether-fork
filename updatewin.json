@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "version_code": 1,
+  "is_beta": false,
+  "changelog": "• Initial release of AetherST Tunnel for Windows.\n• MASQUE, WireGuard, and Gool protocol support.\n• System-wide and SOCKS5 proxy modes.\n• Built-in MTU optimization.\n• Split tunneling with per-app routing.",
+  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.0.0-win"
+}

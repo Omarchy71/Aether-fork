@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,17 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import io.github.immaghzbad.aetherst.model.AppInfo
+import io.github.immaghzbad.aetherst.platform.AppIcon
+import io.github.immaghzbad.aetherst.shared.model.AppInfo
 
 private val IosCardBg = Color(0xFF1C1C1E)
 private val IosSecondaryLabel = Color(0xFF8E8E93)
@@ -240,22 +238,12 @@ private fun AppLineItem(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val bitmap = remember(app.packageName) { app.icon?.toBitmap()?.asImageBitmap() }
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size((44 * scaleFactor).dp)
-                        .clip(RoundedCornerShape((10 * scaleFactor).dp))
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size((44 * scaleFactor).dp)
-                        .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape((10 * scaleFactor).dp))
-                )
-            }
+            AppIcon(
+                app = app,
+                modifier = Modifier
+                    .size((44 * scaleFactor).dp)
+                    .clip(RoundedCornerShape((10 * scaleFactor).dp))
+            )
             
             Spacer(modifier = Modifier.width((14 * scaleFactor).dp))
             
