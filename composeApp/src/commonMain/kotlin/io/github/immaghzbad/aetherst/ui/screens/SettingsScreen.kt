@@ -374,7 +374,6 @@ fun SettingsScreen(
                                         var localIp by remember { mutableStateOf<String?>(null) }
                                         LaunchedEffect(Unit) { localIp = NetworkUtils.getLocalIpAddress() }
 
-                                        // Status indicator
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically,
@@ -405,7 +404,6 @@ fun SettingsScreen(
                                         if (localIp != null) {
                                             Spacer(modifier = Modifier.height(10.dp))
 
-                                            // Proxy address card
                                             Surface(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(10.dp),
@@ -437,7 +435,6 @@ fun SettingsScreen(
 
                                             Spacer(modifier = Modifier.height(8.dp))
 
-                                            // Connection instructions
                                             Surface(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(10.dp),

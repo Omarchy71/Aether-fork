@@ -66,7 +66,6 @@ fun SpeedTestScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ── Header ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -111,7 +110,6 @@ fun SpeedTestScreen(
             }
         }
 
-        // ── Scrollable Content ──
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -123,29 +121,24 @@ fun SpeedTestScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Settings panel
             if (showSettings) {
                 item { SettingsPanel(state.config, { SpeedTestRepository.updateConfig(it) }) }
             }
 
-            // Progress
             if (state.phase == SpeedTestPhase.PING || state.phase == SpeedTestPhase.DOWNLOAD || state.phase == SpeedTestPhase.UPLOAD) {
                 item { ProgressCard(state) }
             }
 
-            // Results
             if (state.phase == SpeedTestPhase.COMPLETE) {
                 item { ResultsCard(state.result, state.config) }
                 item { ResultDetailsCard(state.result, state.config, onCopy) }
             }
 
-            // Error
             if (state.phase == SpeedTestPhase.ERROR) {
                 item { ErrorCard(state.error) }
             }
         }
 
-        // ── Guide text (visible when not testing) ──
         val showGuide = state.phase == SpeedTestPhase.IDLE || state.phase == SpeedTestPhase.COMPLETE ||
             state.phase == SpeedTestPhase.ERROR || state.phase == SpeedTestPhase.CANCELLED
 
@@ -179,7 +172,6 @@ fun SpeedTestScreen(
             }
         }
 
-        // ── Fixed Bottom Button ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -229,7 +221,6 @@ fun SpeedTestScreen(
                     )
                 }
             } else {
-                // Cancel button during test
                 OutlinedButton(
                     onClick = { SpeedTestRepository.cancelTest() },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -246,7 +237,6 @@ fun SpeedTestScreen(
     }
 }
 
-// ── Settings Panel ──
 
 @Composable
 private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -> Unit) {
@@ -256,7 +246,6 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
         colors = CardDefaults.cardColors(containerColor = IosCardBg)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Settings, null, tint = IosActiveBlue, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -264,7 +253,6 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Server selection
             Text("SERVER", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -317,7 +305,6 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Display unit
             Text("DISPLAY UNIT", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -353,7 +340,6 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Test sizes
             Text("TEST SIZE", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -426,7 +412,6 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Ping samples
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -462,7 +447,6 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
     }
 }
 
-// ── Progress ──
 
 @Composable
 private fun ProgressCard(state: SpeedTestState) {
@@ -486,7 +470,6 @@ private fun ProgressCard(state: SpeedTestState) {
         border = BorderStroke(1.dp, phaseColor.copy(alpha = 0.3f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Phase name + progress %
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -507,7 +490,6 @@ private fun ProgressCard(state: SpeedTestState) {
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Progress bar
             LinearProgressIndicator(
                 progress = { state.progress },
                 modifier = Modifier
@@ -520,7 +502,6 @@ private fun ProgressCard(state: SpeedTestState) {
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Live stats based on phase
             when (state.phase) {
                 SpeedTestPhase.PING -> LivePingStats(state)
                 SpeedTestPhase.DOWNLOAD -> LiveDownloadStats(state)
@@ -528,7 +509,6 @@ private fun ProgressCard(state: SpeedTestState) {
                 else -> {}
             }
 
-            // Current step text
             if (state.currentStep.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(state.currentStep, color = IosSecondaryLabel, fontSize = 11.sp)
@@ -540,7 +520,6 @@ private fun ProgressCard(state: SpeedTestState) {
 @Composable
 private fun LivePingStats(state: SpeedTestState) {
     Column {
-        // Main ping display
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -573,7 +552,6 @@ private fun LivePingStats(state: SpeedTestState) {
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        // Min / Avg / Max row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -588,7 +566,6 @@ private fun LivePingStats(state: SpeedTestState) {
 @Composable
 private fun LiveDownloadStats(state: SpeedTestState) {
     Column {
-        // Main speed display
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -694,7 +671,6 @@ private fun MiniStat(label: String, value: String, color: Color, modifier: Modif
 
 
 
-// ── Results ──
 
 @Composable
 private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
@@ -721,7 +697,6 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
             Text("Server: ${result.serverName}", color = IosSecondaryLabel, fontSize = 12.sp)
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Main speed display
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -742,7 +717,6 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Ping + Jitter row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -799,7 +773,6 @@ private fun SpeedGauge(label: String, value: Double, unit: String, color: Color)
     }
 }
 
-// ── Result Details ──
 
 @Composable
 private fun ResultDetailsCard(result: SpeedTestResult, config: SpeedTestConfig, onCopy: (String) -> Unit) {
@@ -904,7 +877,6 @@ private fun DetailRow(label: String, value: String) {
     }
 }
 
-// ── Error ──
 
 @Composable
 private fun ErrorCard(error: String?) {

@@ -118,7 +118,6 @@ object AutoDetectRepository {
         }
     }
 
-    // ── Network fingerprinting ──
 
     private fun networkFingerprint(context: PlatformContext): NetworkFingerprint {
         val hasIPv6 = detectIPv6()
@@ -189,7 +188,6 @@ object AutoDetectRepository {
         }
     }
 
-    // ── Multi-sample latency measurement ──
 
     /**
      * Measure ICMP-like latency using system ping command.
@@ -202,12 +200,9 @@ object AutoDetectRepository {
         repeat(SAMPLES) {
             val success = systemUtils.execPing(ICMP_TARGET, 32, ICMP_TIMEOUT_MS, dontFragment = false)
             if (success) {
-                // execPing returns success/fail, we use the timeout window
-                // Measure actual RTT by timing a TCP connect instead
             }
         }
 
-        // Use TCP connect timing for accurate RTT (ICMP not directly available in JVM)
         val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
         samples.addAll(tcpSamples)
 
@@ -235,7 +230,6 @@ object AutoDetectRepository {
                 sock.close()
                 samples.add(elapsed)
             } catch (_: Exception) {
-                // Failed sample - skip
             }
         }
 
@@ -265,7 +259,6 @@ object AutoDetectRepository {
                     }
                 }
             } catch (_: Exception) {
-                // Failed sample
             }
         }
 
@@ -281,7 +274,6 @@ object AutoDetectRepository {
         return if (sorted.isNotEmpty()) sorted[sorted.size / 2] else -1L
     }
 
-    // ── Protocol probes ──
 
     private suspend fun probeAllProtocols(context: PlatformContext): List<ProtocolProbeResult> {
         val protocols = listOf(AetherProtocol.MASQUE, AetherProtocol.WG, AetherProtocol.GOOL)
@@ -332,12 +324,10 @@ object AutoDetectRepository {
      */
     private suspend fun probeMasque(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
-            // First test raw TCP connectivity
             val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
             val tcpMedian = medianLatency(tcpSamples)
 
             if (tcpMedian < 0) {
-                // TCP failed, try HTTPS directly
                 val httpsSamples = measureHttpsLatency(SAMPLES)
                 val httpsMedian = medianLatency(httpsSamples)
                 return@withContext if (httpsMedian > 0) {
@@ -347,11 +337,9 @@ object AutoDetectRepository {
                 }
             }
 
-            // TCP works, measure HTTPS overhead
             val httpsSamples = measureHttpsLatency(SAMPLES)
             val httpsMedian = medianLatency(httpsSamples)
 
-            // MASQUE latency = HTTPS latency (primary path)
             val latency = if (httpsMedian > 0) httpsMedian else tcpMedian
             ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, latency)
         }
@@ -367,7 +355,6 @@ object AutoDetectRepository {
             val median = medianLatency(samples)
 
             if (median > 0) {
-                // WG overhead is minimal - raw latency is accurate
                 ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.SUCCESS, median)
             } else {
                 ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.FAILED, -1, "TCP connect failed")
@@ -384,7 +371,6 @@ object AutoDetectRepository {
             val median = medianLatency(samples)
 
             if (median > 0) {
-                // Gool adds ~10-15% overhead from double encapsulation
                 val goolLatency = (median * 1.12).toLong()
                 ProtocolProbeResult(AetherProtocol.GOOL, ProbeStatus.SUCCESS, goolLatency)
             } else {
@@ -393,7 +379,6 @@ object AutoDetectRepository {
         }
     }
 
-    // ── MTU probe ──
 
     private suspend fun probeMtu(context: PlatformContext): MtuProbeResult {
         val systemUtils = getSystemUtils(context)
@@ -448,7 +433,6 @@ object AutoDetectRepository {
         }
     }
 
-    // ── Noise probes ──
 
     private suspend fun probeNoiseModes(protocolResults: List<ProtocolProbeResult>): List<NoiseProbeResult> {
         val bestProtocol = protocolResults
@@ -482,7 +466,6 @@ object AutoDetectRepository {
         }
     }
 
-    // ── Scan mode probes ──
 
     private suspend fun probeScanModes(): List<ScanModeProbeResult> {
         val modes = listOf(AetherScanMode.TURBO, AetherScanMode.BALANCED, AetherScanMode.THOROUGH)
@@ -507,7 +490,6 @@ object AutoDetectRepository {
         }
     }
 
-    // ── Analysis ──
 
     private fun analyzeResults(
         protocolResults: List<ProtocolProbeResult>,

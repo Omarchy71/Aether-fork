@@ -70,7 +70,6 @@ fun CrashReportScreen(
             .padding(20.dp)
             .padding(top = if (platformName == "Windows") 12.dp else 36.dp)
     ) {
-        // Header
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -107,7 +106,6 @@ fun CrashReportScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Diagnostics card
         Text(
             "DIAGNOSTICS",
             style = MaterialTheme.typography.labelSmall,
@@ -135,7 +133,6 @@ fun CrashReportScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Action buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -180,7 +177,6 @@ fun CrashReportScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Stack trace header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -201,7 +197,6 @@ fun CrashReportScreen(
         }
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Stack trace content
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -230,7 +225,6 @@ fun CrashReportScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Restart button
         Button(
             onClick = onRestart,
             modifier = Modifier

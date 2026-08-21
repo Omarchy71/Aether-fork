@@ -56,7 +56,6 @@ object SpeedTestRepository {
         s.putString("${PREFIX}custom_url", config.customServerUrl)
     }
 
-    // ── Public API ──
 
     fun startTest() {
         if (testJob?.isActive == true) return
@@ -79,7 +78,6 @@ object SpeedTestRepository {
                     uploadSpeedHistory = emptyList()
                 ))
 
-                // ── Phase 1: Ping + Jitter ──
                 val pingResult = measurePingAndJitter(serverUrl, config.pingSamples)
                 if (isCancelled.get()) return@launch
                 updateState(_state.value.copy(
@@ -93,7 +91,6 @@ object SpeedTestRepository {
                     currentStep = "Ping: ${"%.1f".format(pingResult.first)}ms | Jitter: ${"%.1f".format(pingResult.second)}ms"
                 ))
 
-                // ── Phase 2: Download ──
                 updateState(_state.value.copy(
                     phase = SpeedTestPhase.DOWNLOAD,
                     currentStep = "Testing download speed...",
@@ -111,7 +108,6 @@ object SpeedTestRepository {
                     currentStep = "Download: ${formatSpeed(dlResult.first, config)}"
                 ))
 
-                // ── Phase 3: Upload ──
                 updateState(_state.value.copy(
                     phase = SpeedTestPhase.UPLOAD,
                     currentStep = "Testing upload speed...",
@@ -128,7 +124,6 @@ object SpeedTestRepository {
                     progress = 1.0f
                 ))
 
-                // ── Complete ──
                 val finalResult = _state.value.result
                 updateState(_state.value.copy(
                     phase = SpeedTestPhase.COMPLETE,
@@ -181,7 +176,6 @@ object SpeedTestRepository {
         saveConfig(config)
     }
 
-    // ── Server URL Resolution ──
 
     private fun resolveServerUrl(server: SpeedTestServer, config: SpeedTestConfig): String {
         return when (server) {
@@ -191,7 +185,6 @@ object SpeedTestRepository {
         }
     }
 
-    // ── Ping & Jitter ──
 
     private suspend fun measurePingAndJitter(
         baseUrl: String,
@@ -221,7 +214,6 @@ object SpeedTestRepository {
                     if (code == 200 || code == 206) {
                         samples.add(elapsed)
 
-                        // Emit live ping stats
                         val sortedSoFar = samples.sorted()
                         val avgSoFar = samples.average()
                         updateState(_state.value.copy(
@@ -236,7 +228,6 @@ object SpeedTestRepository {
                         ))
                     }
                 } catch (_: Exception) {
-                    // Failed sample
                 }
 
                 delay(80)
@@ -249,7 +240,6 @@ object SpeedTestRepository {
             val sorted = samples.sorted()
             val medianPing = sorted[sorted.size / 2].toDouble()
 
-            // Jitter = standard deviation of samples
             val mean = samples.average()
             val variance = samples.map { (it - mean) * (it - mean) }.average()
             val jitter = sqrt(variance)
@@ -258,7 +248,6 @@ object SpeedTestRepository {
         }
     }
 
-    // ── Download ──
 
     private suspend fun measureDownload(
         baseUrl: String,
@@ -270,7 +259,6 @@ object SpeedTestRepository {
             val chunkSize = 1024 * 1024 // 1MB chunks
             var totalRead = 0L
 
-            // Use Cloudflare's chunked download endpoint
             val downloadUrl = "$baseUrl/__down?bytes=${chunkSize}"
 
             val startTime = System.nanoTime()
@@ -333,7 +321,6 @@ object SpeedTestRepository {
         }
     }
 
-    // ── Upload ──
 
     private suspend fun measureUpload(
         baseUrl: String,
@@ -404,7 +391,6 @@ object SpeedTestRepository {
         }
     }
 
-    // ── Formatting Helpers ──
 
     private fun formatSpeed(bytesPerSec: Double, config: SpeedTestConfig): String {
         return if (config.showBits) formatBitsPerSecond(bytesPerSec) else formatBytesPerSecond(bytesPerSec)

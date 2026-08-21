@@ -72,7 +72,6 @@ fun AutoDetectScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ── Header (matches RoutingRulesScreen) ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -114,7 +113,6 @@ fun AutoDetectScreen(
             }
         }
 
-        // ── Content ──
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
@@ -125,14 +123,12 @@ fun AutoDetectScreen(
             ),
             verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
         ) {
-            // Progress card
             if (state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.COMPLETE && state.phase != AutoDetectPhase.ERROR) {
                 item {
                     AutoDetectProgressCard(state, scaleFactor)
                 }
             }
 
-            // Current step
             if (state.currentStep.isNotEmpty() && state.phase != AutoDetectPhase.COMPLETE) {
                 item {
                     Card(
@@ -161,7 +157,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── Network Fingerprint ──
             if (state.protocolResults.isNotEmpty() || state.phase == AutoDetectPhase.COMPLETE) {
                 item {
                     SectionHeader("NETWORK ENVIRONMENT", scaleFactor)
@@ -169,7 +164,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── Protocol Tests ──
             if (state.protocolResults.isNotEmpty()) {
                 item {
                     SectionHeader("PROTOCOL LATENCY TEST", scaleFactor)
@@ -179,7 +173,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── MTU Result ──
             if (state.mtuResult.status != ProbeStatus.IDLE) {
                 item {
                     SectionHeader("MTU DISCOVERY", scaleFactor)
@@ -187,7 +180,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── Noise Results ──
             if (state.noiseResults.isNotEmpty()) {
                 item {
                     SectionHeader("OBFUSCATION MODES", scaleFactor)
@@ -197,7 +189,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── Scan Mode Results ──
             if (state.scanModeResults.isNotEmpty()) {
                 item {
                     SectionHeader("SCAN STRATEGIES", scaleFactor)
@@ -207,7 +198,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── Final Result ──
             if (state.phase == AutoDetectPhase.COMPLETE && state.finalResult != null) {
                 item {
                     SectionHeader("RECOMMENDED CONFIGURATION", scaleFactor)
@@ -215,14 +205,12 @@ fun AutoDetectScreen(
                 }
             }
 
-            // ── Error ──
             if (state.phase == AutoDetectPhase.ERROR) {
                 item {
                     ErrorCard(state.error, retest, scaleFactor)
                 }
             }
 
-            // ── Manual Protocol Selection (always visible) ──
             item {
                 SectionHeader("MANUAL PROTOCOL SELECTION", scaleFactor)
                 Text(
@@ -383,7 +371,6 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
         colors = CardDefaults.cardColors(containerColor = IosCardBg)
     ) {
         Column(modifier = Modifier.padding((14 * scaleFactor).dp)) {
-            // Row 1: Network Type + DPI
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
@@ -404,7 +391,6 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
                 )
             }
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-            // Row 2: IPv6 + ISP
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
@@ -711,7 +697,6 @@ private fun AutoDetectFinalResult(
 
             Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
 
-            // Settings grid
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -835,7 +820,6 @@ private fun ManualProtocolCard(
         border = BorderStroke(1.dp, iconColor.copy(alpha = 0.2f))
     ) {
         Column(modifier = Modifier.padding((16 * scaleFactor).dp)) {
-            // Header row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -858,25 +842,21 @@ private fun ManualProtocolCard(
 
             Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
 
-            // Settings grid
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = CardDefaults.cardColors(containerColor = IosGroupBg)
             ) {
                 Column(modifier = Modifier.padding((12 * scaleFactor).dp)) {
-                    // Noise
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Obfuscation", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
                         Text(recommendedNoise.displayName, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (11 * scaleFactor).sp)
                     }
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                    // Scan Mode
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Scan Mode", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
                         Text(recommendedScan.name.lowercase().replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (11 * scaleFactor).sp)
                     }
-                    // Extra settings
                     extraSettings.forEach { (label, value) ->
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -889,7 +869,6 @@ private fun ManualProtocolCard(
 
             Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
 
-            // Apply button
             Button(
                 onClick = onApply,
                 modifier = Modifier.fillMaxWidth().height((44 * scaleFactor).dp),

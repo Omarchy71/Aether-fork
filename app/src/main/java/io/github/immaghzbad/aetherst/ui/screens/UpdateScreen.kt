@@ -2,7 +2,9 @@ package io.github.immaghzbad.aetherst.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
@@ -29,18 +31,23 @@ fun UpdateScreen(
     scaleFactor: Float = 1f
 ) {
     val uriHandler = LocalUriHandler.current
-    
-    Box(
+    val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding((24 * scaleFactor).dp),
-        contentAlignment = Alignment.Center
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = (24 * scaleFactor).dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.height(48.dp))
+
             Box(
                 modifier = Modifier
                     .size((80 * scaleFactor).dp)
@@ -57,9 +64,9 @@ fun UpdateScreen(
                     modifier = Modifier.size((40 * scaleFactor).dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
-            
+
             Text(
                 text = "New Update Available",
                 style = MaterialTheme.typography.headlineMedium,
@@ -68,9 +75,9 @@ fun UpdateScreen(
                 fontSize = (24 * scaleFactor).sp,
                 textAlign = TextAlign.Center
             )
-            
+
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-            
+
             Surface(
                 shape = RoundedCornerShape((50 * scaleFactor).dp),
                 color = IosActiveBlue.copy(alpha = 0.15f)
@@ -84,9 +91,9 @@ fun UpdateScreen(
                     fontSize = (12 * scaleFactor).sp
                 )
             }
-            
+
             Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
-            
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape((18 * scaleFactor).dp),
@@ -100,19 +107,35 @@ fun UpdateScreen(
                         color = Color.White,
                         fontSize = (14 * scaleFactor).sp
                     )
-                    Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-                    Text(
-                        text = info.changelog,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = IosSecondaryLabel,
-                        fontSize = (13 * scaleFactor).sp,
-                        lineHeight = (18 * scaleFactor).sp
-                    )
+                    Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = (200 * scaleFactor).dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = info.changelog,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = IosSecondaryLabel,
+                            fontSize = (13 * scaleFactor).sp,
+                            lineHeight = (20 * scaleFactor).sp
+                        )
+                    }
                 }
             }
-            
-            Spacer(modifier = Modifier.height((48 * scaleFactor).dp))
-            
+
+            Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Black)
+                .padding(horizontal = (24 * scaleFactor).dp)
+                .padding(bottom = (16 * scaleFactor).dp + navBarPadding),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Button(
                 onClick = { uriHandler.openUri(info.releaseUrl) },
                 modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
@@ -121,9 +144,9 @@ fun UpdateScreen(
             ) {
                 Text("Download Now", fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp, color = Color.White)
             }
-            
+
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-            
+
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height((48 * scaleFactor).dp)

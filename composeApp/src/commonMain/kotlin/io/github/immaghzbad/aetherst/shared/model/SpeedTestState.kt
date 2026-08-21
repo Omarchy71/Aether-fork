@@ -94,7 +94,6 @@ data class SpeedTestState(
     val error: String? = null,
     val downloadSpeedHistory: List<Double> = emptyList(),
     val uploadSpeedHistory: List<Double> = emptyList(),
-    // Real-time live stats
     val livePingMs: Long = -1,
     val livePingMin: Long = -1,
     val livePingMax: Long = -1,
