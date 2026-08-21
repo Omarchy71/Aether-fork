@@ -1,13 +1,10 @@
 name: Windows Desktop Build
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
     tags:
       - 'v*-windows'
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
 
 jobs:
   build-windows:
