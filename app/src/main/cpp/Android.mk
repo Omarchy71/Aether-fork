@@ -21,7 +21,7 @@ LOCAL_C_INCLUDES := \
     $(HEV_SOCKS5_TUNNEL_PATH)/src/core/include
 
 LOCAL_CFLAGS := -DFD_SET_DEFINED -DSOCKLEN_T_DEFINED -DENABLE_LIBRARY
-LOCAL_CFLAGS += -DCOMMIT_ID=\"00c7eb9\"
+LOCAL_CFLAGS += -DCOMMIT_ID=\"9a06bc6\"
 
 LOCAL_STATIC_LIBRARIES := hev-socks5-tunnel libyaml liblwip libhev-task-system
 LOCAL_LDLIBS := -llog
