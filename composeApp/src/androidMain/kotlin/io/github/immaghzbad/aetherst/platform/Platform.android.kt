@@ -299,3 +299,17 @@ actual fun getCurrentTimestamp(): String {
 }
 
 actual val isDesktop: Boolean = false
+
+actual fun getDeviceModel(): String {
+    val manufacturer = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+    val model = Build.MODEL
+    return if (model.startsWith(manufacturer, ignoreCase = true)) {
+        model
+    } else {
+        "$manufacturer $model"
+    }
+}
+
+actual fun getOsVersion(): String {
+    return "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+}

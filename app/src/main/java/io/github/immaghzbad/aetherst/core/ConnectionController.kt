@@ -12,6 +12,7 @@ import io.github.immaghzbad.aetherst.shared.model.*
 import io.github.immaghzbad.aetherst.shared.platform.Bridge
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.InetSocketAddress
@@ -81,7 +82,7 @@ class ConnectionController private constructor(context: Context) {
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
-            runner.connectionStatus.collect { coreStatus ->
+            runner.connectionStatus.drop(1).collect { coreStatus ->
                 handleCoreStatus(coreStatus)
             }
         }
@@ -129,30 +130,38 @@ class ConnectionController private constructor(context: Context) {
 
             val ready = withTimeoutOrNull(startupTimeoutSeconds.seconds) {
                 while (currentCoroutineContext().isActive) {
-                    if (runner.connectionStatus.value == ConnectionStatus.RUNNING) return@withTimeoutOrNull true
+                    val coreStatus = runner.connectionStatus.value
+                    if (coreStatus == ConnectionStatus.RUNNING) return@withTimeoutOrNull true
+                    if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core reported error during startup")
+                    if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly during startup")
                     if (isPortListening("127.0.0.1", proxyPort)) return@withTimeoutOrNull true
-                    delay(500.milliseconds)
+                    delay(250.milliseconds)
                 }
                 false
             } ?: false
 
-            if (!ready && runner.connectionStatus.value != ConnectionStatus.RUNNING) {
-                LogRepository.w("[Controller] Startup taking longer than expected. Continuing in background...")
+            if (!ready) {
+                val coreStatus = runner.connectionStatus.value
+                if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core failed to start (error)")
+                if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly")
+                throw IllegalStateException("Core startup timed out after ${startupTimeoutSeconds}s")
             }
 
-            if (!verifyPortListening("127.0.0.1", proxyPort) && runner.connectionStatus.value != ConnectionStatus.RUNNING) {
-                LogRepository.w("[Controller] Port $proxyPort not responding yet. Continuing...")
+            if (!verifyPortListening("127.0.0.1", proxyPort)) {
+                throw IllegalStateException("Proxy port $proxyPort is not listening")
             }
 
             notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
             
             startTimer()
-            LogRepository.i("[Controller] Core is active and validated")
+            LogRepository.i("[Controller] Core is active and validated on port $proxyPort")
         } catch (e: Exception) {
             if (runner.connectionStatus.value != ConnectionStatus.RUNNING) {
-                LogRepository.e("[Controller] Startup initial check: ${e.localizedMessage}")
+                LogRepository.e("[Controller] Startup failed: ${e.localizedMessage}")
                 cleanup(attemptId)
                 notifyStatusChanged(appContext, ConnectionStatus.ERROR)
+            } else {
+                LogRepository.w("[Controller] Startup check failed but core is running: ${e.localizedMessage}")
             }
         }
     }
@@ -190,12 +199,14 @@ class ConnectionController private constructor(context: Context) {
 
             val next = when (coreStatus) {
                 ConnectionStatus.ERROR -> {
-                    if (current == ConnectionStatus.STARTING || current == ConnectionStatus.VALIDATING) {
-                        current
-                    } else {
+                    if (current == ConnectionStatus.RUNNING || current == ConnectionStatus.RECONNECTING) {
                         LogRepository.e("[Controller] Core reported error")
                         stopTimer()
                         ConnectionStatus.ERROR
+                    } else {
+                        // During STARTING/VALIDATING, propagate error so start() can detect it
+                        LogRepository.e("[Controller] Core error during $current")
+                        coreStatus
                     }
                 }
                 ConnectionStatus.STOPPED -> {
@@ -203,10 +214,12 @@ class ConnectionController private constructor(context: Context) {
                         LogRepository.w("[Controller] Core stopped unexpectedly")
                         stopTimer()
                         ConnectionStatus.ERROR
-                    } else if (current == ConnectionStatus.STARTING || current == ConnectionStatus.VALIDATING) {
-                        current
                     } else if (current == ConnectionStatus.STOPPING) {
                         ConnectionStatus.STOPPED
+                    } else if (current == ConnectionStatus.STARTING || current == ConnectionStatus.VALIDATING) {
+                        // During startup, propagate stopped so start() can detect it
+                        LogRepository.w("[Controller] Core stopped during $current")
+                        coreStatus
                     } else {
                         current
                     }

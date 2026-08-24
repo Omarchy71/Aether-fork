@@ -93,6 +93,7 @@ import io.github.immaghzbad.aetherst.shared.model.RoutingRule
 import io.github.immaghzbad.aetherst.shared.model.TunnelEngine
 import io.github.immaghzbad.aetherst.ui.AetherViewModel
 import io.github.immaghzbad.aetherst.ui.OnboardingViewModel
+import io.github.immaghzbad.aetherst.shared.ui.components.PlatformBackHandler
 import io.github.immaghzbad.aetherst.ui.components.IosToast
 import kotlin.math.roundToInt
 
@@ -263,6 +264,11 @@ private fun DashboardContent(viewModel: AetherViewModel) {
             showSplitTunneling = false
             showRoutingRules = false
         }
+    }
+
+    PlatformBackHandler(enabled = showSplitTunneling || showRoutingRules) {
+        showSplitTunneling = false
+        showRoutingRules = false
     }
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(

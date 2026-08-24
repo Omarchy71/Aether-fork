@@ -13,13 +13,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
+
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,20 +37,26 @@ fun CrashReportScreen(
     onShowToast: (String) -> Unit
 ) {
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     
     val manufacturer = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
     val model = Build.MODEL
     val deviceName = if (model.startsWith(manufacturer, ignoreCase = true)) {
-        model.replaceFirstChar { it.uppercase() }
+        model
     } else {
         "$manufacturer $model"
     }
+    val appVersion = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).let {
+            "${it.versionName ?: "1.5.4"} (Code ${it.longVersionCode})"
+        }
+    } catch (_: Exception) { "1.5.4 (1)" }
     
     val systemInfo = """
         Device: $deviceName
         Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})
-        App Version: 1.5.0 (Code 1)
+        App Version: $appVersion
     """.trimIndent()
     
     val fullReport = "$systemInfo\n\n--- Crash Log ---\n$crashLog"
@@ -135,14 +144,14 @@ fun CrashReportScreen(
                     label = "Device Info", 
                     value = deviceName,
                     onCopy = {
-                        clipboardManager.setText(AnnotatedString(deviceName))
+                        scope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText(null, deviceName))) }
                         onShowToast("Device info copied")
                     }
                 )
                 HorizontalDivider(color = Color(0xFF2C2C2E), modifier = Modifier.padding(vertical = 10.dp))
                 InfoRow(label = "System Version", value = "Android ${Build.VERSION.RELEASE}")
                 HorizontalDivider(color = Color(0xFF2C2C2E), modifier = Modifier.padding(vertical = 10.dp))
-                InfoRow(label = "AetherST Build", value = "1.5.0 (1)")
+                InfoRow(label = "AetherST Build", value = appVersion)
             }
         }
 
@@ -182,7 +191,7 @@ fun CrashReportScreen(
                 
                 Surface(
                     onClick = {
-                        clipboardManager.setText(AnnotatedString(fullReport))
+                        scope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText(null, fullReport))) }
                         onShowToast("Full report copied")
                     },
                     shape = RoundedCornerShape(100.dp),

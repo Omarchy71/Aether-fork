@@ -69,24 +69,6 @@ fun AboutUsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy((16 * scaleFactor).dp)
         ) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(top = 12.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "About AetherST",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = (26 * scaleFactor).sp,
-                        lineHeight = (30 * scaleFactor).sp
-                    )
-                }
-            }
             item { AboutHero(scaleFactor = scaleFactor) }
             item {
                 AboutInfoCard(
@@ -296,7 +278,7 @@ private fun AboutHero(scaleFactor: Float = 1f) {
                         Text("•", color = Color.White.copy(alpha = 0.2f), fontSize = (12 * scaleFactor).sp)
                         VersionText(label = "Aether", value = "1.7.0", color = IosActiveGreen, scaleFactor = scaleFactor)
                         Text("•", color = Color.White.copy(alpha = 0.2f), fontSize = (12 * scaleFactor).sp)
-                        VersionText(label = "Hev", value = "2.15.0", color = Color(0xFFAF52DE), scaleFactor = scaleFactor)
+                        VersionText(label = "Hev", value = "2.17.1", color = Color(0xFFAF52DE), scaleFactor = scaleFactor)
                     }
                 }
             }

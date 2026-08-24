@@ -25,9 +25,9 @@ kotlin {
             }
         }
     }
-    
+
     jvm("desktop")
-    
+
     sourceSets {
         all {
             languageSettings.optIn("kotlin.ExperimentalMultiplatform")
@@ -53,6 +53,7 @@ kotlin {
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.kotlinx.coroutines.android)
                 implementation(libs.androidx.datastore.preferences)
+                implementation(libs.androidsvg)
             }
         }
         getByName("desktopMain").dependencies {
@@ -82,19 +83,20 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
             packageName = "AetherST-Tunnel"
-            packageVersion = "1.0.0"
+            packageVersion = "1.0.2"
             vendor = "ImMaghzBad"
             description = "AetherST High-Performance Proxy Tunnel"
 
             appResourcesRootDir.set(project.layout.projectDirectory.dir("src/desktopMain/resources/bin"))
 
             windows {
+                dirChooser = true
                 menu = true
                 shortcut = true
                 upgradeUuid = "d7d4c82e-6f8b-4a5f-8c31-97a2e3f6d4d1"
                 iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
             }
-            
+
             buildTypes.release.proguard {
                 isEnabled.set(true)
                 optimize.set(true)

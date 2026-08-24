@@ -30,8 +30,8 @@
 
 ## 📱 Versions & Platforms
 
-- **Android Client:** `v1.5.0` (Latest Stable)
-- **Windows Client:** `v1.0.0` (First Public Release)
+- **Android Client:** `v1.5.4` (Latest Stable)
+- **Windows Client:** `v1.0.2` (First Public Release)
 
 ## ✨ Features
 

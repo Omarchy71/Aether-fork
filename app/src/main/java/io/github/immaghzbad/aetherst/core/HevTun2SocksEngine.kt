@@ -60,7 +60,8 @@ class HevTun2SocksEngine {
         socksAddress: String,
         socksPort: Int,
         mtu: Int,
-        attemptId: Long
+        attemptId: Long,
+        settings: HevEngineSettings = HevEngineSettings()
     ): Boolean = lifecycleMutex.withLock {
         if (!active.compareAndSet(false, true)) {
             LogRepository.w("[Hev] [attempt=$attemptId] Start rejected; engine already active")
@@ -76,7 +77,7 @@ class HevTun2SocksEngine {
             val duplicate = ParcelFileDescriptor.dup(tunPfd.fileDescriptor)
             duplicatedFd = duplicate
             val fd = duplicate.fd
-            val config = HevTun2SocksConfig.generate(socksAddress, socksPort, mtu)
+            val config = HevTun2SocksConfig.generate(socksAddress, socksPort, mtu, settings)
 
             engineJob = scope.launch {
                 try {

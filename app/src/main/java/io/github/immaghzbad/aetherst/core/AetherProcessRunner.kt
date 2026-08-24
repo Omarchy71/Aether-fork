@@ -42,6 +42,7 @@ class AetherProcessRunner(private val context: Context) {
             if (runnerJob?.isActive == true) return
 
             val attemptId = currentAttemptId.incrementAndGet()
+            updateState(ConnectionStatus.STARTING, attemptId)
             runnerJob = scope.launch {
                 var retryCount = 0
 
@@ -59,7 +60,6 @@ class AetherProcessRunner(private val context: Context) {
                         delay(waitTime.milliseconds)
                     } else {
                         LogRepository.i("Starting system core...")
-                        updateState(ConnectionStatus.STARTING, attemptId)
                     }
 
                     if (currentAttemptId.get() != attemptId) break

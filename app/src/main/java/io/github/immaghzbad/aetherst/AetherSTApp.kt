@@ -8,6 +8,7 @@ import io.github.immaghzbad.aetherst.service.AetherWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.PrintWriter
@@ -31,7 +32,7 @@ class AetherSTApp : Application() {
 
     private fun observeStatusForWidgets() {
         applicationScope.launch {
-            ConnectionController.status.collect { 
+            ConnectionController.status.drop(1).collect {
                 AetherWidgetProvider.updateAllWidgets(this@AetherSTApp)
             }
         }

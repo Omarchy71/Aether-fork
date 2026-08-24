@@ -47,6 +47,10 @@ class ConnectionController private constructor(private val context: PlatformCont
                 INSTANCE ?: ConnectionController(context).also { INSTANCE = it }
             }
         }
+
+        fun markStatus(status: ConnectionStatus) {
+            _status.value = status
+        }
     }
 
     private var statusJob: Job? = null

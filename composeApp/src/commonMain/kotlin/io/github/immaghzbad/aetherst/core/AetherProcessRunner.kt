@@ -60,6 +60,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
         LogRepository.currentAppLogLevel = config.appLogLevel
         LogRepository.currentCoreLogLevel = config.coreLogLevel
         val attemptId = currentAttemptId.incrementAndGet()
+        updateState(ConnectionStatus.STARTING, attemptId)
         runnerJob = scope.launch {
             var retryCount = 0
             while (isActive && (currentAttemptId.get() == attemptId)) {
@@ -76,7 +77,6 @@ class AetherProcessRunner(private val context: PlatformContext) {
                 } else {
                     LogRepository.i("Starting system core at $bindAddress")
                     lastBindAddress = bindAddress
-                    updateState(ConnectionStatus.STARTING, attemptId)
                 }
                 try {
                     val success = runBinary(config, attemptId, bindAddress, onCodeRequired, inputProvider)
@@ -395,7 +395,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
             (protocol == AetherProtocol.MASQUE && (lower.contains("tunnel validated") || lower.contains("connect-ip status: 200"))) ||
             (protocol == AetherProtocol.WG && (lower.contains("wireguard tunnel validated") || lower.contains("handshake complete"))) -> {
                 updateState(ConnectionStatus.RUNNING, attemptId)
-                val isWindows = try { System.getProperty("os.name").lowercase().contains("win") } catch(_: Throwable) { false }
+                val isWindows = try { System.getProperty("os.name")?.lowercase()?.contains("win") == true } catch(_: Throwable) { false }
                 val config = io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository.getInstance(io.github.immaghzbad.aetherst.platform.getSettings(context)).config.value
                 if (isWindows && config.connectionMode == ConnectionMode.TUNNEL && tunProcess == null) {
                     startTunWindows(config, lastBindAddress)
@@ -437,7 +437,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
     fun stop() {
         currentAttemptId.incrementAndGet()
         _connectionStatus.value = ConnectionStatus.STOPPED
-        val isWindows = try { System.getProperty("os.name").lowercase().contains("win") } catch(_: Throwable) { false }
+        val isWindows = try { System.getProperty("os.name")?.lowercase()?.contains("win") == true } catch(_: Throwable) { false }
         if (isWindows && tunProcess != null) {
             scope.launch(Dispatchers.IO) {
                 try {

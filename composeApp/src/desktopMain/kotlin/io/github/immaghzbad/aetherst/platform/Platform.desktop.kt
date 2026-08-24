@@ -187,8 +187,21 @@ class DesktopSystemUtils : SystemUtils {
     }
     override fun getCacheDir(): String = System.getProperty("java.io.tmpdir")
     override fun getPackageName(): String = "io.github.immaghzbad.aetherst"
-    override fun getAppVersion(): String = "1.0.0"
+    override fun getAppVersion(): String {
+        return try {
+            val props = java.util.Properties()
+            val stream = this::class.java.classLoader.getResourceAsStream("app.properties")
+            if (stream != null) {
+                stream.use { props.load(it) }
+                props.getProperty("app.version", "1.0.2")
+            } else "1.0.2"
+        } catch (_: Exception) { "1.0.2" }
+    }
     override fun exitApp() {
+        try {
+            val tempDir = File(System.getProperty("java.io.tmpdir"), "AetherST")
+            if (tempDir.exists()) tempDir.walkBottomUp().forEach { it.delete() }
+        } catch (_: Exception) {}
         exitProcess(0)
     }
 
@@ -270,8 +283,17 @@ class DesktopSystemUtils : SystemUtils {
             if (!isWindows) return
 
             val proxyStr = "$host:$port"
-            ProcessBuilder("reg", "add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "1", "/f").start().waitFor()
-            ProcessBuilder("reg", "add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "/v", "ProxyServer", "/t", "REG_SZ", "/d", proxyStr, "/f").start().waitFor()
+            val regPath = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+            
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "1", "/f").start().waitFor()
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyServer", "/t", "REG_SZ", "/d", proxyStr, "/f").start().waitFor()
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyOverride", "/t", "REG_SZ", "/d", "<local>", "/f").start().waitFor()
+            
+            
+            val psCommand = "[System.Runtime.InteropServices.Marshal]::GetLastWin32Error(); " +
+                           "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WinInet { [DllImport(\"wininet.dll\")] public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength); }'; " +
+                           "[WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0); [WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)"
+            ProcessBuilder("powershell", "-WindowStyle", "Hidden", "-Command", psCommand).start()
         } catch (_: Exception) {}
     }
 
@@ -280,7 +302,12 @@ class DesktopSystemUtils : SystemUtils {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             if (!isWindows) return
 
-            ProcessBuilder("reg", "add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "0", "/f").start().waitFor()
+            val regPath = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "0", "/f").start().waitFor()
+            
+            val psCommand = "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WinInet { [DllImport(\"wininet.dll\")] public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength); }'; " +
+                           "[WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0); [WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)"
+            ProcessBuilder("powershell", "-WindowStyle", "Hidden", "-Command", psCommand).start()
         } catch (_: Exception) {}
     }
 
@@ -366,6 +393,32 @@ actual fun getCurrentTimestamp(): String {
 }
 
 actual val isDesktop: Boolean = true
+
+actual fun getDeviceModel(): String {
+    return try {
+        val osName = System.getProperty("os.name") ?: "Unknown"
+        val osArch = System.getProperty("os.arch") ?: ""
+        val computerName = try {
+            if (osName.lowercase().contains("win")) {
+                val process = ProcessBuilder("hostname").start()
+                val name = process.inputStream.bufferedReader().readText().trim()
+                process.waitFor()
+                if (name.isNotEmpty()) name else null
+            } else null
+        } catch (_: Exception) { null }
+
+        val base = computerName ?: osName
+        if (osArch.isNotEmpty()) "$base ($osArch)" else base
+    } catch (_: Exception) { "Unknown PC" }
+}
+
+actual fun getOsVersion(): String {
+    return try {
+        val osName = System.getProperty("os.name") ?: "Unknown"
+        val osVersion = System.getProperty("os.version") ?: ""
+        if (osVersion.isNotEmpty()) "$osName $osVersion" else osName
+    } catch (_: Exception) { "Unknown" }
+}
 
 @Composable
 actual fun AppIcon(app: AppInfo, modifier: Modifier) {

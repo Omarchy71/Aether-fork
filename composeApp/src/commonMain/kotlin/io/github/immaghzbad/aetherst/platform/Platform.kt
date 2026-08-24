@@ -70,5 +70,9 @@ expect fun getCurrentTimestamp(): String
 
 expect val isDesktop: Boolean
 
+expect fun getDeviceModel(): String
+
+expect fun getOsVersion(): String
+
 @Composable
 expect fun AppIcon(app: AppInfo, modifier: Modifier)

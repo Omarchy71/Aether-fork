@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -29,23 +30,135 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.platform.UninstallCleanup
 import io.github.immaghzbad.aetherst.shared.App
 import io.github.immaghzbad.aetherst.shared.core.ConnectionController
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
+import java.io.File
 import java.net.ServerSocket
 import kotlin.system.exitProcess
 import java.awt.Color as AwtColor
 import java.awt.Font as AwtFont
 
 private var lockSocket: ServerSocket? = null
+private var requestShowWindow: (() -> Unit)? = null
 
-fun main() {
+@Volatile
+private var windowShown = false
+
+private fun startupLogFile(): File {
+    val dir = System.getProperty("jpackage.app.dir")
+        ?: ProcessHandle.current().info().command().orElse(null)?.let { File(it).parent }
+        ?: System.getProperty("java.io.tmpdir")
+    return File(dir, "startup_error.log")
+}
+
+private fun appendStartupLog(message: String) {
+    try {
+        startupLogFile().appendText("[${java.time.LocalDateTime.now()}] $message\n")
+    } catch (_: Exception) {}
+}
+
+private fun signalRunningInstance(): Boolean = try {
+    java.net.Socket("127.0.0.1", 18195).use { socket ->
+        socket.getOutputStream().write(1)
+        socket.getOutputStream().flush()
+    }
+    true
+} catch (_: Exception) {
+    false
+}
+
+private fun killStaleCoreProcesses() {
+    try {
+        val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
+        if (!isWindows) return
+        val processes = listOf("aether-core.exe", "tun2socks.exe", "aether-core", "tun2socks")
+        for (proc in processes) {
+            ProcessBuilder("taskkill", "/F", "/IM", proc).start().waitFor()
+        }
+    } catch (_: Exception) {}
+}
+
+private fun cleanTempFiles() {
+    try {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "AetherST")
+        if (tempDir.exists()) tempDir.walkBottomUp().forEach { it.delete() }
+        val routingFile = File(System.getProperty("java.io.tmpdir"), "routing.ast")
+        if (routingFile.exists()) routingFile.delete()
+    } catch (_: Exception) {}
+}
+
+fun main(args: Array<String>) {
+    val jvmArgs = System.getProperty("sun.java.command")?.split(" ") ?: emptyList()
+
+    if (jvmArgs.contains("--cleanup")) {
+        UninstallCleanup.performManualCleanup()
+        cleanTempFiles()
+        exitProcess(0)
+    }
+
+    val softwareFallbackTried = args.contains("--software-render")
+    if (softwareFallbackTried) {
+        System.setProperty("skia.renderPipeline", "software")
+    }
+
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        appendStartupLog("Uncaught exception on thread '${thread.name}': ${throwable.stackTraceToString()}")
+    }
+
+    try {
+        UninstallCleanup.handleStartupCleanup()
+    } catch (e: Exception) {
+        appendStartupLog("Startup cleanup failed: ${e.stackTraceToString()}")
+    }
+    killStaleCoreProcesses()
+
     try {
         lockSocket = ServerSocket(18195)
     } catch (_: Exception) {
+        signalRunningInstance()
         exitProcess(0)
     }
+
+    Thread({
+        while (true) {
+            val client = try { lockSocket?.accept() ?: break } catch (_: Exception) { break }
+            runCatching { client.close() }
+            try { requestShowWindow?.invoke() } catch (_: Exception) {}
+        }
+    }, "Aether-SingleInstance").apply { isDaemon = true }.start()
+
+    Thread({
+        try {
+            Thread.sleep(20000)
+        } catch (_: InterruptedException) {
+            return@Thread
+        }
+        if (!windowShown) {
+            appendStartupLog(
+                "Window did not appear within 20 seconds. softwareFallbackTried=$softwareFallbackTried. " +
+                        "os=${System.getProperty("os.name")} java=${System.getProperty("java.version")}"
+            )
+            if (!softwareFallbackTried) {
+                appendStartupLog("Relaunching with software rendering fallback...")
+                try {
+                    val exePath = ProcessHandle.current().info().command().orElse(null)
+                    if (exePath != null) {
+                        ProcessBuilder(exePath, "--software-render")
+                            .apply { environment()["JAVA_TOOL_OPTIONS"] = "-Dskia.renderPipeline=software" }
+                            .start()
+                        exitProcess(0)
+                    } else {
+                        appendStartupLog("Relaunch skipped: own executable path unavailable")
+                    }
+                } catch (e: Exception) {
+                    appendStartupLog("Relaunch failed: ${e.stackTraceToString()}")
+                }
+            }
+        }
+    }, "Aether-StartupWatchdog").apply { isDaemon = false }.start()
 
     application {
         val viewModelStoreOwner = remember {
@@ -57,37 +170,57 @@ fun main() {
         var isVisible by remember { mutableStateOf(true) }
         var showExitDialog by remember { mutableStateOf(false) }
 
-        val trayIcon = remember {
-            val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
-            val g = image.createGraphics()
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g.color = AwtColor(0, 122, 255)
-            g.fillOval(2, 2, 28, 28)
-            g.color = AwtColor.WHITE
-            g.font = AwtFont("Arial", AwtFont.BOLD, 18)
-            g.drawString("A", 10, 22)
-            g.dispose()
-            image.toPainter()
-        }
-
         val windowState = rememberWindowState(
             width = 420.dp,
-            height = 860.dp
+            height = 860.dp,
+            position = WindowPosition.Aligned(Alignment.Center)
         )
 
-        Tray(
-            icon = trayIcon,
-            tooltip = "AetherST Tunnel",
-            onAction = { isVisible = true },
-            menu = {
-                Item("Open AetherST", onClick = { isVisible = true })
-                Separator()
-                Item("Exit", onClick = {
-                    ConnectionController.getInstance(PlatformContext()).stop()
-                    exitApplication()
-                })
+        remember {
+            requestShowWindow = {
+                isVisible = true
+                windowState.isMinimized = false
             }
-        )
+            true
+        }
+
+        val traySupported = remember {
+            runCatching { java.awt.SystemTray.isSupported() }.getOrDefault(false)
+        }
+
+        if (traySupported) {
+            val trayIcon = remember {
+                val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
+                val g = image.createGraphics()
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g.color = AwtColor(0, 122, 255)
+                g.fillOval(2, 2, 28, 28)
+                g.color = AwtColor.WHITE
+                g.font = AwtFont("Arial", AwtFont.BOLD, 18)
+                g.drawString("A", 10, 22)
+                g.dispose()
+                image.toPainter()
+            }
+
+            Tray(
+                icon = trayIcon,
+                tooltip = "AetherST Tunnel",
+                onAction = { isVisible = true },
+                menu = {
+                    Item("Open AetherST", onClick = { isVisible = true })
+                    Separator()
+                    Item("Exit", onClick = {
+                        try {
+                            ConnectionController.getInstance(PlatformContext()).stop()
+                        } catch (_: Exception) {}
+                        cleanTempFiles()
+                        lockSocket?.close()
+                        lockSocket = null
+                        exitApplication()
+                    })
+                }
+            )
+        }
 
         if (isVisible) {
             Window(
@@ -99,6 +232,7 @@ fun main() {
                 transparent = true,
                 visible = isVisible
             ) {
+                windowShown = true
                 CompositionLocalProvider(LocalViewModelStoreOwner provides viewModelStoreOwner) {
                     Box(
                         modifier = Modifier
@@ -190,7 +324,12 @@ fun main() {
                                         showExitDialog = false
                                     },
                                     onExit = {
-                                        ConnectionController.getInstance(PlatformContext()).stop()
+                                        try {
+                                            ConnectionController.getInstance(PlatformContext()).stop()
+                                        } catch (_: Exception) {}
+                                        cleanTempFiles()
+                                        lockSocket?.close()
+                                        lockSocket = null
                                         exitApplication()
                                     },
                                     onDismiss = { showExitDialog = false }
