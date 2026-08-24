@@ -1,7 +1,22 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -10,14 +25,51 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +78,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,11 +88,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.immaghzbad.aetherst.platform.PlatformContext
+import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.platform.getSystemUtils
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.IpInfo
 import io.github.immaghzbad.aetherst.shared.data.PingState
-import io.github.immaghzbad.aetherst.shared.model.*
+import io.github.immaghzbad.aetherst.shared.model.AetherConfig
+import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
+import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
+import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
+import io.github.immaghzbad.aetherst.shared.model.SessionTraffic
+import io.github.immaghzbad.aetherst.shared.ui.components.CountryFlag
 import kotlinx.coroutines.launch
 
 private val IosCardBg = Color(0xFF1C1C1E)
@@ -64,11 +123,23 @@ fun DashboardScreen(
     onRefreshIpInfo: () -> Unit = {},
     onRefreshPing: () -> Unit = {},
     onCopy: (String) -> Unit = {},
+    onOpenSettingsToZeroTrust: () -> Unit = {},
     bottomContentPadding: Dp = 0.dp,
     platformContext: PlatformContext? = null
 ) {
     var showProxyOverlay by remember { mutableStateOf(true) }
     var showAdminRequiredDialog by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
+    var supportDialogAuto by remember { mutableStateOf(true) }
+    val uriHandler = LocalUriHandler.current
+    val settings = platformContext?.let { getSettings(it) }
+
+    LaunchedEffect(Unit) {
+        if (settings != null && !settings.getBoolean("support_dialog_dismissed", false)) {
+            supportDialogAuto = true
+            showSupportDialog = true
+        }
+    }
     val systemUtils = platformContext?.let { getSystemUtils(it) }
 
     LaunchedEffect(connectionStatus) {
@@ -142,7 +213,11 @@ fun DashboardScreen(
                         }
                         Surface(
                             shape = RoundedCornerShape(50),
-                            color = IosGroupBg
+                            color = IosGroupBg,
+                            modifier = Modifier.clickable {
+                                supportDialogAuto = false
+                                showSupportDialog = true
+                            }
                         ) {
                             Text(
                                 text = "v$appVersion",
@@ -208,8 +283,10 @@ fun DashboardScreen(
                 IosPowerButton(
                     connectionStatus = connectionStatus,
                     onToggle = {
-                        val isWindows = try { System.getProperty("os.name").lowercase().contains("win") } catch(_: Throwable) { false }
-                        if (isWindows && config.connectionMode == ConnectionMode.TUNNEL && systemUtils?.isAdministrator() == false) {
+                        val isWindows = try { System.getProperty("os.name")?.lowercase()?.contains("win") == true } catch(_: Throwable) { false }
+                        if (config.protocol == AetherProtocol.ZERO_TRUST && connectionStatus == ConnectionStatus.STOPPED) {
+                            onOpenSettingsToZeroTrust()
+                        } else if (isWindows && config.connectionMode == ConnectionMode.TUNNEL && systemUtils?.isAdministrator() == false) {
                             showAdminRequiredDialog = true
                         } else {
                             onToggleVpn()
@@ -290,6 +367,102 @@ fun DashboardScreen(
                 onDismiss = { showAdminRequiredDialog = false },
                 scaleFactor = scaleFactor
             )
+        }
+
+        if (showSupportDialog) {
+            SupportDialog(
+                autoShow = supportDialogAuto,
+                onJoin = {
+                    settings?.putBoolean("support_dialog_dismissed", true)
+                    showSupportDialog = false
+                    uriHandler.openUri(TelegramChannelUrl)
+                },
+                onSkip = {
+                    settings?.putBoolean("support_dialog_dismissed", true)
+                    showSupportDialog = false
+                },
+                onCancel = { showSupportDialog = false },
+                scaleFactor = scaleFactor
+            )
+        }
+    }
+}
+
+private const val TelegramChannelUrl = "https://t.me/PowerSigma"
+
+@Composable
+private fun SupportDialog(
+    autoShow: Boolean,
+    onJoin: () -> Unit,
+    onSkip: () -> Unit,
+    onCancel: () -> Unit,
+    scaleFactor: Float
+) {
+    Dialog(
+        onDismissRequest = { if (autoShow) onSkip() else onCancel() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = IosCardBg),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(
+                    modifier = Modifier.padding((20 * scaleFactor).dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Support AetherST",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (18 * scaleFactor).sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height((10 * scaleFactor).dp))
+                    Text(
+                        "AetherST is a free and open-source project developed in our spare time.\nIf you find it useful, please consider joining our official Telegram channel.\nYou will get instant updates about new releases, new features, bug fixes and important announcements.\nYour support keeps the project alive and growing!",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = (13 * scaleFactor).sp,
+                        lineHeight = (18 * scaleFactor).sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
+                    Button(
+                        onClick = onJoin,
+                        modifier = Modifier.fillMaxWidth().height((48 * scaleFactor).dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Join Telegram Channel",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = (14 * scaleFactor).sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+                    TextButton(
+                        onClick = { if (autoShow) onSkip() else onCancel() },
+                        modifier = Modifier.fillMaxWidth().height((42 * scaleFactor).dp)
+                    ) {
+                        Text(
+                            if (autoShow) "Skip" else "Cancel",
+                            color = IosSecondaryLabel,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = (13 * scaleFactor).sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -743,35 +916,14 @@ fun IosStatusHeroCard(
                             modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val isWindows = remember {
-                                try {
-                                    System.getProperty("os.name")?.contains("Windows", true) == true
-                                } catch (_: Exception) {
-                                    false
-                                }
-                            }
-
-                            if (isWindows && ipInfo.countryCode.isNotEmpty()) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = IosActiveBlue.copy(alpha = 0.15f),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        IosActiveBlue.copy(alpha = 0.3f)
-                                    )
-                                ) {
-                                    Text(
-                                        text = ipInfo.countryCode.uppercase(),
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = IosActiveBlue,
-                                        fontSize = (10 * scaleFactor).sp
-                                    )
-                                }
+                            if (ipInfo.countryCode.isNotEmpty()) {
+                                CountryFlag(
+                                    countryCode = ipInfo.countryCode,
+                                    size = (20 * scaleFactor).dp
+                                )
                             } else {
                                 Text(
-                                    text = ipInfo.flagEmoji.ifEmpty { "🌐" },
+                                    text = "🌐",
                                     fontSize = (16 * scaleFactor).sp
                                 )
                             }

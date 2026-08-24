@@ -96,15 +96,22 @@ fun LogsScreen(
         val logs by viewModel.logs.collectAsState()
 
         var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
+        var selectedSourceFilter by remember { mutableStateOf("ALL") }
         var searchQuery by remember { mutableStateOf("") }
         var isSearchFocused by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
 
-        val filteredLogs = remember(logs, selectedLevelFilter, searchQuery) {
+        val filteredLogs = remember(logs, selectedLevelFilter, selectedSourceFilter, searchQuery) {
             logs.filter { entry ->
+                val isCoreEntry = entry.tag.equals("AetherCore", ignoreCase = true)
+                val sourceMatches = when (selectedSourceFilter) {
+                    "CORE" -> isCoreEntry
+                    "APP" -> !isCoreEntry
+                    else -> true
+                }
                 val levelMatches = selectedLevelFilter == null || entry.level == selectedLevelFilter
                 val searchMatches = searchQuery.isEmpty() || entry.message.contains(searchQuery, ignoreCase = true) || entry.tag.contains(searchQuery, ignoreCase = true)
-                levelMatches && searchMatches
+                sourceMatches && levelMatches && searchMatches
             }
         }
 
@@ -141,7 +148,7 @@ fun LogsScreen(
                         fontSize = (26 * scaleFactor).sp
                     )
                     Text(
-                        text = "Live Aether Core Logs",
+                        text = "App & Aether Core Logs",
                         style = MaterialTheme.typography.bodySmall,
                         color = IosSecondaryLabel,
                         fontSize = (11 * scaleFactor).sp
@@ -262,6 +269,50 @@ fun LogsScreen(
             )
 
             Spacer(modifier = Modifier.height((10 * scaleFactor).dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(IosCardBg)
+                    .padding(2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val sourceFilters = listOf("ALL", "APP", "CORE")
+
+                sourceFilters.forEach { label ->
+                    val selected = selectedSourceFilter == label
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                when {
+                                    selected && label == "CORE" -> Color(0xFF5856D6)
+                                    selected -> IosActiveBlue
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .clickable { selectedSourceFilter = label }
+                            .padding(vertical = (8 * scaleFactor).dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = when (label) {
+                                "CORE" -> "AETHER CORE"
+                                "APP" -> "APP ONLY"
+                                else -> "ALL SOURCES"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) Color.White else IosSecondaryLabel,
+                            fontSize = (9 * scaleFactor).sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height((6 * scaleFactor).dp))
 
             Row(
                 modifier = Modifier
@@ -469,8 +520,25 @@ fun IosLogLineItem(
 
                 Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
 
+                val isCoreEntry = entry.tag.equals("AetherCore", ignoreCase = true)
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (isCoreEntry) Color(0xFF5856D6).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.08f)
+                ) {
+                    Text(
+                        text = if (isCoreEntry) "CORE" else "APP",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCoreEntry) Color(0xFFB5A8FF) else IosSecondaryLabel,
+                        fontSize = (8 * scaleFactor).sp,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width((6 * scaleFactor).dp))
+
                 Text(
-                    text = "•  ${entry.tag}",
+                    text = entry.tag,
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     color = IosSecondaryLabel.copy(alpha = 0.7f),

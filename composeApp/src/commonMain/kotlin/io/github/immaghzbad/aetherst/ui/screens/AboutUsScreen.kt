@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,29 +67,12 @@ fun AboutUsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = horizontalPadding,
-                top = 0.dp,
+                top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (isDesktop) 12.dp else 8.dp,
                 end = horizontalPadding,
                 bottom = bottomContentPadding + 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy((16 * scaleFactor).dp)
         ) {
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = if (isDesktop) 12.dp else 36.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "About AetherST",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = (26 * scaleFactor).sp,
-                        lineHeight = (30 * scaleFactor).sp
-                    )
-                }
-            }
             item { AboutHero(appVersion = appVersion, scaleFactor = scaleFactor) }
             item {
                 AboutInfoCard(
@@ -296,7 +282,7 @@ private fun AboutHero(appVersion: String, scaleFactor: Float = 1f) {
                         Text("•", color = Color.White.copy(alpha = 0.2f), fontSize = (12 * scaleFactor).sp)
                         VersionText(label = "Aether", value = "1.7.0", color = IosActiveGreen, scaleFactor = scaleFactor)
                         Text("•", color = Color.White.copy(alpha = 0.2f), fontSize = (12 * scaleFactor).sp)
-                        VersionText(label = "Hev", value = "2.15.0", color = Color(0xFFAF52DE), scaleFactor = scaleFactor)
+                        VersionText(label = "Hev", value = "2.17.1", color = Color(0xFFAF52DE), scaleFactor = scaleFactor)
                     }
                 }
             }

@@ -31,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -94,10 +95,10 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         io.github.immaghzbad.aetherst.shared.data.SpeedTestRepository.initialize(getSettings(platformContext))
         LogRepository.i("Initializing AetherST Multiplatform UI...", "AetherSystem")
         ConnectionController.getInstance(platformContext)
-        loadInstalledApps()
         observeConnectionStatus()
         checkBatteryOptimizationStatus()
         checkLastCrash()
+        loadInstalledApps()
         if (isDesktop) checkForUpdates()
     }
 
@@ -127,12 +128,15 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             if ((currentState == ConnectionStatus.STOPPED) || (currentState == ConnectionStatus.ERROR)) {
                 if (cfg.connectionMode == ConnectionMode.TUNNEL) {
                     if (vpnController.prepareVpn(onPermissionRequired)) {
+                        ConnectionController.markStatus(ConnectionStatus.STARTING)
                         vpnController.startVpn()
                     }
                 } else {
+                    ConnectionController.markStatus(ConnectionStatus.STARTING)
                     vpnController.startProxy()
                 }
             } else {
+                ConnectionController.markStatus(ConnectionStatus.STOPPING)
                 if (cfg.connectionMode == ConnectionMode.TUNNEL) {
                     vpnController.stopVpn()
                 } else {
@@ -141,6 +145,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             }
         } catch (exception: Exception) {
             LogRepository.e("[UI] Connection toggle failed: ${exception.message}")
+            ConnectionController.markStatus(ConnectionStatus.ERROR)
         }
     }
 
@@ -389,21 +394,36 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     fun applyPreset(presetId: String) { repository.applyPreset(presetId) }
 
     fun applyAutoDetectResult(result: io.github.immaghzbad.aetherst.shared.model.AutoDetectResult) {
-        val current = config.value
-        val newConfig = current.copy(
+        val oldConfig = config.value
+        val newConfig = oldConfig.copy(
             presetId = "custom",
             protocol = result.recommendedProtocol,
             noise = result.recommendedNoise,
             scanMode = result.recommendedScanMode,
-            mtu = result.recommendedMtu,
+            mtu = if (result.recommendedMtu > 0) result.recommendedMtu else oldConfig.mtu,
             ipMode = result.recommendedIpMode,
             h2Mode = result.recommendedH2Mode,
             echEnabled = result.recommendedEch,
             h2Fragment = result.recommendedFragment,
             fragmentSize = "16-32",
-            fragmentDelay = "2-10"
+            fragmentDelay = "2-10",
+            noDataCheck = result.recommendedNoDataCheck
         )
-        updateConfig(newConfig)
+        repository.applyDetectedConfig(newConfig)
+
+        val needsRestart = oldConfig.connectionMode != newConfig.connectionMode ||
+                oldConfig.tunnelAllApps != newConfig.tunnelAllApps ||
+                oldConfig.protocol != newConfig.protocol ||
+                oldConfig.ipMode != newConfig.ipMode ||
+                oldConfig.mtu != newConfig.mtu ||
+                oldConfig.tunnelEngine != newConfig.tunnelEngine ||
+                oldConfig.ipv6Leak != newConfig.ipv6Leak ||
+                oldConfig.socksPort != newConfig.socksPort ||
+                oldConfig.socksHost != newConfig.socksHost
+
+        if (needsRestart) {
+            restartConnection()
+        }
         showToast("Auto-Detect configuration applied!")
     }
 
@@ -447,7 +467,10 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     }
 
     fun checkBatteryOptimizationStatus() {
-        _isBatteryOptimized.value = systemUtils.isBatteryOptimized()
+        viewModelScope.launch(Dispatchers.Default) {
+            val optimized = runCatching { systemUtils.isBatteryOptimized() }.getOrDefault(true)
+            _isBatteryOptimized.value = optimized
+        }
     }
 
     fun requestBatteryOptimization() {
@@ -459,14 +482,16 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     }
 
     private fun loadInstalledApps() {
-        viewModelScope.launch {
-            _installedApps.value = appInfoProvider.getInstalledApps()
+        viewModelScope.launch(Dispatchers.Default) {
+            delay(1500.milliseconds)
+            val apps = appInfoProvider.getInstalledApps()
+            _installedApps.value = apps
         }
     }
 
     private fun observeConnectionStatus() {
         viewModelScope.launch {
-            connectionStatus.collect { state ->
+            connectionStatus.drop(1).collect { state ->
                 if (state == ConnectionStatus.RUNNING || state == ConnectionStatus.STOPPED) {
                     refreshIpInfo()
                     refreshPing()

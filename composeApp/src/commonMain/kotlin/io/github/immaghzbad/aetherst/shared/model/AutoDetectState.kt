@@ -60,6 +60,7 @@ data class AutoDetectResult(
     val recommendedH2Mode: Boolean = true,
     val recommendedEch: Boolean = false,
     val recommendedFragment: Boolean = false,
+    val recommendedNoDataCheck: Boolean = false,
     val confidence: Float = 0f,
     val networkFingerprint: NetworkFingerprint = NetworkFingerprint()
 )
@@ -73,6 +74,7 @@ data class AutoDetectState(
     val noiseResults: List<NoiseProbeResult> = emptyList(),
     val scanModeResults: List<ScanModeProbeResult> = emptyList(),
     val finalResult: AutoDetectResult? = null,
+    val liveFingerprint: NetworkFingerprint? = null,
     val error: String? = null,
     val progressPercent: Int = 0
 )

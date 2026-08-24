@@ -7,14 +7,14 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import okhttp3.*
 import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.URL
+import java.util.Collections
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.sqrt
 
 object SpeedTestRepository {
@@ -42,7 +42,10 @@ object SpeedTestRepository {
             downloadSizeMb = s.getInt("${PREFIX}download_size", 10),
             uploadSizeMb = s.getInt("${PREFIX}upload_size", 10),
             pingSamples = s.getInt("${PREFIX}ping_samples", 20),
-            customServerUrl = s.getString("${PREFIX}custom_url", "")
+            customServerUrl = s.getString("${PREFIX}custom_url", ""),
+            downloadStreams = s.getInt("${PREFIX}download_streams", 3).coerceIn(1, 6),
+            pingWarmup = s.getInt("${PREFIX}ping_warmup", 1).coerceIn(0, 5),
+            autoUnit = s.getBoolean("${PREFIX}auto_unit", true)
         )
     }
 
@@ -54,6 +57,9 @@ object SpeedTestRepository {
         s.putInt("${PREFIX}upload_size", config.uploadSizeMb)
         s.putInt("${PREFIX}ping_samples", config.pingSamples)
         s.putString("${PREFIX}custom_url", config.customServerUrl)
+        s.putInt("${PREFIX}download_streams", config.downloadStreams)
+        s.putInt("${PREFIX}ping_warmup", config.pingWarmup)
+        s.putBoolean("${PREFIX}auto_unit", config.autoUnit)
     }
 
 
@@ -62,26 +68,38 @@ object SpeedTestRepository {
         if (!mutex.tryLock()) return
 
         isCancelled.set(false)
+        val preservedConfig = _state.value.config
         testJob = CoroutineScope(Dispatchers.Default + SupervisorJob()).launch {
             try {
-                val config = _state.value.config
+                val config = preservedConfig
                 val server = config.selectedServer
                 val serverUrl = resolveServerUrl(server, config)
 
+                if (server == SpeedTestServer.CUSTOM && config.customServerUrl.isBlank()) {
+                    throw IllegalStateException("Custom server URL is empty")
+                }
+
                 LogRepository.i("Speed test started: Server=${server.displayName}, URL=$serverUrl", TAG)
-                updateState(_state.value.copy(
+                _state.update { it.copy(
+                    config = preservedConfig,
                     phase = SpeedTestPhase.PING,
                     currentStep = "Measuring ping & jitter...",
                     progress = 0f,
                     error = null,
+                    result = SpeedTestResult(),
                     downloadSpeedHistory = emptyList(),
                     uploadSpeedHistory = emptyList()
-                ))
+                ) }
 
-                val pingResult = measurePingAndJitter(serverUrl, config.pingSamples)
+                val pingResult = measurePingAndJitter(serverUrl, config.pingSamples, config.pingWarmup)
                 if (isCancelled.get()) return@launch
-                updateState(_state.value.copy(
-                    result = _state.value.result.copy(
+
+                if (pingResult.first < 0) {
+                    throw IllegalStateException("Ping failed — server unreachable")
+                }
+
+                _state.update { it.copy(
+                    result = it.result.copy(
                         pingMs = pingResult.first,
                         jitterMs = pingResult.second,
                         pingSamples = pingResult.third,
@@ -89,47 +107,53 @@ object SpeedTestRepository {
                     ),
                     progress = 0.25f,
                     currentStep = "Ping: ${"%.1f".format(pingResult.first)}ms | Jitter: ${"%.1f".format(pingResult.second)}ms"
-                ))
+                ) }
 
-                updateState(_state.value.copy(
+                _state.update { it.copy(
                     phase = SpeedTestPhase.DOWNLOAD,
-                    currentStep = "Testing download speed...",
+                    currentStep = "Testing download speed (${config.downloadStreams} stream${if (config.downloadStreams > 1) "s" else ""})...",
                     progress = 0.30f
-                ))
-                val dlResult = measureDownload(serverUrl, config.downloadSizeMb)
+                ) }
+                val dlResult = measureDownload(serverUrl, config.downloadSizeMb, config.downloadStreams)
                 if (isCancelled.get()) return@launch
-                updateState(_state.value.copy(
-                    result = _state.value.result.copy(
+
+                if (dlResult.first <= 0.0) {
+                    throw IllegalStateException("Download test failed — no data received")
+                }
+
+                _state.update { it.copy(
+                    result = it.result.copy(
                         downloadBps = dlResult.first,
                         downloadMbps = dlResult.first * 8.0 / (1024.0 * 1024.0)
                     ),
                     downloadSpeedHistory = dlResult.second,
                     progress = 0.65f,
                     currentStep = "Download: ${formatSpeed(dlResult.first, config)}"
-                ))
+                ) }
 
-                updateState(_state.value.copy(
+                _state.update { it.copy(
                     phase = SpeedTestPhase.UPLOAD,
                     currentStep = "Testing upload speed...",
                     progress = 0.70f
-                ))
+                ) }
                 val ulResult = measureUpload(serverUrl, config.uploadSizeMb)
                 if (isCancelled.get()) return@launch
-                updateState(_state.value.copy(
-                    result = _state.value.result.copy(
+                _state.update { it.copy(
+                    result = it.result.copy(
                         uploadBps = ulResult.first,
                         uploadMbps = ulResult.first * 8.0 / (1024.0 * 1024.0)
                     ),
                     uploadSpeedHistory = ulResult.second,
                     progress = 1.0f
-                ))
+                ) }
 
                 val finalResult = _state.value.result
-                updateState(_state.value.copy(
+
+                _state.update { it.copy(
                     phase = SpeedTestPhase.COMPLETE,
                     currentStep = "Test complete",
                     progress = 1.0f
-                ))
+                ) }
 
                 LogRepository.i(
                     "Speed test complete: Ping=${"%.1f".format(finalResult.pingMs)}ms " +
@@ -142,11 +166,11 @@ object SpeedTestRepository {
                 throw e
             } catch (e: Exception) {
                 LogRepository.e("Speed test failed: ${e.message}", TAG)
-                updateState(_state.value.copy(
+                _state.update { it.copy(
                     phase = SpeedTestPhase.ERROR,
                     currentStep = "Test failed",
                     error = e.message ?: "Unknown error"
-                ))
+                ) }
             } finally {
                 mutex.unlock()
             }
@@ -154,44 +178,48 @@ object SpeedTestRepository {
     }
 
     fun cancelTest() {
+        val activePhases = setOf(SpeedTestPhase.PING, SpeedTestPhase.DOWNLOAD, SpeedTestPhase.UPLOAD)
+        if (_state.value.phase !in activePhases) return
         isCancelled.set(true)
         testJob?.cancel()
         testJob = null
-        updateState(_state.value.copy(
+        _state.update { it.copy(
             phase = SpeedTestPhase.CANCELLED,
             currentStep = "Test cancelled",
             progress = 0f
-        ))
+        ) }
     }
 
     fun reset() {
         testJob?.cancel()
         testJob = null
         isCancelled.set(false)
-        _state.value = SpeedTestState()
+        val preservedConfig = _state.value.config
+        _state.value = SpeedTestState(config = preservedConfig)
     }
 
     fun updateConfig(config: SpeedTestConfig) {
-        updateState(_state.value.copy(config = config))
+        _state.update { it.copy(config = config) }
         saveConfig(config)
     }
 
 
     private fun resolveServerUrl(server: SpeedTestServer, config: SpeedTestConfig): String {
         return when (server) {
-            SpeedTestServer.CLOUDFLARE -> config.customServerUrl.ifEmpty { "https://speed.cloudflare.com" }
+            SpeedTestServer.CLOUDFLARE -> "https://speed.cloudflare.com"
             SpeedTestServer.OFAKIN -> "https://ofakino.pishtazan.dev"
-            SpeedTestServer.CUSTOM -> config.customServerUrl.ifEmpty { "https://speed.cloudflare.com" }
+            SpeedTestServer.CUSTOM -> config.customServerUrl.trim().removeSuffix("/")
         }
     }
 
 
     private suspend fun measurePingAndJitter(
         baseUrl: String,
-        sampleCount: Int
+        sampleCount: Int,
+        warmupCount: Int
     ): Triple<Double, Double, List<Long>> {
         return withContext(Dispatchers.IO) {
-            val samples = mutableListOf<Long>()
+            val allSamples = mutableListOf<Long>()
             val pingUrl = "$baseUrl/__down?bytes=0"
 
             val phaseStart = System.currentTimeMillis()
@@ -201,7 +229,7 @@ object SpeedTestRepository {
 
                 try {
                     val startTime = System.nanoTime()
-                    val conn = URL(pingUrl).openConnection() as HttpURLConnection
+                    val conn = java.net.URI(pingUrl).toURL().openConnection() as HttpURLConnection
                     conn.connectTimeout = 5000
                     conn.readTimeout = 5000
                     conn.requestMethod = "GET"
@@ -212,20 +240,21 @@ object SpeedTestRepository {
 
                     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime)
                     if (code == 200 || code == 206) {
-                        samples.add(elapsed)
+                        allSamples.add(elapsed)
 
-                        val sortedSoFar = samples.sorted()
-                        val avgSoFar = samples.average()
-                        updateState(_state.value.copy(
+                        val sortedSoFar = allSamples.sorted()
+                        val keptSoFar = allSamples.drop(warmupCount.coerceAtMost(allSamples.size - 1))
+                        val avgSoFar = if (keptSoFar.isEmpty()) allSamples.average() else keptSoFar.average()
+                        _state.update { it.copy(
                             progress = ((i + 1).toFloat() / sampleCount) * 0.25f,
                             currentStep = "Ping sample ${i + 1}/$sampleCount",
                             livePingMs = elapsed,
                             livePingMin = sortedSoFar.first(),
                             livePingMax = sortedSoFar.last(),
                             livePingAvg = avgSoFar,
-                            livePingCount = samples.size,
+                            livePingCount = allSamples.size,
                             livePhaseElapsed = (System.currentTimeMillis() - phaseStart) / 1000
-                        ))
+                        ) }
                     }
                 } catch (_: Exception) {
                 }
@@ -233,91 +262,100 @@ object SpeedTestRepository {
                 delay(80)
             }
 
+            val samples = allSamples.drop(warmupCount)
             if (samples.isEmpty()) {
-                return@withContext Triple(-1.0, -1.0, emptyList())
+                return@withContext Triple(-1.0, -1.0, allSamples.toList())
             }
 
             val sorted = samples.sorted()
             val medianPing = sorted[sorted.size / 2].toDouble()
 
-            val mean = samples.average()
-            val variance = samples.map { (it - mean) * (it - mean) }.average()
-            val jitter = sqrt(variance)
+            var jitterSum = 0.0
+            if (samples.size > 1) {
+                for (i in 1 until samples.size) {
+                    jitterSum += kotlin.math.abs(samples[i] - samples[i - 1]).toDouble()
+                }
+                jitterSum /= (samples.size - 1)
+            }
+            val jitter = jitterSum
 
-            Triple(medianPing, jitter, samples.toList())
+            Triple(medianPing, jitter, allSamples.toList())
         }
     }
 
 
     private suspend fun measureDownload(
         baseUrl: String,
-        sizeMb: Int
+        sizeMb: Int,
+        streams: Int
     ): Pair<Double, List<Double>> {
         return withContext(Dispatchers.IO) {
-            val history = mutableListOf<Double>()
+            val history = Collections.synchronizedList(mutableListOf<Double>())
             val totalBytes = sizeMb.toLong() * 1024L * 1024L
-            val chunkSize = 1024 * 1024 // 1MB chunks
-            var totalRead = 0L
-
-            val downloadUrl = "$baseUrl/__down?bytes=${chunkSize}"
-
-            val startTime = System.nanoTime()
+            val chunkSize = 1024L * 1024L
+            val totalRead = AtomicLong(0)
             val downloadStartTime = System.currentTimeMillis()
+            val startNanos = System.nanoTime()
 
-            try {
-                var chunkIndex = 0
-                while (totalRead < totalBytes && !isCancelled.get()) {
-                    val conn = URL(downloadUrl).openConnection() as HttpURLConnection
-                    conn.connectTimeout = 10000
-                    conn.readTimeout = 10000
-                    conn.requestMethod = "GET"
-                    conn.connect()
+            coroutineScope {
+                repeat(streams.coerceIn(1, 6)) {
+                    launch(Dispatchers.IO) {
+                        val buffer = ByteArray(64 * 1024)
+                        while (totalRead.get() < totalBytes && !isCancelled.get()) {
+                            try {
+                                val conn = java.net.URI("$baseUrl/__down?bytes=$chunkSize").toURL().openConnection() as HttpURLConnection
+                                conn.connectTimeout = 10000
+                                conn.readTimeout = 10000
+                                conn.requestMethod = "GET"
+                                conn.connect()
 
-                    if (conn.responseCode != 200 && conn.responseCode != 206) {
-                        conn.disconnect()
-                        break
+                                if (conn.responseCode != 200 && conn.responseCode != 206) {
+                                    conn.disconnect()
+                                    break
+                                }
+
+                                val inputStream: InputStream = conn.inputStream
+                                val chunkStartNanos = System.nanoTime()
+                                var chunkBytes = 0L
+                                var bytesRead: Int
+
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    chunkBytes += bytesRead
+                                    totalRead.addAndGet(bytesRead.toLong())
+                                    if (totalRead.get() >= totalBytes) break
+                                }
+                                inputStream.close()
+                                conn.disconnect()
+
+                                val chunkElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - chunkStartNanos)
+                                if (chunkBytes > 0 && chunkElapsedMs > 0) {
+                                    history.add(chunkBytes.toDouble() / (chunkElapsedMs / 1000.0))
+                                }
+
+                                val progress = (totalRead.get().toDouble() / totalBytes).coerceIn(0.0, 1.0)
+                                val elapsedSec = (System.currentTimeMillis() - downloadStartTime) / 1000.0
+                                val cumulativeSpeed = if (elapsedSec > 0.3) totalRead.get().toDouble() / elapsedSec else 0.0
+                                _state.update { it.copy(
+                                    progress = 0.30f + (progress * 0.35f).toFloat(),
+                                    currentStep = "Downloading ${formatBytes(totalRead.get())} / ${formatBytes(totalBytes)}",
+                                    liveDownloadBps = cumulativeSpeed,
+                                    liveDownloadTotal = totalRead.get(),
+                                    livePhaseElapsed = elapsedSec.toLong()
+                                ) }
+
+                                delay(20)
+                            } catch (e: Exception) {
+                                LogRepository.w("Download chunk error: ${e.message}", TAG)
+                            }
+                        }
                     }
-
-                    val inputStream: InputStream = conn.inputStream
-                    val buffer = ByteArray(64 * 1024)
-                    var bytesRead: Int
-
-                    val chunkStart = System.nanoTime()
-                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                        totalRead += bytesRead
-                    }
-                    inputStream.close()
-                    conn.disconnect()
-
-                    val chunkElapsed = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - chunkStart)
-                    var instantSpeed = 0.0
-                    if (chunkElapsed > 0) {
-                        instantSpeed = chunkSize.toDouble() / chunkElapsed
-                        history.add(instantSpeed)
-                    }
-
-                    chunkIndex++
-                    val progress = (totalRead.toDouble() / totalBytes).coerceIn(0.0, 1.0)
-                    val elapsed = (System.currentTimeMillis() - downloadStartTime) / 1000
-                    updateState(_state.value.copy(
-                        progress = 0.30f + (progress * 0.35f).toFloat(),
-                        currentStep = "Downloading ${formatBytes(totalRead)} / ${formatBytes(totalBytes)}",
-                        downloadSpeedHistory = history.toList(),
-                        liveDownloadBps = instantSpeed,
-                        liveDownloadTotal = totalRead,
-                        livePhaseElapsed = elapsed
-                    ))
-
-                    delay(50)
                 }
-            } catch (e: Exception) {
-                LogRepository.w("Download chunk error: ${e.message}", TAG)
             }
 
-            val totalElapsed = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startTime)
-            val avgSpeed = if (totalElapsed > 0) totalRead.toDouble() / totalElapsed else 0.0
+            val totalElapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos) / 1000.0
+            val avgSpeed = if (totalElapsed > 0) totalRead.get().toDouble() / totalElapsed else 0.0
 
-            Pair(avgSpeed, history)
+            Pair(avgSpeed, history.toList())
         }
     }
 
@@ -329,18 +367,18 @@ object SpeedTestRepository {
         return withContext(Dispatchers.IO) {
             val history = mutableListOf<Double>()
             val totalBytes = sizeMb.toLong() * 1024L * 1024L
-            val chunkSize = 512 * 1024 // 512KB chunks for upload
+            val chunkSize = 512 * 1024
             var totalWritten = 0L
 
             val uploadUrl = "$baseUrl/__up"
             val uploadData = ByteArray(chunkSize) { (it % 256).toByte() }
 
-            val startTime = System.nanoTime()
+            val startNanos = System.nanoTime()
             val uploadStartTime = System.currentTimeMillis()
 
             try {
                 while (totalWritten < totalBytes && !isCancelled.get()) {
-                    val conn = URL(uploadUrl).openConnection() as HttpURLConnection
+                    val conn = java.net.URI(uploadUrl).toURL().openConnection() as HttpURLConnection
                     conn.connectTimeout = 10000
                     conn.readTimeout = 10000
                     conn.requestMethod = "POST"
@@ -349,7 +387,7 @@ object SpeedTestRepository {
                     conn.setRequestProperty("Content-Length", uploadData.size.toString())
                     conn.connect()
 
-                    val chunkStart = System.nanoTime()
+                    val chunkStartNanos = System.nanoTime()
                     val outputStream = conn.outputStream
                     outputStream.write(uploadData)
                     outputStream.flush()
@@ -358,25 +396,26 @@ object SpeedTestRepository {
                     val code = conn.responseCode
                     conn.disconnect()
 
-                    val chunkElapsed = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - chunkStart)
-                    totalWritten += chunkSize
-
-                    var instantSpeed = 0.0
-                    if (chunkElapsed > 0 && (code == 200 || code == 204)) {
-                        instantSpeed = chunkSize.toDouble() / chunkElapsed
-                        history.add(instantSpeed)
+                    val chunkElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - chunkStartNanos)
+                    if ((code == 200 || code == 204 || code == 201) && chunkElapsedMs > 0) {
+                        totalWritten += chunkSize
+                        history.add(chunkSize.toDouble() / (chunkElapsedMs / 1000.0))
+                    } else if (code != 200 && code != 204 && code != 201) {
+                        LogRepository.w("Upload chunk rejected by server (code $code)", TAG)
+                        break
                     }
 
                     val progress = (totalWritten.toDouble() / totalBytes).coerceIn(0.0, 1.0)
-                    val elapsed = (System.currentTimeMillis() - uploadStartTime) / 1000
-                    updateState(_state.value.copy(
+                    val elapsedSec = (System.currentTimeMillis() - uploadStartTime) / 1000.0
+                    val cumulativeSpeed = if (elapsedSec > 0.3) totalWritten.toDouble() / elapsedSec else 0.0
+                    _state.update { it.copy(
                         progress = 0.70f + (progress * 0.30f).toFloat(),
                         currentStep = "Uploading ${formatBytes(totalWritten)} / ${formatBytes(totalBytes)}",
                         uploadSpeedHistory = history.toList(),
-                        liveUploadBps = instantSpeed,
+                        liveUploadBps = cumulativeSpeed,
                         liveUploadTotal = totalWritten,
-                        livePhaseElapsed = elapsed
-                    ))
+                        livePhaseElapsed = elapsedSec.toLong()
+                    ) }
 
                     delay(50)
                 }
@@ -384,7 +423,7 @@ object SpeedTestRepository {
                 LogRepository.w("Upload chunk error: ${e.message}", TAG)
             }
 
-            val totalElapsed = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startTime)
+            val totalElapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos) / 1000.0
             val avgSpeed = if (totalElapsed > 0) totalWritten.toDouble() / totalElapsed else 0.0
 
             Pair(avgSpeed, history)
@@ -430,16 +469,25 @@ object SpeedTestRepository {
         }
     }
 
-    /**
-     * Smart formatter: shows up to 2 decimal places, drops trailing zeros.
-     * e.g. 1.50 -> "1.5", 2.00 -> "2", 3.14 -> "3.14"
-     */
     private fun smartFormat(value: Double): String {
         val formatted = "%.2f".format(value)
         return formatted.trimEnd('0').trimEnd('.')
     }
 
-    private fun updateState(newState: SpeedTestState) {
-        _state.value = newState
+    fun checkServerReachable(server: SpeedTestServer, config: SpeedTestConfig): Boolean {
+        return try {
+            val url = resolveServerUrl(server, config)
+            if (url.isBlank()) return false
+            val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            conn.requestMethod = "HEAD"
+            conn.connect()
+            val code = conn.responseCode
+            conn.disconnect()
+            code in 200..399
+        } catch (_: Exception) {
+            false
+        }
     }
 }

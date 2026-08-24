@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.2",
   "version_code": 1,
   "is_beta": false,
-  "changelog": "• Initial release of AetherST Tunnel for Windows.\n• MASQUE, WireGuard, and Gool protocol support.\n• System-wide and SOCKS5 proxy modes.\n• Built-in MTU optimization.\n• Split tunneling with per-app routing.",
-  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.0.0-win"
+  "changelog": "• Fixed Auto-Detect results not being applied correctly (especially MASQUE)\n• Auto-Detect: manual protocol list replaced with ranked test results you can tap to apply\n• Speed Test: fixed UI freeze on start, inaccurate upload speed, wrong jitter and lost results\n• Speed Test: parallel download streams, live quality verdict, custom server and test history\n• MTU input and Optimize button are now perfectly aligned in settings\n• Various bug fixes and user interface improvements\n• Fixed missing window on launch: existing instance is now restored instead of exiting silently\n• Automatic software-rendering fallback for systems with GPU driver issues\n• Startup errors are written to startup_error.log next to the app\n• Window always opens centered on the primary display\n• Tray icon created only when the system supports it",
+  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.0.2-win"
 }

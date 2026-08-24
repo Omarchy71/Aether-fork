@@ -5,12 +5,16 @@ import androidx.compose.animation.core.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -21,13 +25,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
@@ -35,6 +44,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.SpeedTestRepository
 import io.github.immaghzbad.aetherst.shared.model.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 private val IosCardBg = Color(0xFF1C1C1E)
 private val IosGroupBg = Color(0xFF2C2C2E)
@@ -53,6 +64,9 @@ fun SpeedTestScreen(
 ) {
     val state by SpeedTestRepository.state.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
+    var showServerUnavailable by remember { mutableStateOf(false) }
+    var checkingServer by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val isAndroid = remember { try { Class.forName("android.os.Build"); true } catch(_: Throwable) { false } }
     val navBarPadding = if (isAndroid) WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     val effectiveBottomPadding = if (bottomContentPadding > 0.dp) bottomContentPadding else navBarPadding
@@ -186,9 +200,21 @@ fun SpeedTestScreen(
                 state.phase == SpeedTestPhase.ERROR || state.phase == SpeedTestPhase.CANCELLED) {
                 Button(
                     onClick = {
-                        SpeedTestRepository.reset()
-                        SpeedTestRepository.startTest()
+                        if (checkingServer) return@Button
+                        checkingServer = true
+                        scope.launch(Dispatchers.IO) {
+                            val needsCheck = state.config.selectedServer != SpeedTestServer.CLOUDFLARE
+                            val reachable = !needsCheck || SpeedTestRepository.checkServerReachable(state.config.selectedServer, state.config)
+                            checkingServer = false
+                            if (reachable) {
+                                SpeedTestRepository.reset()
+                                SpeedTestRepository.startTest()
+                            } else {
+                                showServerUnavailable = true
+                            }
+                        }
                     },
+                    enabled = !checkingServer,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -214,7 +240,7 @@ fun SpeedTestScreen(
                         when (state.phase) {
                             SpeedTestPhase.COMPLETE -> "Re-Test"
                             SpeedTestPhase.ERROR -> "Retry"
-                            else -> "Start Speed Test"
+                            else -> if (checkingServer) "Checking server..." else "Start Speed Test"
                         },
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
@@ -231,6 +257,106 @@ fun SpeedTestScreen(
                     Icon(Icons.Default.Close, null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(10.dp))
                     Text("Cancel Test", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+            }
+        }
+    }
+
+    if (showServerUnavailable) {
+        ServerUnavailableDialog(
+            serverName = state.config.selectedServer.displayName,
+            onSwitchAndStart = {
+                showServerUnavailable = false
+                showSettings = false
+                SpeedTestRepository.updateConfig(state.config.copy(selectedServer = SpeedTestServer.CLOUDFLARE))
+                SpeedTestRepository.reset()
+                SpeedTestRepository.startTest()
+            },
+            onDismiss = { showServerUnavailable = false }
+        )
+    }
+}
+
+
+@Composable
+private fun ServerUnavailableDialog(
+    serverName: String,
+    onSwitchAndStart: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+        ) {
+            val textScale = (maxWidth / 360.dp).coerceIn(0.75f, 1f)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = IosAmber,
+                        modifier = Modifier.size((38 * textScale).dp)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        "Server Unavailable",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (17 * textScale).sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        "The $serverName server is currently unreachable. Would you like to switch to Cloudflare and start the speed test?",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = (13 * textScale).sp,
+                        lineHeight = (18 * textScale).sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = onSwitchAndStart,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            "Switch to Cloudflare & Start",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = (13 * textScale).sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth().height(42.dp)
+                    ) {
+                        Text(
+                            "Cancel",
+                            color = IosSecondaryLabel,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = (13 * textScale).sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
@@ -259,7 +385,7 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SpeedTestServer.entries.filter { it != SpeedTestServer.CUSTOM }.forEach { server ->
+                SpeedTestServer.entries.forEach { server ->
                     val selected = config.selectedServer == server
                     Surface(
                         modifier = Modifier
@@ -271,14 +397,14 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                         border = if (selected) BorderStroke(1.5.dp, IosActiveBlue) else BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
                     ) {
                         Column(
-                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
                                 when (server) {
                                     SpeedTestServer.CLOUDFLARE -> Icons.Default.Cloud
                                     SpeedTestServer.OFAKIN -> Icons.Default.Storage
-                                    else -> Icons.Default.Language
+                                    SpeedTestServer.CUSTOM -> Icons.Default.Language
                                 },
                                 null,
                                 tint = if (selected) Color.White else IosSecondaryLabel,
@@ -289,18 +415,54 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                                 server.displayName,
                                 color = if (selected) Color.White else IosSecondaryLabel,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 13.sp
+                                fontSize = 12.sp
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 server.description,
                                 color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 9.sp,
-                                textAlign = TextAlign.Center
+                                fontSize = 8.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                lineHeight = 10.sp
                             )
                         }
                     }
                 }
+            }
+
+            if (config.selectedServer == SpeedTestServer.CUSTOM) {
+                Spacer(modifier = Modifier.height(10.dp))
+                val focusManager = LocalFocusManager.current
+                var urlFocused by remember { mutableStateOf(false) }
+                BasicTextField(
+                    value = config.customServerUrl,
+                    onValueChange = { onUpdate(config.copy(customServerUrl = it)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .border(
+                            1.dp,
+                            if (urlFocused) IosActiveBlue else Color.White.copy(alpha = 0.08f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .onFocusChanged { urlFocused = it.isFocused },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = 13.sp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                    singleLine = true,
+                    cursorBrush = SolidColor(IosActiveBlue),
+                    decorationBox = { innerTextField ->
+                        Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+                            if (config.customServerUrl.isEmpty()) Text("https://your-server.example.com", color = IosSecondaryLabel, fontSize = 12.sp)
+                            innerTextField()
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Must support /__down?bytes=N and /__up endpoints", color = IosSecondaryLabel, fontSize = 9.sp)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -412,6 +574,99 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            Text("PARALLEL DOWNLOAD STREAMS", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("More streams measure faster connections more accurately", color = IosSecondaryLabel.copy(alpha = 0.7f), fontSize = 9.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.3f))
+                    .padding(3.dp)
+            ) {
+                listOf(1, 2, 3, 4, 5, 6).forEach { streams ->
+                    val selected = config.downloadStreams == streams
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) IosActiveBlue else Color.Transparent)
+                            .clickable { onUpdate(config.copy(downloadStreams = streams)) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "$streams",
+                            color = if (selected) Color.White else IosSecondaryLabel,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("AUTO UNIT", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text("Scale unit automatically (KB/s → MB/s → GB/s)", color = IosSecondaryLabel, fontSize = 10.sp)
+                }
+                Switch(
+                    checked = config.autoUnit,
+                    onCheckedChange = { onUpdate(config.copy(autoUnit = it)) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = IosActiveGreen,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = IosGroupBg
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("WARM-UP PINGS DISCARDED", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = IosActiveBlue.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        "${config.pingWarmup}",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = IosActiveBlue,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("First samples include connection warm-up — discarding them improves accuracy", color = IosSecondaryLabel.copy(alpha = 0.7f), fontSize = 9.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Slider(
+                value = config.pingWarmup.toFloat(),
+                onValueChange = { onUpdate(config.copy(pingWarmup = it.toInt())) },
+                valueRange = 0f..5f,
+                steps = 4,
+                colors = SliderDefaults.colors(
+                    thumbColor = IosActiveBlue,
+                    activeTrackColor = IosActiveBlue,
+                    inactiveTrackColor = IosGroupBg
+                )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -504,8 +759,8 @@ private fun ProgressCard(state: SpeedTestState) {
 
             when (state.phase) {
                 SpeedTestPhase.PING -> LivePingStats(state)
-                SpeedTestPhase.DOWNLOAD -> LiveDownloadStats(state)
-                SpeedTestPhase.UPLOAD -> LiveUploadStats(state)
+                SpeedTestPhase.DOWNLOAD -> LiveDownloadStats(state, state.config)
+                SpeedTestPhase.UPLOAD -> LiveUploadStats(state, state.config)
                 else -> {}
             }
 
@@ -564,7 +819,8 @@ private fun LivePingStats(state: SpeedTestState) {
 }
 
 @Composable
-private fun LiveDownloadStats(state: SpeedTestState) {
+private fun LiveDownloadStats(state: SpeedTestState, config: SpeedTestConfig) {
+    val formatSpeed = if (config.showBits) SpeedTestRepository::formatBitsPerSecond else SpeedTestRepository::formatBytesPerSecond
     Column {
         Row(
             modifier = Modifier
@@ -578,7 +834,7 @@ private fun LiveDownloadStats(state: SpeedTestState) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("SPEED", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
-                    SpeedTestRepository.formatBytesPerSecond(state.liveDownloadBps),
+                    formatSpeed(state.liveDownloadBps),
                     color = IosActiveGreen,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 22.sp
@@ -601,14 +857,15 @@ private fun LiveDownloadStats(state: SpeedTestState) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MiniStat("ELAPSED", "${state.livePhaseElapsed}s", IosActiveGreen, Modifier.weight(1f))
-            MiniStat("SPEED", SpeedTestRepository.formatBitsPerSecond(state.liveDownloadBps), IosActiveBlue, Modifier.weight(1f))
+            MiniStat("SPEED", formatSpeed(state.liveDownloadBps), IosActiveBlue, Modifier.weight(1f))
             MiniStat("TOTAL", SpeedTestRepository.formatBytes(state.liveDownloadTotal), IosAmber, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun LiveUploadStats(state: SpeedTestState) {
+private fun LiveUploadStats(state: SpeedTestState, config: SpeedTestConfig) {
+    val formatSpeed = if (config.showBits) SpeedTestRepository::formatBitsPerSecond else SpeedTestRepository::formatBytesPerSecond
     Column {
         Row(
             modifier = Modifier
@@ -622,7 +879,7 @@ private fun LiveUploadStats(state: SpeedTestState) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("SPEED", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
-                    SpeedTestRepository.formatBytesPerSecond(state.liveUploadBps),
+                    formatSpeed(state.liveUploadBps),
                     color = IosPurple,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 22.sp
@@ -645,7 +902,7 @@ private fun LiveUploadStats(state: SpeedTestState) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MiniStat("ELAPSED", "${state.livePhaseElapsed}s", IosPurple, Modifier.weight(1f))
-            MiniStat("SPEED", SpeedTestRepository.formatBitsPerSecond(state.liveUploadBps), IosActiveBlue, Modifier.weight(1f))
+            MiniStat("SPEED", formatSpeed(state.liveUploadBps), IosActiveBlue, Modifier.weight(1f))
             MiniStat("TOTAL", SpeedTestRepository.formatBytes(state.liveUploadTotal), IosAmber, Modifier.weight(1f))
         }
     }
@@ -703,14 +960,12 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
             ) {
                 SpeedGauge(
                     label = "DOWNLOAD",
-                    value = if (config.showBits) result.downloadMbps else result.downloadBps / (1024.0 * 1024.0),
-                    unit = if (config.showBits) "Mb/s" else "MB/s",
+                    display = speedDisplay(result.downloadBps, config),
                     color = IosActiveGreen
                 )
                 SpeedGauge(
                     label = "UPLOAD",
-                    value = if (config.showBits) result.uploadMbps else result.uploadBps / (1024.0 * 1024.0),
-                    unit = if (config.showBits) "Mb/s" else "MB/s",
+                    display = speedDisplay(result.uploadBps, config),
                     color = IosPurple
                 )
             }
@@ -754,22 +1009,115 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
                     Text("ms", color = IosSecondaryLabel, fontSize = 11.sp)
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            ConnectionVerdict(result)
+        }
+    }
+}
+
+private data class SpeedVerdict(
+    val grade: String,
+    val gradeColor: Color,
+    val useCases: List<String>
+)
+
+private fun connectionVerdict(result: SpeedTestResult): SpeedVerdict {
+    val mbps = result.downloadMbps
+    val (grade, color) = when {
+        mbps >= 100 -> "Excellent" to IosActiveGreen
+        mbps >= 50 -> "Great" to IosActiveGreen
+        mbps >= 25 -> "Good" to IosActiveBlue
+        mbps >= 10 -> "Fair" to IosAmber
+        mbps >= 5 -> "Slow" to IosAmber
+        else -> "Very Slow" to IosErrorRed
+    }
+    val useCases = buildList {
+        if (mbps >= 25) add("4K streaming")
+        else if (mbps >= 10) add("HD streaming")
+        else if (mbps >= 5) add("SD video")
+        if (result.pingMs < 60 && result.jitterMs < 10 && mbps >= 10) add("Online gaming")
+        else if (result.pingMs < 100 && result.jitterMs < 20) add("Casual gaming")
+        if (mbps >= 3) add("Video calls")
+        else add("Voice calls")
+        if (mbps < 5) add(0, "Basic browsing")
+    }.distinct()
+    return SpeedVerdict(grade, color, useCases)
+}
+
+@Composable
+private fun ConnectionVerdict(result: SpeedTestResult) {
+    val verdict = connectionVerdict(result)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(verdict.gradeColor.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Default.Star, null, tint = verdict.gradeColor, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    verdict.grade,
+                    color = verdict.gradeColor,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 15.sp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    "connection",
+                    color = IosSecondaryLabel,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 12.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                verdict.useCases.joinToString(" • "),
+                color = Color.White.copy(alpha = 0.75f),
+                fontSize = 11.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (result.pingMs > 120 || result.jitterMs > 25) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(Icons.Default.Warning, null, tint = IosAmber, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 @Composable
-private fun SpeedGauge(label: String, value: Double, unit: String, color: Color) {
+private fun SpeedGauge(label: String, display: Pair<String, String>, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            "${"%.2f".format(value)}",
+            display.first,
             color = color,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 28.sp
+            fontSize = 24.sp
         )
-        Text(unit, color = IosSecondaryLabel, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        if (display.second.isNotEmpty()) {
+            Text(display.second, color = IosSecondaryLabel, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+private fun speedDisplay(bps: Double, config: SpeedTestConfig): Pair<String, String> {
+    return if (config.autoUnit) {
+        val formatted = if (config.showBits)
+            SpeedTestRepository.formatBitsPerSecond(bps)
+        else
+            SpeedTestRepository.formatBytesPerSecond(bps)
+        val parts = formatted.split(" ")
+        (parts.getOrNull(0) ?: formatted) to (parts.getOrNull(1) ?: "")
+    } else {
+        val value = if (config.showBits) bps * 8.0 / (1024.0 * 1024.0) else bps / (1024.0 * 1024.0)
+        "%.2f".format(value) to if (config.showBits) "Mb/s" else "MB/s"
     }
 }
 
@@ -815,13 +1163,9 @@ private fun ResultDetailsCard(result: SpeedTestResult, config: SpeedTestConfig, 
             }
             Spacer(modifier = Modifier.height(14.dp))
 
-            DetailRow("Download Speed",
-                if (config.showBits) SpeedTestRepository.formatBitsPerSecond(result.downloadBps)
-                else SpeedTestRepository.formatBytesPerSecond(result.downloadBps))
+            DetailRow("Download Speed", speedDisplay(result.downloadBps, config).let { (v, u) -> if (u.isEmpty()) v else "$v $u" })
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
-            DetailRow("Upload Speed",
-                if (config.showBits) SpeedTestRepository.formatBitsPerSecond(result.uploadBps)
-                else SpeedTestRepository.formatBytesPerSecond(result.uploadBps))
+            DetailRow("Upload Speed", speedDisplay(result.uploadBps, config).let { (v, u) -> if (u.isEmpty()) v else "$v $u" })
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
             DetailRow("Ping (Median)", "${"%.1f".format(result.pingMs)} ms")
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))

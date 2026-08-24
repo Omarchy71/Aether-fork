@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -40,13 +39,11 @@ private val IosActiveGreen = Color(0xFF34C759)
 private val IosActiveBlue = Color(0xFF007AFF)
 private val IosErrorRed = Color(0xFFFF3B30)
 private val IosAmber = Color(0xFFFF9500)
-private val IosPurple = Color(0xFFAF52DE)
 
 @Composable
 fun AutoDetectScreen(
     onBack: () -> Unit,
     onApplyResult: (AutoDetectResult) -> Unit,
-    onApplyManualProtocol: (AutoDetectResult) -> Unit,
     platformContext: PlatformContext,
     bottomContentPadding: Dp = 0.dp
 ) {
@@ -157,7 +154,7 @@ fun AutoDetectScreen(
                 }
             }
 
-            if (state.protocolResults.isNotEmpty() || state.phase == AutoDetectPhase.COMPLETE) {
+            if (state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.ERROR) {
                 item {
                     SectionHeader("NETWORK ENVIRONMENT", scaleFactor)
                     NetworkFingerprintCard(state, scaleFactor)
@@ -169,6 +166,34 @@ fun AutoDetectScreen(
                     SectionHeader("PROTOCOL LATENCY TEST", scaleFactor)
                 }
                 items(state.protocolResults) { result ->
+                    ProtocolProbeRow(result, scaleFactor)
+                }
+            }
+
+            if (state.phase == AutoDetectPhase.COMPLETE && state.finalResult != null && state.protocolResults.any { it.status == ProbeStatus.SUCCESS }) {
+                item {
+                    SectionHeader("PROTOCOL RESULTS", scaleFactor)
+                    Text(
+                        text = "Ranked by quality — tap one to apply its tested configuration",
+                        color = IosSecondaryLabel,
+                        fontSize = (11 * scaleFactor).sp,
+                        modifier = Modifier.padding(start = 4.dp, bottom = (8 * scaleFactor).dp)
+                    )
+                }
+                val base = state.finalResult!!
+                items(
+                    state.protocolResults
+                        .filter { it.status == ProbeStatus.SUCCESS }
+                        .sortedBy { it.latencyMs }
+                ) { result ->
+                    ProtocolResultRankRow(
+                        rank = state.protocolResults.filter { it.status == ProbeStatus.SUCCESS }.sortedBy { it.latencyMs }.indexOf(result) + 1,
+                        probe = result,
+                        onApply = { onApplyResult(buildResultForProtocol(result.protocol, base)) },
+                        scaleFactor = scaleFactor
+                    )
+                }
+                items(state.protocolResults.filter { it.status != ProbeStatus.SUCCESS }) { result ->
                     ProtocolProbeRow(result, scaleFactor)
                 }
             }
@@ -211,105 +236,6 @@ fun AutoDetectScreen(
                 }
             }
 
-            item {
-                SectionHeader("MANUAL PROTOCOL SELECTION", scaleFactor)
-                Text(
-                    text = "Choose a protocol manually with its recommended settings",
-                    color = IosSecondaryLabel,
-                    fontSize = (11 * scaleFactor).sp,
-                    modifier = Modifier.padding(start = 4.dp, bottom = (8 * scaleFactor).dp)
-                )
-            }
-            item {
-                ManualProtocolCard(
-                    protocol = AetherProtocol.MASQUE,
-                    title = "MASQUE",
-                    subtitle = "HTTP/2 & HTTP/3 tunneling — Best for DPI bypass",
-                    icon = Icons.Default.Shield,
-                    iconColor = IosActiveBlue,
-                    recommendedNoise = AetherNoise.FIREWALL,
-                    recommendedScan = AetherScanMode.BALANCED,
-                    extraSettings = listOf(
-                        "HTTP/2 Fallback" to "Enabled",
-                        "ECH (Encrypted Client Hello)" to "Optional",
-                        "Packet Fragmentation" to "For strict DPI"
-                    ),
-                    onApply = {
-                        onApplyManualProtocol(AutoDetectResult(
-                            recommendedProtocol = AetherProtocol.MASQUE,
-                            recommendedNoise = AetherNoise.FIREWALL,
-                            recommendedScanMode = AetherScanMode.BALANCED,
-                            recommendedMtu = 1100,
-                            recommendedIpMode = AetherIpMode.IPV4,
-                            recommendedH2Mode = true,
-                            recommendedEch = false,
-                            recommendedFragment = false,
-                            confidence = 0.9f
-                        ))
-                    },
-                    scaleFactor = scaleFactor
-                )
-            }
-            item {
-                ManualProtocolCard(
-                    protocol = AetherProtocol.WG,
-                    title = "WireGuard",
-                    subtitle = "High-speed modern VPN — Best for raw performance",
-                    icon = Icons.Default.Speed,
-                    iconColor = IosActiveGreen,
-                    recommendedNoise = AetherNoise.BALANCED,
-                    recommendedScan = AetherScanMode.TURBO,
-                    extraSettings = listOf(
-                        "Keepalive" to "5s",
-                        "No Data Check" to "Enabled",
-                        "Reconnect" to "Smart"
-                    ),
-                    onApply = {
-                        onApplyManualProtocol(AutoDetectResult(
-                            recommendedProtocol = AetherProtocol.WG,
-                            recommendedNoise = AetherNoise.BALANCED,
-                            recommendedScanMode = AetherScanMode.TURBO,
-                            recommendedMtu = 1100,
-                            recommendedIpMode = AetherIpMode.IPV4,
-                            recommendedH2Mode = false,
-                            recommendedEch = false,
-                            recommendedFragment = false,
-                            confidence = 0.9f
-                        ))
-                    },
-                    scaleFactor = scaleFactor
-                )
-            }
-            item {
-                ManualProtocolCard(
-                    protocol = AetherProtocol.GOOL,
-                    title = "Gool (WG-in-WG)",
-                    subtitle = "Double WireGuard tunnel — Best for heavy censorship",
-                    icon = Icons.Default.AllInclusive,
-                    iconColor = IosPurple,
-                    recommendedNoise = AetherNoise.BALANCED,
-                    recommendedScan = AetherScanMode.BALANCED,
-                    extraSettings = listOf(
-                        "Double Encryption" to "Active",
-                        "Outer + Inner Tunnel" to "Nested WG",
-                        "Best for" to "Strict firewalls"
-                    ),
-                    onApply = {
-                        onApplyManualProtocol(AutoDetectResult(
-                            recommendedProtocol = AetherProtocol.GOOL,
-                            recommendedNoise = AetherNoise.BALANCED,
-                            recommendedScanMode = AetherScanMode.BALANCED,
-                            recommendedMtu = 1100,
-                            recommendedIpMode = AetherIpMode.IPV4,
-                            recommendedH2Mode = false,
-                            recommendedEch = false,
-                            recommendedFragment = false,
-                            confidence = 0.9f
-                        ))
-                    },
-                    scaleFactor = scaleFactor
-                )
-            }
             item {
                 Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
             }
@@ -362,8 +288,8 @@ private fun AutoDetectProgressCard(state: AutoDetectState, scaleFactor: Float) {
 
 @Composable
 private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
-    val fingerprint = state.finalResult?.networkFingerprint
-    val isComplete = state.phase == AutoDetectPhase.COMPLETE && fingerprint != null
+    val fingerprint = state.finalResult?.networkFingerprint ?: state.liveFingerprint
+    val isComplete = fingerprint != null
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -377,15 +303,15 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
             ) {
                 InfoPill(
                     label = "NETWORK",
-                    value = if (isComplete) fingerprint!!.networkType.uppercase() else "—",
-                    color = if (isComplete && fingerprint!!.supportsDPI) IosAmber else IosActiveGreen,
+                    value = if (isComplete) fingerprint.networkType.uppercase() else "—",
+                    color = if (isComplete && fingerprint.supportsDPI) IosAmber else IosActiveGreen,
                     modifier = Modifier.weight(1f),
                     scaleFactor = scaleFactor
                 )
                 InfoPill(
                     label = "DPI DETECTED",
-                    value = if (isComplete) if (fingerprint!!.supportsDPI) "YES" else "NO" else "—",
-                    color = if (isComplete && fingerprint!!.supportsDPI) IosErrorRed else IosActiveGreen,
+                    value = if (isComplete) if (fingerprint.supportsDPI) "YES" else "NO" else "—",
+                    color = if (isComplete && fingerprint.supportsDPI) IosErrorRed else IosActiveGreen,
                     modifier = Modifier.weight(1f),
                     scaleFactor = scaleFactor
                 )
@@ -397,15 +323,15 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
             ) {
                 InfoPill(
                     label = "IPv6",
-                    value = if (isComplete) if (fingerprint!!.supportsIPv6) "YES" else "NO" else "—",
-                    color = if (isComplete && fingerprint!!.supportsIPv6) IosActiveGreen else IosSecondaryLabel,
+                    value = if (isComplete) if (fingerprint.supportsIPv6) "YES" else "NO" else "—",
+                    color = if (isComplete && fingerprint.supportsIPv6) IosActiveGreen else IosSecondaryLabel,
                     modifier = Modifier.weight(1f),
                     scaleFactor = scaleFactor
                 )
                 InfoPill(
                     label = "ISP / IP",
                     value = if (isComplete) {
-                        val isp = fingerprint!!.carrierOrIsp
+                        val isp = fingerprint.carrierOrIsp
                         if (isp.length > 16) isp.take(16) + "…" else isp
                     } else "—",
                     color = IosActiveBlue,
@@ -800,85 +726,135 @@ private fun ErrorCard(error: String?, onRetry: () -> Unit, scaleFactor: Float) {
     }
 }
 
+private fun buildResultForProtocol(protocol: AetherProtocol, base: AutoDetectResult): AutoDetectResult {
+    val isDPI = base.networkFingerprint.supportsDPI
+    return when (protocol) {
+        AetherProtocol.MASQUE -> base.copy(
+            recommendedProtocol = protocol,
+            recommendedNoise = if (isDPI) AetherNoise.GFW else AetherNoise.FIREWALL,
+            recommendedScanMode = if (isDPI) AetherScanMode.IRONCLAD else AetherScanMode.BALANCED,
+            recommendedH2Mode = true,
+            recommendedEch = isDPI,
+            recommendedFragment = isDPI,
+            recommendedNoDataCheck = false
+        )
+        AetherProtocol.WG -> base.copy(
+            recommendedProtocol = protocol,
+            recommendedNoise = AetherNoise.BALANCED,
+            recommendedScanMode = AetherScanMode.TURBO,
+            recommendedH2Mode = false,
+            recommendedEch = false,
+            recommendedFragment = false,
+            recommendedNoDataCheck = true
+        )
+        AetherProtocol.GOOL -> base.copy(
+            recommendedProtocol = protocol,
+            recommendedNoise = AetherNoise.BALANCED,
+            recommendedScanMode = if (isDPI) AetherScanMode.IRONCLAD else AetherScanMode.BALANCED,
+            recommendedH2Mode = false,
+            recommendedEch = false,
+            recommendedFragment = false,
+            recommendedNoDataCheck = true
+        )
+        AetherProtocol.ZERO_TRUST -> base.copy(
+            recommendedProtocol = protocol,
+            recommendedNoise = AetherNoise.OFF,
+            recommendedScanMode = AetherScanMode.BALANCED,
+            recommendedH2Mode = false,
+            recommendedEch = false,
+            recommendedFragment = false,
+            recommendedNoDataCheck = true
+        )
+    }
+}
+
 @Composable
-private fun ManualProtocolCard(
-    protocol: AetherProtocol,
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconColor: Color,
-    recommendedNoise: AetherNoise,
-    recommendedScan: AetherScanMode,
-    extraSettings: List<Pair<String, String>>,
+private fun qualityLabel(latencyMs: Long, scaleFactor: Float): Pair<String, Color> = when {
+    latencyMs < 80 -> "EXCELLENT" to IosActiveGreen
+    latencyMs < 180 -> "GOOD" to IosActiveBlue
+    latencyMs < 350 -> "FAIR" to IosAmber
+    else -> "SLOW" to IosErrorRed
+}
+
+@Composable
+private fun ProtocolResultRankRow(
+    rank: Int,
+    probe: ProtocolProbeResult,
     onApply: () -> Unit,
     scaleFactor: Float
 ) {
+    val (qualityLabel, qualityColor) = qualityLabel(probe.latencyMs, scaleFactor)
+    val isBest = rank == 1
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onApply),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = IosCardBg),
-        border = BorderStroke(1.dp, iconColor.copy(alpha = 0.2f))
+        border = if (isBest) BorderStroke(1.5.dp, IosActiveGreen.copy(alpha = 0.5f)) else null
     ) {
-        Column(modifier = Modifier.padding((16 * scaleFactor).dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = (14 * scaleFactor).dp, vertical = (14 * scaleFactor).dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size((34 * scaleFactor).dp)
+                    .clip(CircleShape)
+                    .background(if (isBest) IosActiveGreen.copy(alpha = 0.18f) else IosGroupBg),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size((40 * scaleFactor).dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(iconColor.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, null, tint = iconColor, modifier = Modifier.size((22 * scaleFactor).dp))
-                }
-                Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp)
-                    Text(subtitle, color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, lineHeight = (14 * scaleFactor).sp)
+                Text(
+                    "#$rank",
+                    color = if (isBest) IosActiveGreen else Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = (13 * scaleFactor).sp
+                )
+            }
+            Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    probe.protocol.displayName,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (15 * scaleFactor).sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    "${probe.latencyMs}ms median RTT",
+                    color = IosSecondaryLabel,
+                    fontSize = (11 * scaleFactor).sp
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    qualityLabel,
+                    color = qualityColor,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = (10 * scaleFactor).sp,
+                    letterSpacing = 0.5.sp
+                )
+                if (isBest) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "RECOMMENDED",
+                        color = IosActiveGreen,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = (9 * scaleFactor).sp,
+                        letterSpacing = 0.5.sp
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(containerColor = IosGroupBg)
-            ) {
-                Column(modifier = Modifier.padding((12 * scaleFactor).dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Obfuscation", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
-                        Text(recommendedNoise.displayName, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (11 * scaleFactor).sp)
-                    }
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Scan Mode", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
-                        Text(recommendedScan.name.lowercase().replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (11 * scaleFactor).sp)
-                    }
-                    extraSettings.forEach { (label, value) ->
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(label, color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
-                            Text(value, color = iconColor, fontWeight = FontWeight.SemiBold, fontSize = (11 * scaleFactor).sp)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
-
-            Button(
-                onClick = onApply,
-                modifier = Modifier.fillMaxWidth().height((44 * scaleFactor).dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = iconColor, contentColor = Color.White)
-            ) {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Apply $title Settings", fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
-            }
+            Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
+            Icon(
+                Icons.Default.ChevronRight,
+                null,
+                tint = IosSecondaryLabel,
+                modifier = Modifier.size((20 * scaleFactor).dp)
+            )
         }
     }
 }

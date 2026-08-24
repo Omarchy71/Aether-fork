@@ -82,6 +82,8 @@ import androidx.compose.ui.window.DialogProperties
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.platform.getSystemUtils
+import io.github.immaghzbad.aetherst.platform.getDeviceModel
+import io.github.immaghzbad.aetherst.platform.getOsVersion
 import io.github.immaghzbad.aetherst.shared.ui.AetherViewModel
 import io.github.immaghzbad.aetherst.shared.ui.OnboardingViewModel
 import io.github.immaghzbad.aetherst.shared.ui.components.IosToast
@@ -149,12 +151,10 @@ fun MainScreen(viewModel: AetherViewModel, onboardingViewModel: OnboardingViewMo
                 appVersion = viewModel.appVersion,
                 platformName = if (isDesktop) "Windows Desktop" else "Android",
                 deviceModel = try {
-                    if (isDesktop) System.getProperty("os.name") ?: "Unknown PC"
-                    else "Android Device"
+                    getDeviceModel()
                 } catch (_: Exception) { "Unknown" },
                 osVersion = try {
-                    if (isDesktop) System.getProperty("os.version") ?: "Unknown"
-                    else "Android"
+                    getOsVersion()
                 } catch (_: Exception) { "Unknown" },
                 onRestart = { viewModel.clearCrashLog() },
                 onCopy = { viewModel.copyToClipboard(it) },
@@ -185,6 +185,7 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
     var showSplitTunneling by remember { mutableStateOf(false) }
     var showAutoDetect by remember { mutableStateOf(false) }
     var showSpeedTest by remember { mutableStateOf(false) }
+    var openZeroTrustSettings by remember { mutableStateOf(false) }
 
     val config by viewModel.config.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
@@ -206,6 +207,22 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
             selectedTab = 1
             showSplitTunneling = false
             showRoutingRules = false
+        }
+    }
+
+    LaunchedEffect(openZeroTrustSettings) {
+        if (openZeroTrustSettings) {
+            selectedTab = 1
+            showSplitTunneling = false
+            showRoutingRules = false
+            showAutoDetect = false
+            showSpeedTest = false
+        }
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 1 && openZeroTrustSettings) {
+            openZeroTrustSettings = false
         }
     }
 
@@ -296,6 +313,7 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                                 onRefreshIpInfo = { viewModel.refreshIpInfo() },
                                 onRefreshPing = { viewModel.refreshPing() },
                                 onCopy = { viewModel.copyToClipboard(it) },
+                                onOpenSettingsToZeroTrust = { openZeroTrustSettings = true },
                                 appVersion = viewModel.appVersion,
                                 bottomContentPadding = totalNavBarHeight,
                                 platformContext = platformContext
@@ -321,6 +339,8 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                                 isOptimizingMtu = isOptimizingMtu,
                                 onRequestBatteryOptimization = { viewModel.requestBatteryOptimization() },
                                 onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
+                                initialPage = if (openZeroTrustSettings) SettingsPage.ZEROTRUST else null,
+                                onSubPageClosed = { openZeroTrustSettings = false },
                                 bottomContentPadding = totalNavBarHeight
                             )
 
@@ -357,10 +377,6 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                             101 -> AutoDetectScreen(
                                 onBack = { showAutoDetect = false },
                                 onApplyResult = { result ->
-                                    viewModel.applyAutoDetectResult(result)
-                                    showAutoDetect = false
-                                },
-                                onApplyManualProtocol = { result ->
                                     viewModel.applyAutoDetectResult(result)
                                     showAutoDetect = false
                                 },

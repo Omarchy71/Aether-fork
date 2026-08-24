@@ -46,11 +46,47 @@ object AutoDetectRepository {
             try {
                 updateState(AutoDetectState(
                     phase = AutoDetectPhase.FINGERPRINTING,
-                    currentStep = "Analyzing network environment...",
+                    currentStep = "Checking IPv6 connectivity...",
                     progressPercent = 5
                 ))
-                val fingerprint = networkFingerprint(platformContext)
-                updateState(_state.value.copy(progressPercent = 15))
+                val hasIPv6 = try {
+                    withTimeout(5_000L) { detectIPv6() }
+                } catch (_: Exception) { false }
+                updateState(_state.value.copy(
+                    liveFingerprint = NetworkFingerprint(
+                        networkType = "open", supportsDPI = false, supportsUDP = true,
+                        supportsIPv6 = hasIPv6, carrierOrIsp = "Detecting..."
+                    ),
+                    currentStep = "Checking DPI restrictions...",
+                    progressPercent = 8
+                ))
+
+                val isDPI = try {
+                    withTimeout(6_000L) { detectDPI() }
+                } catch (_: Exception) { false }
+                updateState(_state.value.copy(
+                    liveFingerprint = NetworkFingerprint(
+                        networkType = if (isDPI) "restricted" else "open",
+                        supportsDPI = isDPI, supportsUDP = true,
+                        supportsIPv6 = hasIPv6, carrierOrIsp = "Detecting..."
+                    ),
+                    currentStep = "Detecting ISP...",
+                    progressPercent = 12
+                ))
+
+                val isp = try {
+                    withTimeout(6_000L) { detectIsp() }
+                } catch (_: Exception) { "Unknown" }
+                val fingerprint = NetworkFingerprint(
+                    networkType = if (isDPI) "restricted" else "open",
+                    supportsDPI = isDPI, supportsUDP = true,
+                    supportsIPv6 = hasIPv6, carrierOrIsp = isp
+                )
+                updateState(_state.value.copy(
+                    liveFingerprint = fingerprint,
+                    currentStep = "Network fingerprint complete",
+                    progressPercent = 15
+                ))
 
                 updateState(_state.value.copy(
                     phase = AutoDetectPhase.PROTOCOL_SCAN,
@@ -134,11 +170,21 @@ object AutoDetectRepository {
     }
 
     private fun detectIPv6(): Boolean {
+        val isWindows = try {
+            System.getProperty("os.name")?.lowercase()?.contains("win") == true
+        } catch (_: Throwable) { false }
+
+        val timeout = if (isWindows) 1500 else 3000
         return try {
             val sock = Socket()
-            sock.connect(InetSocketAddress("2606:4700:4700::1111", 53), 3000)
-            sock.close()
-            true
+            try {
+                sock.connect(InetSocketAddress("2606:4700:4700::1111", 53), timeout)
+                sock.close()
+                true
+            } catch (_: Exception) {
+                try { sock.close() } catch (_: Exception) {}
+                false
+            }
         } catch (_: Exception) {
             false
         }
@@ -149,8 +195,8 @@ object AutoDetectRepository {
             val request = Request.Builder().url(HTTPS_TARGET)
                 .header("User-Agent", "AetherST-AutoDetect/1.0").build()
             val client = NetworkClient.instance.newBuilder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(4, TimeUnit.SECONDS)
                 .build()
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
@@ -170,8 +216,8 @@ object AutoDetectRepository {
             val request = Request.Builder().url("https://api.ipify.org?format=json")
                 .header("User-Agent", "AetherST-AutoDetect/1.0").build()
             val client = NetworkClient.instance.newBuilder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(4, TimeUnit.SECONDS)
                 .build()
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
@@ -225,7 +271,7 @@ object AutoDetectRepository {
                 val sock = Socket()
                 sock.tcpNoDelay = true
                 val start = System.nanoTime()
-                sock.connect(InetSocketAddress(host, port), 3000)
+                sock.connect(InetSocketAddress(host, port), 2500)
                 val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
                 sock.close()
                 samples.add(elapsed)
@@ -543,6 +589,7 @@ object AutoDetectRepository {
             recommendedH2Mode = recommendedProtocol == AetherProtocol.MASQUE,
             recommendedEch = fingerprint.supportsDPI && recommendedProtocol == AetherProtocol.MASQUE,
             recommendedFragment = fingerprint.supportsDPI && recommendedProtocol == AetherProtocol.MASQUE,
+            recommendedNoDataCheck = recommendedProtocol != AetherProtocol.MASQUE,
             confidence = confidence,
             networkFingerprint = fingerprint
         )

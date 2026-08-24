@@ -139,5 +139,10 @@ data class AetherConfig(
     val upstreamProxy: String = "",
     val routeSniffing: Boolean = true,
     val sniffingTimeoutMs: Int = 100,
-    val reprovision: Boolean = true
+    val reprovision: Boolean = true,
+    val hevLogLevel: String = "warn",
+    val hevConnectTimeoutMs: Int = 5000,
+    val hevReadWriteTimeoutMs: Int = 60000,
+    val hevMaxSessionCount: Int = 0,
+    val hevMapdnsCacheSize: Int = 10000
 )

@@ -137,7 +137,16 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             routeSniffing = settings.getBoolean("${prefix}route_sniffing", true),
             sniffingTimeoutMs = settings.getInt("${prefix}sniffing_timeout_ms", 100),
             reprovision = settings.getBoolean("${prefix}reprovision", true),
+            hevLogLevel = sanitizeHevLogLevel(settings.getString("${prefix}hev_log_level", "warn")),
+            hevConnectTimeoutMs = settings.getInt("${prefix}hev_connect_timeout_ms", 5000),
+            hevReadWriteTimeoutMs = settings.getInt("${prefix}hev_read_write_timeout_ms", 60000),
+            hevMaxSessionCount = settings.getInt("${prefix}hev_max_session_count", 0),
+            hevMapdnsCacheSize = settings.getInt("${prefix}hev_mapdns_cache_size", 10000),
         )
+    }
+
+    private fun sanitizeHevLogLevel(value: String): String {
+        return if (value in setOf("error", "warn", "info", "debug")) value else "warn"
     }
 
     fun updateConfig(newConfig: AetherConfig) {
@@ -157,6 +166,22 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         LogRepository.currentAppLogLevel = finalConfig.appLogLevel
         LogRepository.currentCoreLogLevel = finalConfig.coreLogLevel
         _config.value = finalConfig
+    }
+
+    fun applyDetectedConfig(newConfig: AetherConfig) {
+        val oldConfig = _config.value
+        val manualConfig = newConfig.copy(presetId = "custom")
+
+        if (oldConfig.protocol != manualConfig.protocol) {
+            saveProtocolSettings(oldConfig)
+        }
+        saveProtocolSettings(manualConfig)
+
+        saveToSettings("", manualConfig)
+        saveToSettings("manual_", manualConfig)
+        LogRepository.currentAppLogLevel = manualConfig.appLogLevel
+        LogRepository.currentCoreLogLevel = manualConfig.coreLogLevel
+        _config.value = manualConfig
     }
 
     fun setOnboardingComplete(complete: Boolean) {
@@ -223,6 +248,11 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putBoolean("${prefix}route_sniffing", cfg.routeSniffing)
         settings.putInt("${prefix}sniffing_timeout_ms", cfg.sniffingTimeoutMs)
         settings.putBoolean("${prefix}reprovision", cfg.reprovision)
+        settings.putString("${prefix}hev_log_level", sanitizeHevLogLevel(cfg.hevLogLevel))
+        settings.putInt("${prefix}hev_connect_timeout_ms", cfg.hevConnectTimeoutMs.coerceIn(500, 120000))
+        settings.putInt("${prefix}hev_read_write_timeout_ms", cfg.hevReadWriteTimeoutMs.coerceIn(1000, 600000))
+        settings.putInt("${prefix}hev_max_session_count", cfg.hevMaxSessionCount.coerceIn(0, 200000))
+        settings.putInt("${prefix}hev_mapdns_cache_size", cfg.hevMapdnsCacheSize.coerceIn(100, 1000000))
     }
 
     fun resetToDefaults() {

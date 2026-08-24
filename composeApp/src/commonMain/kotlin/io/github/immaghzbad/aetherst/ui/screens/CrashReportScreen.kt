@@ -14,8 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,7 +38,6 @@ fun CrashReportScreen(
     onShare: (String) -> Unit,
     onShowToast: (String) -> Unit
 ) {
-    val clipboardManager = LocalClipboardManager.current
 
     val systemInfo = buildString {
         appendLine("═══════════════════════════════")
@@ -156,7 +153,7 @@ fun CrashReportScreen(
 
             Surface(
                 onClick = {
-                    clipboardManager.setText(AnnotatedString(systemInfo))
+                    onCopy(systemInfo)
                     onShowToast("Report copied to clipboard")
                 },
                 modifier = Modifier.weight(1f),

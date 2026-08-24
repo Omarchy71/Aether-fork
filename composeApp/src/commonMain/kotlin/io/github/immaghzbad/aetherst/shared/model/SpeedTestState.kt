@@ -81,7 +81,10 @@ data class SpeedTestConfig(
     val uploadSizeMb: Int = 10,
     val pingSamples: Int = 20,
     val customServerUrl: String = "",
-    val showBits: Boolean = false
+    val showBits: Boolean = false,
+    val downloadStreams: Int = 3,
+    val pingWarmup: Int = 1,
+    val autoUnit: Boolean = true
 )
 
 @Serializable

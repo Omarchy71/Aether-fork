@@ -2,6 +2,8 @@ package io.github.immaghzbad.aetherst.shared.data
 
 import io.github.immaghzbad.aetherst.shared.core.NetworkClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,28 +24,31 @@ object IpInfoRepository {
 
     suspend fun fetchIpInfo(socksHost: String = "127.0.0.1", socksPort: Int = 1819, useProxy: Boolean = true) {
         if (!mutex.tryLock()) return
-        
+
         try {
             _ipInfo.value = _ipInfo.value.copy(isLoading = true)
 
             withContext(Dispatchers.Default) {
                 if (!useProxy) {
-                    LogRepository.i("Querying public IP endpoint...", "IpWhois")
-                    if (tryFetchDirectIpSb() || tryFetchDirectIpify()) {
+                    LogRepository.i("Querying public IP (direct)...", "IpWhois")
+                    val result = fetchParallelDirect()
+                    if (result != null) {
+                        _ipInfo.value = result
+                        LogRepository.i("Direct IP: ${result.ip} (${result.country})", "IpWhois")
                         return@withContext
                     }
                 } else {
                     delay(2500.milliseconds)
 
                     for (attempt in 1..3) {
-                        LogRepository.i("Querying public IP via tunnel ($socksHost:$socksPort)...", "IpWhois")
+                        LogRepository.i("Querying public IP via tunnel ($socksHost:$socksPort) attempt $attempt...", "IpWhois")
 
-                        val success = tryFetchFromIpSb(socksHost, socksPort) || 
-                                      tryFetchFromIpify(socksHost, socksPort) ||
-                                      tryFetchFromIfconfig(socksHost, socksPort) ||
-                                      tryFetchFromAmazon(socksHost, socksPort)
-                        
-                        if (success) return@withContext
+                        val result = fetchParallelViaProxy(socksHost, socksPort)
+                        if (result != null) {
+                            _ipInfo.value = result
+                            LogRepository.i("Tunnel IP: ${result.ip} (${result.country})", "IpWhois")
+                            return@withContext
+                        }
 
                         if (attempt < 3) {
                             delay(2000.milliseconds)
@@ -51,7 +56,7 @@ object IpInfoRepository {
                     }
                 }
 
-                LogRepository.w("${if (useProxy) "SOCKS proxy" else "Direct"} IP lookup failed.", "IpWhois")
+                LogRepository.w("${if (useProxy) "SOCKS proxy" else "Direct"} IP lookup failed after all attempts.", "IpWhois")
                 _ipInfo.value = _ipInfo.value.copy(
                     isLoading = false,
                     error = if (useProxy) "Proxy Lookup Failed" else "Direct Lookup Failed"
@@ -62,13 +67,48 @@ object IpInfoRepository {
         }
     }
 
-    private fun tryFetchFromIpSb(socksHost: String, socksPort: Int): Boolean {
+    private suspend fun fetchParallelDirect(): IpInfo? = coroutineScope {
+        val sources = listOf(
+            async { tryDirectIpSb() },
+            async { tryDirectIpify() },
+            async { tryDirectIpinfoIo() },
+            async { tryDirectIfconfig() }
+        )
+        for (future in sources) {
+            val result = future.await()
+            if (result != null) {
+                sources.forEach { it.cancel() }
+                return@coroutineScope result
+            }
+        }
+        null
+    }
+
+    private suspend fun fetchParallelViaProxy(socksHost: String, socksPort: Int): IpInfo? = coroutineScope {
+        val sources = listOf(
+            async { tryViaProxyIpSb(socksHost, socksPort) },
+            async { tryViaProxyIpify(socksHost, socksPort) },
+            async { tryViaProxyIfconfig(socksHost, socksPort) },
+            async { tryViaProxyIpinfoIo(socksHost, socksPort) },
+            async { tryViaProxyAmazon(socksHost, socksPort) }
+        )
+        for (future in sources) {
+            val result = future.await()
+            if (result != null) {
+                sources.forEach { it.cancel() }
+                return@coroutineScope result
+            }
+        }
+        null
+    }
+
+    private fun tryViaProxyIpSb(socksHost: String, socksPort: Int): IpInfo? {
         return try {
             val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
             val client = NetworkClient.instance.newBuilder()
                 .proxy(proxy)
-                .connectTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build()
 
             val request = Request.Builder()
@@ -78,33 +118,31 @@ object IpInfoRepository {
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string() ?: return false
+                    val jsonStr = response.body?.string() ?: return null
                     val root = json.parseToJsonElement(jsonStr).jsonObject
                     val ip = root["ip"]?.jsonPrimitive?.content ?: ""
                     val country = root["country"]?.jsonPrimitive?.content ?: "Unknown"
                     val countryCode = root["country_code"]?.jsonPrimitive?.content ?: ""
 
                     if (ip.isNotEmpty()) {
-                        _ipInfo.value = IpInfo(ip, country, countryCode, getFlagEmoji(countryCode), false)
-                        LogRepository.i("Geo-data synchronized (ip.sb): $ip ($country)", "IpWhois")
-                        return true
-                    }
-                }
+                        LogRepository.i("Geo-data (ip.sb): $ip ($country)", "IpWhois")
+                        IpInfo(ip, country, countryCode, getFlagEmoji(countryCode), false)
+                    } else null
+                } else null
             }
-            false
         } catch (e: Exception) {
             LogRepository.w("ip.sb via SOCKS error: ${e.message}", "IpWhois")
-            false
+            null
         }
     }
 
-    private fun tryFetchFromIpify(socksHost: String, socksPort: Int): Boolean {
+    private fun tryViaProxyIpify(socksHost: String, socksPort: Int): IpInfo? {
         return try {
             val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
             val client = NetworkClient.instance.newBuilder()
                 .proxy(proxy)
-                .connectTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build()
 
             val request = Request.Builder()
@@ -114,31 +152,29 @@ object IpInfoRepository {
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string() ?: return false
+                    val jsonStr = response.body?.string() ?: return null
                     val root = json.parseToJsonElement(jsonStr).jsonObject
                     val ip = root["ip"]?.jsonPrimitive?.content ?: ""
 
                     if (ip.isNotEmpty()) {
-                        _ipInfo.value = IpInfo(ip, "Unknown", "", "🌐", false)
-                        LogRepository.i("IP discovered via ipify: $ip", "IpWhois")
-                        return true
-                    }
-                }
+                        LogRepository.i("IP via ipify: $ip", "IpWhois")
+                        IpInfo(ip, "Unknown", "", getFlagEmoji(""), false)
+                    } else null
+                } else null
             }
-            false
         } catch (e: Exception) {
             LogRepository.w("ipify via SOCKS error: ${e.message}", "IpWhois")
-            false
+            null
         }
     }
 
-    private fun tryFetchFromIfconfig(socksHost: String, socksPort: Int): Boolean {
+    private fun tryViaProxyIfconfig(socksHost: String, socksPort: Int): IpInfo? {
         return try {
             val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
             val client = NetworkClient.instance.newBuilder()
                 .proxy(proxy)
-                .connectTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build()
 
             val request = Request.Builder()
@@ -148,32 +184,30 @@ object IpInfoRepository {
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string() ?: return false
+                    val jsonStr = response.body?.string() ?: return null
                     val root = json.parseToJsonElement(jsonStr).jsonObject
                     val ip = root["ip_addr"]?.jsonPrimitive?.content ?: ""
                     val countryCode = root["country_code"]?.jsonPrimitive?.content ?: ""
 
                     if (ip.isNotEmpty()) {
-                        _ipInfo.value = IpInfo(ip, "Unknown", countryCode, getFlagEmoji(countryCode), false)
-                        LogRepository.i("IP discovered via ifconfig: $ip", "IpWhois")
-                        return true
-                    }
-                }
+                        LogRepository.i("IP via ifconfig: $ip", "IpWhois")
+                        IpInfo(ip, "Unknown", countryCode, getFlagEmoji(countryCode), false)
+                    } else null
+                } else null
             }
-            false
         } catch (e: Exception) {
             LogRepository.w("ifconfig.me via SOCKS error: ${e.message}", "IpWhois")
-            false
+            null
         }
     }
 
-    private fun tryFetchFromAmazon(socksHost: String, socksPort: Int): Boolean {
+    private fun tryViaProxyAmazon(socksHost: String, socksPort: Int): IpInfo? {
         return try {
             val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
             val client = NetworkClient.instance.newBuilder()
                 .proxy(proxy)
-                .connectTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(12000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build()
 
             val request = Request.Builder()
@@ -183,63 +217,136 @@ object IpInfoRepository {
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val ip = response.body?.string()?.trim() ?: return false
+                    val ip = response.body?.string()?.trim() ?: ""
                     if (ip.isNotEmpty()) {
-                        _ipInfo.value = IpInfo(ip, "Unknown", "", "🌐", false)
-                        LogRepository.i("IP discovered via Amazon: $ip", "IpWhois")
-                        return true
-                    }
-                }
+                        LogRepository.i("IP via Amazon: $ip", "IpWhois")
+                        IpInfo(ip, "Unknown", "", getFlagEmoji(""), false)
+                    } else null
+                } else null
             }
-            false
         } catch (e: Exception) {
             LogRepository.w("Amazon IP check failed: ${e.message}", "IpWhois")
-            false
+            null
         }
     }
 
-    private fun tryFetchDirectIpSb(): Boolean {
+    private fun tryViaProxyIpinfoIo(socksHost: String, socksPort: Int): IpInfo? {
         return try {
-            val request = Request.Builder().url("https://api.ip.sb/geoip").build()
-            NetworkClient.instance.newCall(request).execute().use { response ->
+            val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
+            val client = NetworkClient.instance.newBuilder()
+                .proxy(proxy)
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build()
+
+            val request = Request.Builder()
+                .url("https://ipinfo.io/json")
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+
+            client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string() ?: return false
+                    val jsonStr = response.body?.string() ?: return null
+                    val root = json.parseToJsonElement(jsonStr).jsonObject
+                    val ip = root["ip"]?.jsonPrimitive?.content ?: ""
+                    val country = root["country"]?.jsonPrimitive?.content ?: "Unknown"
+                    val countryCode = root["country"]?.jsonPrimitive?.content ?: ""
+
+                    if (ip.isNotEmpty()) {
+                        LogRepository.i("IP via ipinfo.io: $ip ($country)", "IpWhois")
+                        IpInfo(ip, country, countryCode, getFlagEmoji(countryCode), false)
+                    } else null
+                } else null
+            }
+        } catch (e: Exception) {
+            LogRepository.w("ipinfo.io via SOCKS error: ${e.message}", "IpWhois")
+            null
+        }
+    }
+
+    private fun tryDirectIpSb(): IpInfo? {
+        return try {
+            val client = NetworkClient.instance.newBuilder()
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build()
+            val request = Request.Builder().url("https://api.ip.sb/geoip").build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string() ?: return null
                     val root = json.parseToJsonElement(jsonStr).jsonObject
                     val ip = root["ip"]?.jsonPrimitive?.content ?: ""
                     if (ip.isNotEmpty()) {
                         val country = root["country"]?.jsonPrimitive?.content ?: "Unknown"
                         val countryCode = root["country_code"]?.jsonPrimitive?.content ?: ""
-                        _ipInfo.value = IpInfo(ip, country, countryCode, getFlagEmoji(countryCode), false)
-                        return true
-                    }
-                }
+                        IpInfo(ip, country, countryCode, getFlagEmoji(countryCode), false)
+                    } else null
+                } else null
             }
-            false
-        } catch (_: Exception) { false }
+        } catch (_: Exception) { null }
     }
 
-    private fun tryFetchDirectIpify(): Boolean {
+    private fun tryDirectIpify(): IpInfo? {
         return try {
+            val client = NetworkClient.instance.newBuilder()
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build()
             val request = Request.Builder().url("https://api.ipify.org?format=json").build()
-            NetworkClient.instance.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val jsonStr = response.body?.string() ?: return false
+                    val jsonStr = response.body?.string() ?: return null
                     val root = json.parseToJsonElement(jsonStr).jsonObject
                     val ip = root["ip"]?.jsonPrimitive?.content ?: ""
-                    if (ip.isNotEmpty()) {
-                        _ipInfo.value = IpInfo(ip, "Unknown", "", "🌐", false)
-                        return true
-                    }
-                }
+                    if (ip.isNotEmpty()) IpInfo(ip, "Unknown", "", getFlagEmoji(""), false) else null
+                } else null
             }
-            false
-        } catch (_: Exception) { false }
+        } catch (_: Exception) { null }
+    }
+
+    private fun tryDirectIpinfoIo(): IpInfo? {
+        return try {
+            val client = NetworkClient.instance.newBuilder()
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build()
+            val request = Request.Builder().url("https://ipinfo.io/json").build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string() ?: return null
+                    val root = json.parseToJsonElement(jsonStr).jsonObject
+                    val ip = root["ip"]?.jsonPrimitive?.content ?: ""
+                    val country = root["country"]?.jsonPrimitive?.content ?: "Unknown"
+                    val countryCode = root["country"]?.jsonPrimitive?.content ?: ""
+                    if (ip.isNotEmpty()) IpInfo(ip, country, countryCode, getFlagEmoji(countryCode), false) else null
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun tryDirectIfconfig(): IpInfo? {
+        return try {
+            val client = NetworkClient.instance.newBuilder()
+                .connectTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(8000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build()
+            val request = Request.Builder().url("https://ifconfig.me/all.json").build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val jsonStr = response.body?.string() ?: return null
+                    val root = json.parseToJsonElement(jsonStr).jsonObject
+                    val ip = root["ip_addr"]?.jsonPrimitive?.content ?: ""
+                    val countryCode = root["country_code"]?.jsonPrimitive?.content ?: ""
+                    if (ip.isNotEmpty()) IpInfo(ip, "Unknown", countryCode, getFlagEmoji(countryCode), false) else null
+                } else null
+            }
+        } catch (_: Exception) { null }
     }
 
     fun reset() { _ipInfo.value = IpInfo() }
 
     private fun getFlagEmoji(countryCode: String): String {
-        if (countryCode.length != 2) return "🌐"
+        if (countryCode.length != 2) return "\uD83C\uDF10"
         val firstLetter = countryCode[0].uppercaseChar().code - 'A'.code + 0x1F1E6
         val secondLetter = countryCode[1].uppercaseChar().code - 'A'.code + 0x1F1E6
         return codePointToString(firstLetter) + codePointToString(secondLetter)
