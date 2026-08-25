@@ -11,13 +11,11 @@ class DesktopBinaryManager : BinaryManager {
             name
         }
 
-        
         System.getProperty("compose.application.resources.dir")?.let {
             val file = File(it, binName)
             if (file.exists()) return file.absolutePath
         }
 
-        
         val userDir = File(System.getProperty("user.dir"))
         val devDirs = listOf(userDir, File(userDir, "bin"), File(userDir, "src/desktopMain/resources/bin"))
         for (dir in devDirs) {
@@ -25,7 +23,6 @@ class DesktopBinaryManager : BinaryManager {
             if (file.exists()) return file.absolutePath
         }
 
-        
         val appData = System.getenv("AppData") ?: System.getProperty("user.home")
         val targetDir = File(appData, "AetherST-Tunnel/bin")
         if (!targetDir.exists()) targetDir.mkdirs()
@@ -37,8 +34,14 @@ class DesktopBinaryManager : BinaryManager {
                     targetFile.outputStream().use { output -> input.copyTo(output) }
                     if (!System.getProperty("os.name").lowercase().contains("win")) targetFile.setExecutable(true)
                 }
-                
-                if (binName.contains("tun2socks")) {
+                if (binName.contains("hev-socks5-tunnel")) {
+                    extractResource("wintun.dll", targetDir)
+                    extractResource("msys-2.0.dll", targetDir)
+                }
+            } catch (_: Exception) {}
+        } else {
+            try {
+                if (binName.contains("hev-socks5-tunnel")) {
                     extractResource("wintun.dll", targetDir)
                     extractResource("msys-2.0.dll", targetDir)
                 }

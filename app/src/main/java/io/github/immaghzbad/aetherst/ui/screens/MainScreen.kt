@@ -12,9 +12,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -155,16 +153,6 @@ fun MainScreen(viewModel: AetherViewModel) {
 
     val toastState by viewModel.toastState.collectAsStateWithLifecycle()
 
-    SideEffect {
-        activity?.enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.BLACK),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            activity?.window?.isNavigationBarContrastEnforced = false
-        }
-    }
-
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenWidth = this.maxWidth
         val scaleFactor = (screenWidth.value / 411f).coerceIn(0.7f, 1.1f)
@@ -257,6 +245,7 @@ private fun DashboardContent(viewModel: AetherViewModel) {
     val isWaitingForLoginCode by viewModel.isWaitingForLoginCode.collectAsStateWithLifecycle()
     val scrollToZeroTrust by viewModel.scrollToZeroTrust.collectAsStateWithLifecycle()
     var showRoutingRules by remember { mutableStateOf(value = false) }
+    
 
     LaunchedEffect(scrollToZeroTrust) {
         if (scrollToZeroTrust) {
@@ -308,9 +297,8 @@ private fun DashboardContent(viewModel: AetherViewModel) {
         val scaleFactor = (screenWidth.value / 411f).coerceIn(0.7f, 1.1f)
 
         Box(modifier = Modifier.fillMaxSize()) {
-            val targetScreen = if (showRoutingRules) 100 else if (showSplitTunneling) 99 else selectedTab
             AnimatedContent(
-                targetState = targetScreen,
+                targetState = selectedTab,
                 transitionSpec = {
                     val duration = 350
                     if (targetState > initialState) {
@@ -373,40 +361,53 @@ private fun DashboardContent(viewModel: AetherViewModel) {
                         )
                         2 -> LogsScreen(viewModel = viewModel, onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) }, bottomContentPadding = BarContentHeight + navBarHeight)
                         3 -> AboutUsScreen(bottomContentPadding = BarContentHeight + navBarHeight)
-                        99 -> SplitTunnelingScreen(
-                            apps = installedApps,
-                            excludedPackages = config.excludedPackages,
-                            blockedPackages = config.blockedPackages,
-                            onUpdateMode = { pkg: String, mode: Int -> viewModel.updateAppSplitTunnelingMode(pkg, mode) },
-                            onBack = { showSplitTunneling = false },
-                            scaleFactor = scaleFactor
-                        )
-                        100 -> RoutingRulesScreen(
-                            rules = config.routingRules,
-                            importConflictRules = importConflictRules,
-                            importErrorMessage = importErrorMessage,
-                            onAddRule = { pattern: String, mode: RoutingMode -> viewModel.addRoutingRule(pattern, mode) },
-                            onRemoveRule = { pattern: String -> viewModel.removeRoutingRule(pattern) },
-                            onUpdateMode = { pattern: String, mode: RoutingMode -> viewModel.updateRoutingRuleMode(pattern, mode) },
-                            onClearAllRules = { viewModel.clearAllRoutingRules() },
-                            onCleanPattern = { viewModel.cleanRoutingPattern(it) },
-                            onValidatePattern = { viewModel.isValidRoutingPattern(it) },
-                            onExportRules = { viewModel.exportRoutingRules(context) },
-                            onImportRules = { uri: android.net.Uri -> viewModel.importRoutingRules(uri, context) },
-                            onImportInternalRules = { viewModel.importInternalRoutingRules(it) },
-                            onResolveConflict = { rules: List<RoutingRule>, replace: Boolean -> viewModel.resolveConflict(rules, replace) },
-                            onCancelImport = { viewModel.cancelImport() },
-                            onClearImportError = { viewModel.clearImportError() },
-                            onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
-                            onBack = { showRoutingRules = false },
-                            scaleFactor = scaleFactor
-                        )
                     }
                 }
             }
-        }
-        if (!showSplitTunneling && !showRoutingRules) {
-            CurvedNavBar(selectedTab = selectedTab, navBarHeight = navBarHeight, onTabSelected = { selectedTab = it }, modifier = Modifier.align(Alignment.BottomCenter))
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showSplitTunneling,
+                enter = slideInHorizontally(animationSpec = tween(350, easing = FastOutSlowInEasing)) { it } + fadeIn(animationSpec = tween(350)),
+                exit = slideOutHorizontally(animationSpec = tween(350, easing = FastOutSlowInEasing)) { it } + fadeOut(animationSpec = tween(350))
+            ) {
+                SplitTunnelingScreen(
+                    apps = installedApps,
+                    excludedPackages = config.excludedPackages,
+                    blockedPackages = config.blockedPackages,
+                    tunnelAllApps = config.tunnelAllApps,
+                    onUpdateMode = { pkg: String, mode: Int -> viewModel.updateAppSplitTunnelingMode(pkg, mode) },
+                    onBack = { showSplitTunneling = false },
+                    scaleFactor = scaleFactor
+                )
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showRoutingRules,
+                enter = slideInHorizontally(animationSpec = tween(350, easing = FastOutSlowInEasing)) { it } + fadeIn(animationSpec = tween(350)),
+                exit = slideOutHorizontally(animationSpec = tween(350, easing = FastOutSlowInEasing)) { it } + fadeOut(animationSpec = tween(350))
+            ) {
+                RoutingRulesScreen(
+                    rules = config.routingRules,
+                    importConflictRules = importConflictRules,
+                    importErrorMessage = importErrorMessage,
+                    onAddRule = { pattern: String, mode: RoutingMode -> viewModel.addRoutingRule(pattern, mode) },
+                    onRemoveRule = { pattern: String -> viewModel.removeRoutingRule(pattern) },
+                    onUpdateMode = { pattern: String, mode: RoutingMode -> viewModel.updateRoutingRuleMode(pattern, mode) },
+                    onClearAllRules = { viewModel.clearAllRoutingRules() },
+                    onCleanPattern = { viewModel.cleanRoutingPattern(it) },
+                    onValidatePattern = { viewModel.isValidRoutingPattern(it) },
+                    onExportRules = { viewModel.exportRoutingRules(context) },
+                    onImportRules = { uri: android.net.Uri -> viewModel.importRoutingRules(uri, context) },
+                    onImportInternalRules = { viewModel.importInternalRoutingRules(it) },
+                    onResolveConflict = { rules: List<RoutingRule>, replace: Boolean -> viewModel.resolveConflict(rules, replace) },
+                    onCancelImport = { viewModel.cancelImport() },
+                    onClearImportError = { viewModel.clearImportError() },
+                    onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
+                    onBack = { showRoutingRules = false },
+                    scaleFactor = scaleFactor
+                )
+            }
+            if (!showSplitTunneling && !showRoutingRules) {
+                CurvedNavBar(selectedTab = selectedTab, navBarHeight = navBarHeight, onTabSelected = { selectedTab = it }, modifier = Modifier.align(Alignment.BottomCenter))
+            }
         }
 
         if (isWaitingForLoginCode) {

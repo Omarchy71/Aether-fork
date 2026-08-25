@@ -49,9 +49,9 @@ fun CrashReportScreen(
     }
     val appVersion = try {
         context.packageManager.getPackageInfo(context.packageName, 0).let {
-            "${it.versionName ?: "1.5.4"} (Code ${it.longVersionCode})"
+            "${it.versionName ?: "1.5.6"} (Code ${it.longVersionCode})"
         }
-    } catch (_: Exception) { "1.5.4 (1)" }
+    } catch (_: Exception) { "1.5.6 (1)" }
     
     val systemInfo = """
         Device: $deviceName

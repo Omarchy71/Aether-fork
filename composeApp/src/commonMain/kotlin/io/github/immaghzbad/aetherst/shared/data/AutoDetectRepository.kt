@@ -234,11 +234,6 @@ object AutoDetectRepository {
         }
     }
 
-
-    /**
-     * Measure ICMP-like latency using system ping command.
-     * Runs SAMPLES pings and returns the median value for accuracy.
-     */
     private fun measureIcmpLatency(context: PlatformContext): Long {
         val systemUtils = getSystemUtils(context)
         val samples = mutableListOf<Long>()
@@ -253,16 +248,12 @@ object AutoDetectRepository {
         samples.addAll(tcpSamples)
 
         return if (samples.isNotEmpty()) {
-            samples.sorted()[samples.size / 2] // median
+            samples.sorted()[samples.size / 2]
         } else {
             -1L
         }
     }
 
-    /**
-     * Measure TCP handshake latency to target host:port.
-     * Returns a list of RTT samples in milliseconds.
-     */
     private fun measureTcpLatency(host: String, port: Int, sampleCount: Int): List<Long> {
         val samples = mutableListOf<Long>()
 
@@ -282,9 +273,6 @@ object AutoDetectRepository {
         return samples
     }
 
-    /**
-     * Measure HTTPS request latency for MASQUE protocol capability.
-     */
     private fun measureHttpsLatency(sampleCount: Int): List<Long> {
         val samples = mutableListOf<Long>()
         val client = NetworkClient.instance.newBuilder()
@@ -311,10 +299,6 @@ object AutoDetectRepository {
         return samples
     }
 
-    /**
-     * Compute median from a list of latency samples.
-     * Returns -1 if no valid samples.
-     */
     private fun medianLatency(samples: List<Long>): Long {
         val sorted = samples.filter { it > 0 }.sorted()
         return if (sorted.isNotEmpty()) sorted[sorted.size / 2] else -1L
@@ -364,10 +348,6 @@ object AutoDetectRepository {
         }
     }
 
-    /**
-     * MASQUE probe: Measures HTTPS connectivity (QUIC/TLS path).
-     * Uses multi-sample TCP + HTTPS measurement.
-     */
     private suspend fun probeMasque(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
             val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
@@ -391,10 +371,6 @@ object AutoDetectRepository {
         }
     }
 
-    /**
-     * WireGuard probe: Measures raw UDP-equivalent TCP latency.
-     * WG uses UDP, so we approximate with raw TCP connect time.
-     */
     private suspend fun probeWireGuard(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
             val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
@@ -408,9 +384,6 @@ object AutoDetectRepository {
         }
     }
 
-    /**
-     * Gool probe: Same as WG but accounts for double-tunnel overhead (~10-15%).
-     */
     private suspend fun probeGool(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
             val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)

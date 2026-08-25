@@ -3,11 +3,20 @@ package io.github.immaghzbad.aetherst.platform
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.unit.dp
 import io.github.immaghzbad.aetherst.shared.model.AppInfo
 import io.github.immaghzbad.aetherst.shared.core.ConnectionController
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +27,7 @@ import kotlin.system.exitProcess
 actual class PlatformContext
 
 class DesktopVpnController(private val context: PlatformContext) : VpnController {
-    private val connectionController get() = ConnectionController.getInstance(context)
+    private val connectionController get() = ConnectionController.getImpl(context)
 
     override fun startVpn() {
         connectionController.start()
@@ -37,7 +46,7 @@ class DesktopVpnController(private val context: PlatformContext) : VpnController
     }
 
     override fun submitLoginCode(code: String) {
-        connectionController.submitLoginCode(code)
+        ConnectionController.submitLoginCode(code)
     }
 
     override fun prepareVpn(onPermissionRequired: () -> Unit): Boolean = true
@@ -109,63 +118,100 @@ class DesktopAppInfoProvider : AppInfoProvider {
         try {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             if (!isWindows) return@withContext emptyList()
-
-            
+            val seen = mutableSetOf<String>()
+            fun isSystemApp(name: String, path: String, publisher: String? = null): Boolean {
+                val n = name.lowercase()
+                val p = path.lowercase()
+                val pub = publisher?.lowercase() ?: ""
+                return n.contains("microsoft") || n.contains("windows") || n.contains("visual c++") || n.contains(".net") ||
+                       p.contains("windows\\system") || p.contains("windowsapps") || p.contains("\\windows\\") ||
+                       pub.contains("microsoft")
+            }
+            fun addApp(name: String, path: String, icon: String? = null, publisher: String? = null) {
+                val key = name.lowercase().trim()
+                if (key.isEmpty() || key.contains("uninstall") || key.contains("help") || key.contains("redistributable") || key.contains("update helper")) return
+                if (seen.add(key)) {
+                    val sys = isSystemApp(name, path, publisher)
+                    apps.add(AppInfo(name.trim(), path, icon ?: path, sys))
+                }
+            }
             val startMenuPaths = listOf(
                 File(System.getenv("ProgramData") ?: "C:\\ProgramData", "Microsoft\\Windows\\Start Menu\\Programs"),
                 File(System.getProperty("user.home"), "AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs")
             )
-
             for (path in startMenuPaths) {
                 if (path.exists()) {
-                    path.walkTopDown().filter { it.extension.lowercase() == "lnk" }.forEach { file ->
-                        val name = file.nameWithoutExtension
-                        if (!name.lowercase().contains("uninstall") && !name.lowercase().contains("help")) {
-                            apps.add(AppInfo(name, file.absolutePath, null, false))
+                    path.walkTopDown().maxDepth(4).filter { it.isFile && it.extension.equals("lnk", true) }.forEach { file ->
+                        val name = file.nameWithoutExtension.trim()
+                        if (name.isNotEmpty()) {
+                            addApp(name, file.absolutePath, file.absolutePath)
                         }
                     }
                 }
             }
-
-            
+            try {
+                val psScript = """
+                    ${'$'}keys = @('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*')
+                    Get-ItemProperty ${'$'}keys -ErrorAction SilentlyContinue | Where-Object { ${'$'}_.DisplayName -and ${'$'}_.SystemComponent -ne 1 -and -not ${'$'}_.ParentKeyName -and ${'$'}_.DisplayName -notmatch 'Update|Redistributable|Help' } | ForEach-Object { "${'$'}(${'$'}_.DisplayName)|${'$'}(${'$'}_.DisplayIcon)|${'$'}(${'$'}_.InstallLocation)|${'$'}(${'$'}_.Publisher)" }
+                """.trimIndent()
+                val proc = ProcessBuilder("powershell", "-NoProfile", "-Command", psScript).start()
+                val lines = proc.inputStream.bufferedReader().readLines()
+                proc.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+                for (line in lines) {
+                    if (line.isBlank()) continue
+                    val parts = line.split("|", limit = 4)
+                    val displayName = parts.getOrNull(0)?.trim() ?: continue
+                    if (displayName.isEmpty()) continue
+                    val displayIconRaw = parts.getOrNull(1)?.trim() ?: ""
+                    val installLoc = parts.getOrNull(2)?.trim() ?: ""
+                    val publisher = parts.getOrNull(3)?.trim()
+                    val displayIcon = displayIconRaw.split(",")[0].trim().removeSurrounding("\"")
+                    val path = when {
+                        displayIcon.isNotEmpty() && File(displayIcon).exists() -> displayIcon
+                        installLoc.isNotEmpty() && File(installLoc).exists() -> {
+                            val exe = File(installLoc).listFiles()?.firstOrNull { it.isFile && it.extension.equals("exe", true) }?.absolutePath
+                            exe ?: installLoc
+                        }
+                        else -> displayName
+                    }
+                    addApp(displayName, path, if (File(path).exists()) path else null, publisher)
+                }
+            } catch (_: Exception) {}
+            try {
+                val process = ProcessBuilder("powershell", "-NoProfile", "-Command", "Get-StartApps | ForEach-Object { \"${'$'}(${'$'}_.Name)|${'$'}(${'$'}_.AppID)\" }").start()
+                val lines = process.inputStream.bufferedReader().readLines()
+                process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+                for (line in lines) {
+                    if (line.isBlank() || !line.contains("|")) continue
+                    val parts = line.split("|", limit = 2)
+                    val name = parts[0].trim()
+                    val appId = parts.getOrNull(1)?.trim() ?: ""
+                    if (name.isNotEmpty() && appId.isNotEmpty()) {
+                        val sys = name.lowercase().contains("microsoft") || appId.lowercase().contains("microsoft") || appId.lowercase().contains("windows")
+                        addApp(name, appId, null, if (sys) "Microsoft" else null)
+                    }
+                }
+            } catch (_: Exception) {}
             if (apps.isEmpty()) {
                 val commonPaths = listOf(
                     System.getenv("ProgramFiles"),
                     System.getenv("ProgramFiles(x86)")
                 ).filterNotNull()
-
                 for (rootPath in commonPaths) {
                     val root = File(rootPath)
                     if (root.exists()) {
                         root.listFiles()?.filter { it.isDirectory }?.forEach { dir ->
-                            apps.add(AppInfo(dir.name, dir.absolutePath, null, false))
+                            val exe = dir.walkTopDown().maxDepth(2).firstOrNull { it.isFile && it.extension.equals("exe", true) && !it.name.lowercase().contains("uninstall") }
+                            addApp(dir.name, exe?.absolutePath ?: dir.absolutePath, exe?.absolutePath)
                         }
                     }
                 }
             }
-
-            
-            try {
-                val process = ProcessBuilder("reg", "query", "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall", "/s", "/v", "DisplayName").start()
-                process.inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        if (line.contains("DisplayName")) {
-                            val name = line.split("REG_SZ").lastOrNull()?.trim()
-                            if (!name.isNullOrBlank() && apps.none { it.name.equals(name, ignoreCase = true) }) {
-                                apps.add(AppInfo(name, name, null, false))
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-
         } catch (_: Exception) {}
-        
         if (apps.isEmpty()) {
             apps.add(AppInfo("Web Browser (Default)", "browser", null, false))
             apps.add(AppInfo("System Proxy (Global)", "all", null, true))
         }
-        
         apps.distinctBy { it.name.lowercase() }.sortedBy { it.name.lowercase() }
     }
 }
@@ -311,40 +357,10 @@ class DesktopSystemUtils : SystemUtils {
         } catch (_: Exception) {}
     }
 
-    override fun isAdministrator(): Boolean {
-        return try {
-            val isWindows = System.getProperty("os.name").lowercase().contains("win")
-            if (!isWindows) return true
-            
-            val process = ProcessBuilder("net", "session").start()
-            process.waitFor() == 0
-        } catch (_: Exception) {
-            false
-        }
-    }
+    override fun isAdministrator(): Boolean = io.github.immaghzbad.aetherst.shared.core.Elevation.isElevated()
 
     override fun relaunchAsAdmin() {
-        try {
-            val isWindows = System.getProperty("os.name").lowercase().contains("win")
-            if (!isWindows) return
-
-            val javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java.exe"
-            val jarFile = File(System.getProperty("user.dir")).listFiles()?.find { it.extension == "jar" }?.absolutePath
-                ?: (System.getProperty("user.dir") + File.separator + "AetherST-Tunnel.exe")
-
-            val target = if (jarFile.endsWith(".jar")) javaBin else jarFile
-            val args = if (jarFile.endsWith(".jar")) listOf("-jar", jarFile) else emptyList()
-
-            val cmdExe = File("C:\\Windows\\System32\\cmd.exe")
-            if (cmdExe.exists()) {
-                val cmdArgs = mutableListOf("/c", "start", "", "/wait")
-                cmdArgs.addAll(listOf("powershell", "-Command", "Start-Process '$target' -ArgumentList '${args.joinToString("', '")}' -Verb RunAs"))
-                ProcessBuilder(cmdArgs).start()
-            } else {
-                ProcessBuilder("powershell", "-Command", "Start-Process '$target' -Verb RunAs").start()
-            }
-            exitApp()
-        } catch (_: Exception) {}
+        io.github.immaghzbad.aetherst.shared.core.Elevation.relaunchElevatedAndExit()
     }
 
     override fun getInterfaceMtu(): Int {
@@ -459,8 +475,16 @@ actual fun AppIcon(app: AppInfo, modifier: Modifier) {
         )
     } else {
         Box(
-            modifier = modifier.background(Color.Black.copy(alpha = 0.3f))
-        )
+            modifier = modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFF2C2C2E)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Apps,
+                contentDescription = null,
+                tint = Color(0xFF8E8E93),
+                modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
@@ -480,15 +504,18 @@ private fun resolveLnkTarget(lnkPath: String): String? {
 
 private fun extractExeIcon(exePath: String): androidx.compose.ui.graphics.ImageBitmap? {
     return try {
+        val safeName = "icon_" + exePath.hashCode().toString().replace("-", "N") + "_" + File(exePath).nameWithoutExtension.take(16) + ".png"
+        val tempIcon = File(System.getenv("TEMP") ?: System.getProperty("java.io.tmpdir"), safeName)
+        val psExe = exePath.replace("'", "''")
+        val tempPath = tempIcon.absolutePath.replace("'", "''")
         val process = ProcessBuilder(
             "powershell", "-NoProfile", "-Command",
-            "[System.Drawing.Icon]::ExtractAssociatedIcon('$exePath').ToBitmap().Save('%TEMP%\\icon_extract.png')"
+            "try { [System.Drawing.Icon]::ExtractAssociatedIcon('$psExe').ToBitmap().Save('$tempPath') } catch {}"
         ).start()
-        process.waitFor()
-        val tempIcon = File(System.getenv("TEMP"), "icon_extract.png")
-        if (tempIcon.exists()) {
+        process.waitFor(4, java.util.concurrent.TimeUnit.SECONDS)
+        if (tempIcon.exists() && tempIcon.length() > 0) {
             val bytes = tempIcon.readBytes()
-            tempIcon.delete()
+            runCatching { tempIcon.delete() }
             org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
         } else null
     } catch (_: Exception) {

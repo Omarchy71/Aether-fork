@@ -30,7 +30,7 @@
 
 ## 📱 Versions & Platforms
 
-- **Android Client:** `v1.5.4` (Latest Stable)
+- **Android Client:** `v1.5.6` (Latest Stable)
 - **Windows Client:** `v1.0.2` (First Public Release)
 
 ## ✨ Features
@@ -106,6 +106,12 @@ Stay updated and get support through our official channels:
 
 - 📢 **Telegram:** [PowerSigma](https://t.me/PowerSigma)
 - 👨‍💻 **Developer:** [@immaghzbad](https://github.com/immaghzbad)
+
+## 🙏 Credits
+
+This project uses the following open-source resources:
+
+- [flag-icons](https://github.com/lipis/flag-icons) — Country flag icons for multi-language and region UI elements.
 
 ---
 <p align="center">

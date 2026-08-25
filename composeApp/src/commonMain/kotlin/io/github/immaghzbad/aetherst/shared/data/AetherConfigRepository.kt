@@ -64,22 +64,17 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         val appLogLevelStr = settings.getString("${prefix}app_log_level", AetherLogLevel.INFO.name)
         val coreLogLevelStr = settings.getString("${prefix}core_log_level", AetherLogLevel.INFO.name)
         val perfProfileStr = settings.getString("${prefix}perf_profile", AetherPerfProfile.MEDIUM.name)
-        val tunnelEngineStr = settings.getString("${prefix}tunnel_engine", TunnelEngine.HEV_TUN2SOCKS.name)
         val connectionModeStr = settings.getString("${prefix}connection_mode", "")
         val legacyProxyOnly = settings.getBoolean("${prefix}proxy_only", false)
         
         val connectionMode = if (connectionModeStr.isNotEmpty()) {
-            val mode = runCatching { ConnectionMode.valueOf(connectionModeStr) }.getOrDefault(ConnectionMode.TUNNEL)
-            if (isDesktop && mode == ConnectionMode.TUNNEL) ConnectionMode.SYSTEM_PROXY else mode
+            runCatching { ConnectionMode.valueOf(connectionModeStr) }.getOrDefault(ConnectionMode.TUNNEL)
         } else {
-            if (isDesktop) {
-                ConnectionMode.SYSTEM_PROXY
-            } else if (legacyProxyOnly) {
-                ConnectionMode.PROXY_ONLY
-            } else {
-                ConnectionMode.TUNNEL
-            }
+            if (legacyProxyOnly) ConnectionMode.PROXY_ONLY else ConnectionMode.TUNNEL
         }
+
+        val protocol = runCatching { AetherProtocol.valueOf(protocolStr) }.getOrDefault(AetherProtocol.MASQUE)
+        val finalConnectionMode = connectionMode
 
         val presetId = settings.getString("${prefix}preset_id", "custom")
         val socksHost = settings.getString("${prefix}socks_host", "127.0.0.1")
@@ -87,7 +82,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         
         return AetherConfig(
             presetId = presetId,
-            protocol = runCatching { AetherProtocol.valueOf(protocolStr) }.getOrDefault(AetherProtocol.MASQUE),
+            protocol = protocol,
             noise = runCatching { AetherNoise.valueOf(noiseStr) }.getOrDefault(AetherNoise.FIREWALL),
             scanMode = runCatching { AetherScanMode.valueOf(scanModeStr) }.getOrDefault(AetherScanMode.BALANCED),
             ipMode = runCatching { AetherIpMode.valueOf(ipModeStr) }.getOrDefault(AetherIpMode.IPV4),
@@ -112,10 +107,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             noProfileRetry = settings.getBoolean("${prefix}no_profile_retry", false),
             tlsGroups = settings.getString("${prefix}tls_groups", ""),
             mtu = settings.getInt("${prefix}mtu", 1100),
-            connectionMode = connectionMode,
-            tunnelEngine = runCatching { TunnelEngine.valueOf(tunnelEngineStr) }.getOrDefault(TunnelEngine.HEV_TUN2SOCKS),
-            excludedPackages = settings.getStringSet("${prefix}excluded_packages", emptySet()),
-            blockedPackages = settings.getStringSet("${prefix}blocked_packages", emptySet()),
+            connectionMode = finalConnectionMode,
             routingRules = settings.getString("${prefix}routing_rules", "").let {
                 if (it.isEmpty()) emptyList() else runCatching { Json.decodeFromString<List<RoutingRule>>(it) }.getOrDefault(emptyList())
             },
@@ -125,14 +117,10 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             accessSecret = settings.getString("${prefix}access_secret", ""),
             accessToken = settings.getString("${prefix}access_token", ""),
             useGateway = settings.getBoolean("${prefix}use_gateway", false),
-            killSwitch = settings.getBoolean("${prefix}kill_switch", false),
-            ipv6Leak = settings.getBoolean("${prefix}ipv6_leak", true),
             smartReconnect = settings.getBoolean("${prefix}smart_reconnect", true),
             reconnectRetryLimit = settings.getInt("${prefix}reconnect_retry_limit", 10),
-            strictKillSwitch = settings.getBoolean("${prefix}strict_kill_switch", false),
             dnsList = settings.getString("${prefix}dns_list", "1.1.1.1,1.0.0.1"),
             shareHotspot = settings.getBoolean("${prefix}share_hotspot", false),
-            tunnelAllApps = settings.getBoolean("${prefix}tunnel_all_apps", true),
             upstreamProxy = settings.getString("${prefix}upstream_proxy", ""),
             routeSniffing = settings.getBoolean("${prefix}route_sniffing", true),
             sniffingTimeoutMs = settings.getInt("${prefix}sniffing_timeout_ms", 100),
@@ -151,7 +139,8 @@ class AetherConfigRepository private constructor(private val settings: Settings)
 
     fun updateConfig(newConfig: AetherConfig) {
         val oldConfig = _config.value
-        val manualConfig = newConfig.copy(presetId = "custom")
+        val sanitized = newConfig
+        val manualConfig = sanitized.copy(presetId = "custom")
         
         val finalConfig = if (oldConfig.protocol != manualConfig.protocol) {
             saveProtocolSettings(oldConfig)
@@ -226,9 +215,6 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}tls_groups", cfg.tlsGroups)
         settings.putInt("${prefix}mtu", cfg.mtu)
         settings.putString("${prefix}connection_mode", cfg.connectionMode.name)
-        settings.putString("${prefix}tunnel_engine", cfg.tunnelEngine.name)
-        settings.putStringSet("${prefix}excluded_packages", cfg.excludedPackages)
-        settings.putStringSet("${prefix}blocked_packages", cfg.blockedPackages)
         settings.putString("${prefix}routing_rules", Json.encodeToString(cfg.routingRules))
         settings.putString("${prefix}team_name", cfg.teamName)
         settings.putString("${prefix}access_email", cfg.accessEmail)
@@ -236,14 +222,10 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}access_secret", cfg.accessSecret)
         settings.putString("${prefix}access_token", cfg.accessToken)
         settings.putBoolean("${prefix}use_gateway", cfg.useGateway)
-        settings.putBoolean("${prefix}kill_switch", cfg.killSwitch)
-        settings.putBoolean("${prefix}ipv6_leak", cfg.ipv6Leak)
         settings.putBoolean("${prefix}smart_reconnect", cfg.smartReconnect)
         settings.putInt("${prefix}reconnect_retry_limit", cfg.reconnectRetryLimit)
-        settings.putBoolean("${prefix}strict_kill_switch", cfg.strictKillSwitch)
         settings.putString("${prefix}dns_list", cfg.dnsList)
         settings.putBoolean("${prefix}share_hotspot", cfg.shareHotspot)
-        settings.putBoolean("${prefix}tunnel_all_apps", cfg.tunnelAllApps)
         settings.putString("${prefix}upstream_proxy", cfg.upstreamProxy)
         settings.putBoolean("${prefix}route_sniffing", cfg.routeSniffing)
         settings.putInt("${prefix}sniffing_timeout_ms", cfg.sniffingTimeoutMs)
@@ -320,9 +302,6 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 connectionMode = ConnectionMode.TUNNEL
             )
             else -> current
-        }
-        if (isDesktop && updated.connectionMode == ConnectionMode.TUNNEL) {
-            updated = updated.copy(connectionMode = ConnectionMode.SYSTEM_PROXY)
         }
         LogRepository.i("Configuration profile applied: $presetId")
         saveToSettings("", updated)

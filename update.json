@@ -1,7 +1,7 @@
 {
-  "version": "1.5.4",
+  "version": "1.5.6",
   "version_code": 1,
   "is_beta": false,
-  "changelog": "• Fixed Auto-Detect results not being applied correctly (especially MASQUE)\n• Auto-Detect: manual protocol list replaced with ranked test results you can tap to apply\n• Speed Test: fixed UI freeze on start, inaccurate upload speed, wrong jitter and lost results\n• Speed Test: parallel download streams, live quality verdict, custom server and test history\n• MTU input and Optimize button are now perfectly aligned in settings\n• Various bug fixes and user interface improvements\n• HEV tunnel engine updated to v2.17.1\n• HEV now connects directly to the core for better stability\n• Fixed VPN data path: sessions and DNS now work reliably in TUN mode\n• Connecting state now shows instantly on the dashboard\n• Fixed cold-start lag: heavy tasks moved off the main thread\n• Logs screen: filter by source (App / Aether Core) and level\n• Fixed Zero Trust settings reopening after protocol change",
-  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.5.4-android"
+  "changelog": "• Widget & Tile now respect Connection Mode\n• Fixed protocol handling and stability improvements",
+  "release_url": "https://github.com/immaghzbad/AetherST/releases/tag/v1.5.6-android"
 }

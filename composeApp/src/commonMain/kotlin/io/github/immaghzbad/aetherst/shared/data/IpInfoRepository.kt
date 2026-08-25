@@ -54,6 +54,14 @@ object IpInfoRepository {
                             delay(2000.milliseconds)
                         }
                     }
+
+                    LogRepository.w("SOCKS proxy lookup failed, falling back to direct...", "IpWhois")
+                    val fallback = fetchParallelDirect()
+                    if (fallback != null) {
+                        _ipInfo.value = fallback
+                        LogRepository.i("Fallback direct IP: ${fallback.ip} (${fallback.country})", "IpWhois")
+                        return@withContext
+                    }
                 }
 
                 LogRepository.w("${if (useProxy) "SOCKS proxy" else "Direct"} IP lookup failed after all attempts.", "IpWhois")

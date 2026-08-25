@@ -4,28 +4,16 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -36,30 +24,20 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +48,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -78,8 +57,18 @@ import io.github.immaghzbad.aetherst.shared.model.RoutingMode
 import io.github.immaghzbad.aetherst.shared.model.RoutingRule
 
 private val IosCardBg = Color(0xFF1C1C1E)
+private val IosGroupBg = Color(0xFF2C2C2E)
 private val IosSecondaryLabel = Color(0xFF8E8E93)
 private val IosActiveBlue = Color(0xFF007AFF)
+private val IosActiveGreen = Color(0xFF34C759)
+private val IosErrorRed = Color(0xFFFF3B30)
+private val IosPurple = Color(0xFF5856D6)
+
+private fun modeColor(mode: RoutingMode): Color = when (mode) {
+    RoutingMode.TUNNEL -> IosActiveBlue
+    RoutingMode.DIRECT -> IosActiveGreen
+    RoutingMode.BLOCK -> IosErrorRed
+}
 
 @Composable
 fun RoutingRulesScreen(
@@ -111,9 +100,9 @@ fun RoutingRulesScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
-    var showInternalButton by remember { mutableStateOf(false) }
     var showInternalRulesDialog by remember { mutableStateOf(false) }
-    
+    var modeFilter by remember { mutableStateOf<RoutingMode?>(null) }
+
     var ruleToDelete by remember { mutableStateOf<String?>(null) }
     var showClearAllConfirmation by remember { mutableStateOf(false) }
 
@@ -131,7 +120,7 @@ fun RoutingRulesScreen(
     if (showAddDialog || editingRule != null) {
         RuleEditDialog(
             initialRule = editingRule,
-            onDismiss = { 
+            onDismiss = {
                 showAddDialog = false
                 editingRule = null
             },
@@ -205,11 +194,18 @@ fun RoutingRulesScreen(
         )
     }
 
-    val filteredRules = remember(rules, searchQuery) {
-        if (searchQuery.isEmpty()) rules else {
-            rules.filter { it.pattern.contains(searchQuery, ignoreCase = true) }
+    val filteredRules = remember(rules, searchQuery, modeFilter) {
+        rules.filter { rule ->
+            val matchesSearch = searchQuery.isEmpty() ||
+                rule.pattern.contains(searchQuery, ignoreCase = true)
+            val matchesMode = modeFilter == null || rule.mode == modeFilter
+            matchesSearch && matchesMode
         }
     }.sortedBy { it.pattern }
+
+    val tunnelCount = remember(rules) { rules.count { it.mode == RoutingMode.TUNNEL } }
+    val directCount = remember(rules) { rules.count { it.mode == RoutingMode.DIRECT } }
+    val blockCount = remember(rules) { rules.count { it.mode == RoutingMode.BLOCK } }
 
     Column(
         modifier = Modifier
@@ -224,7 +220,7 @@ fun RoutingRulesScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(start = (8 * scaleFactor).dp, end = (12 * scaleFactor).dp, top = 12.dp, bottom = 8.dp),
+                .padding(start = (8 * scaleFactor).dp, end = (4 * scaleFactor).dp, top = 12.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.size((40 * scaleFactor).dp)) {
@@ -251,14 +247,14 @@ fun RoutingRulesScreen(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier
-                        .width((220 * scaleFactor).dp)
+                        .width((240 * scaleFactor).dp)
                         .background(Color(0xFF1C1C1E).copy(alpha = 0.95f), RoundedCornerShape(14.dp))
                         .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp))
                 ) {
                     DropdownMenuItem(
-                        text = { 
+                        text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CheckCircle, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.FileUpload, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text("Export Backup (.astb)", color = Color.White, fontSize = 14.sp)
                             }
@@ -275,9 +271,9 @@ fun RoutingRulesScreen(
                     )
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 0.5.dp)
                     DropdownMenuItem(
-                        text = { 
+                        text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Search, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.FileDownload, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text("Import Backup (.astb)", color = Color.White, fontSize = 14.sp)
                             }
@@ -289,7 +285,21 @@ fun RoutingRulesScreen(
                     )
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 0.5.dp)
                     DropdownMenuItem(
-                        text = { 
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Bookmark, null, tint = IosPurple, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Prebuilt Rule Sets", color = Color.White, fontSize = 14.sp)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            showInternalRulesDialog = true
+                        }
+                    )
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 0.5.dp)
+                    DropdownMenuItem(
+                        text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -303,25 +313,11 @@ fun RoutingRulesScreen(
                     )
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 0.5.dp)
                     DropdownMenuItem(
-                        text = { 
+                        text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Add, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Delete, null, tint = IosErrorRed, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Show More", color = Color.White, fontSize = 14.sp)
-                            }
-                        },
-                        onClick = {
-                            showMenu = false
-                            showInternalButton = true
-                        }
-                    )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 0.5.dp)
-                    DropdownMenuItem(
-                        text = { 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Delete, null, tint = Color(0xFFFF3B30), modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text("Delete All Rules", color = Color(0xFFFF3B30), fontSize = 14.sp)
+                                Text("Delete All Rules", color = IosErrorRed, fontSize = 14.sp)
                             }
                         },
                         onClick = {
@@ -337,7 +333,7 @@ fun RoutingRulesScreen(
             }
         }
 
-        Box(modifier = Modifier.padding(horizontal = (16 * scaleFactor).dp, vertical = (8 * scaleFactor).dp)) {
+        Box(modifier = Modifier.padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp)) {
             BasicTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -357,51 +353,317 @@ fun RoutingRulesScreen(
                     ) {
                         Icon(Icons.Default.Search, null, tint = IosSecondaryLabel, modifier = Modifier.size((20 * scaleFactor).dp))
                         Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-                        Box(contentAlignment = Alignment.CenterStart) {
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
                                 Text("Search rules...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
                             }
                             innerTextField()
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size((24 * scaleFactor).dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Clear",
+                                    tint = IosSecondaryLabel,
+                                    modifier = Modifier.size((16 * scaleFactor).dp)
+                                )
+                            }
                         }
                     }
                 }
             )
         }
 
-        if (showInternalButton) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = (16 * scaleFactor).dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(IosActiveBlue.copy(alpha = 0.15f))
-                    .clickable { showInternalRulesDialog = true }
-                    .padding(vertical = (10 * scaleFactor).dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Add Internal App Rules", color = IosActiveBlue, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
-            }
+        ModeFilterChips(
+            tunnelCount = tunnelCount,
+            directCount = directCount,
+            blockCount = blockCount,
+            totalCount = rules.size,
+            selectedMode = modeFilter,
+            onModeSelected = { modeFilter = it },
+            scaleFactor = scaleFactor
+        )
+
+        if (rules.isNotEmpty()) {
+            StatsBar(
+                totalCount = rules.size,
+                filteredCount = filteredRules.size,
+                tunnelCount = tunnelCount,
+                directCount = directCount,
+                blockCount = blockCount,
+                isFiltered = modeFilter != null || searchQuery.isNotEmpty(),
+                scaleFactor = scaleFactor
+            )
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = (16 * scaleFactor).dp,
-                end = (16 * scaleFactor).dp,
-                bottom = (24 * scaleFactor).dp,
-                top = 8.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
-        ) {
-            items(filteredRules, key = { it.pattern }) { rule ->
-                RuleLineItem(
-                    rule = rule,
-                    onUpdateMode = { onUpdateMode(rule.pattern, it) },
-                    onEdit = { editingRule = rule },
-                    onDelete = { ruleToDelete = rule.pattern },
-                    scaleFactor = scaleFactor
-                )
+        if (rules.isEmpty()) {
+            EmptyState(
+                onAddRule = { showAddDialog = true },
+                onImportRules = { showInternalRulesDialog = true },
+                scaleFactor = scaleFactor
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = (16 * scaleFactor).dp,
+                    end = (16 * scaleFactor).dp,
+                    bottom = (24 * scaleFactor).dp,
+                    top = (4 * scaleFactor).dp
+                ),
+                verticalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
+            ) {
+                items(filteredRules, key = { it.pattern }) { rule ->
+                    RuleLineItem(
+                        rule = rule,
+                        onUpdateMode = { onUpdateMode(rule.pattern, it) },
+                        onEdit = { editingRule = rule },
+                        onDelete = { ruleToDelete = rule.pattern },
+                        scaleFactor = scaleFactor
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(
+    onAddRule: () -> Unit,
+    onImportRules: () -> Unit,
+    scaleFactor: Float
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding((32 * scaleFactor).dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size((80 * scaleFactor).dp)
+                .background(IosActiveBlue.copy(alpha = 0.12f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Tune,
+                contentDescription = null,
+                tint = IosActiveBlue,
+                modifier = Modifier.size((40 * scaleFactor).dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
+
+        Text(
+            "No Routing Rules",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            fontSize = (20 * scaleFactor).sp
+        )
+
+        Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+
+        Text(
+            "Add rules to control how Aether handles\nspecific domains, IPs, and traffic.",
+            color = IosSecondaryLabel,
+            fontSize = (14 * scaleFactor).sp,
+            textAlign = TextAlign.Center,
+            lineHeight = (20 * scaleFactor).sp
+        )
+
+        Spacer(modifier = Modifier.height((28 * scaleFactor).dp))
+
+        Button(
+            onClick = onAddRule,
+            modifier = Modifier
+                .widthIn(max = (240 * scaleFactor).dp)
+                .height((48 * scaleFactor).dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
+        ) {
+            Icon(Icons.Default.Add, null, modifier = Modifier.size((20 * scaleFactor).dp))
+            Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+            Text("Add Rule", fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+        }
+
+        Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
+
+        OutlinedButton(
+            onClick = onImportRules,
+            modifier = Modifier
+                .widthIn(max = (240 * scaleFactor).dp)
+                .height((48 * scaleFactor).dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = IosActiveBlue),
+            border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(brush = SolidColor(IosActiveBlue.copy(alpha = 0.4f)))
+        ) {
+            Icon(Icons.Default.Bookmark, null, modifier = Modifier.size((20 * scaleFactor).dp))
+            Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+            Text("Import Prebuilt Sets", fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+        }
+    }
+}
+
+@Composable
+private fun StatsBar(
+    totalCount: Int,
+    filteredCount: Int,
+    tunnelCount: Int,
+    directCount: Int,
+    blockCount: Int,
+    isFiltered: Boolean,
+    scaleFactor: Float
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp)
+            .background(IosGroupBg, RoundedCornerShape(10.dp))
+            .padding(horizontal = (12 * scaleFactor).dp, vertical = (8 * scaleFactor).dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        if (isFiltered) {
+            Text(
+                text = "$filteredCount of $totalCount",
+                color = IosSecondaryLabel,
+                fontSize = (12 * scaleFactor).sp,
+                fontWeight = FontWeight.Medium
+            )
+        } else {
+            Text(
+                text = "$totalCount",
+                color = Color.White,
+                fontSize = (13 * scaleFactor).sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = " rules",
+                color = IosSecondaryLabel,
+                fontSize = (12 * scaleFactor).sp
+            )
+        }
+
+        if (tunnelCount > 0) {
+            Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+            Box(modifier = Modifier.size((6 * scaleFactor).dp).background(IosActiveBlue, CircleShape))
+            Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
+            Text("$tunnelCount", color = IosActiveBlue, fontSize = (12 * scaleFactor).sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (directCount > 0) {
+            Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+            Box(modifier = Modifier.size((6 * scaleFactor).dp).background(IosActiveGreen, CircleShape))
+            Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
+            Text("$directCount", color = IosActiveGreen, fontSize = (12 * scaleFactor).sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (blockCount > 0) {
+            Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+            Box(modifier = Modifier.size((6 * scaleFactor).dp).background(IosErrorRed, CircleShape))
+            Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
+            Text("$blockCount", color = IosErrorRed, fontSize = (12 * scaleFactor).sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun ModeFilterChips(
+    tunnelCount: Int,
+    directCount: Int,
+    blockCount: Int,
+    totalCount: Int,
+    selectedMode: RoutingMode?,
+    onModeSelected: (RoutingMode?) -> Unit,
+    scaleFactor: Float
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp),
+        horizontalArrangement = Arrangement.spacedBy((6 * scaleFactor).dp)
+    ) {
+        FilterChipItem(
+            label = "All",
+            count = totalCount,
+            color = IosSecondaryLabel,
+            isSelected = selectedMode == null,
+            onClick = { onModeSelected(null) },
+            scaleFactor = scaleFactor,
+            modifier = Modifier.weight(1f)
+        )
+        FilterChipItem(
+            label = "Tunnel",
+            count = tunnelCount,
+            color = IosActiveBlue,
+            isSelected = selectedMode == RoutingMode.TUNNEL,
+            onClick = { onModeSelected(if (selectedMode == RoutingMode.TUNNEL) null else RoutingMode.TUNNEL) },
+            scaleFactor = scaleFactor,
+            modifier = Modifier.weight(1f)
+        )
+        FilterChipItem(
+            label = "Direct",
+            count = directCount,
+            color = IosActiveGreen,
+            isSelected = selectedMode == RoutingMode.DIRECT,
+            onClick = { onModeSelected(if (selectedMode == RoutingMode.DIRECT) null else RoutingMode.DIRECT) },
+            scaleFactor = scaleFactor,
+            modifier = Modifier.weight(1f)
+        )
+        FilterChipItem(
+            label = "Block",
+            count = blockCount,
+            color = IosErrorRed,
+            isSelected = selectedMode == RoutingMode.BLOCK,
+            onClick = { onModeSelected(if (selectedMode == RoutingMode.BLOCK) null else RoutingMode.BLOCK) },
+            scaleFactor = scaleFactor,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun FilterChipItem(
+    label: String,
+    count: Int,
+    color: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    scaleFactor: Float,
+    modifier: Modifier = Modifier
+) {
+    val bgColor = if (isSelected) color.copy(alpha = 0.2f) else IosGroupBg
+    val borderColor = if (isSelected) color.copy(alpha = 0.5f) else Color.Transparent
+    val textColor = if (isSelected) color else IosSecondaryLabel
+
+    Box(
+        modifier = modifier
+            .height((36 * scaleFactor).dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = (8 * scaleFactor).dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                fontSize = (11 * scaleFactor).sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = textColor
+            )
+            Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
+            Text(
+                text = "$count",
+                fontSize = (10 * scaleFactor).sp,
+                fontWeight = FontWeight.Bold,
+                color = textColor.copy(alpha = 0.7f)
+            )
         }
     }
 }
@@ -414,62 +676,113 @@ private fun RuleLineItem(
     onDelete: () -> Unit,
     scaleFactor: Float
 ) {
+    var showModeMenu by remember { mutableStateOf(false) }
+    val modeColorValue = modeColor(rule.mode)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(IosCardBg, RoundedCornerShape((16 * scaleFactor).dp))
+            .background(IosCardBg, RoundedCornerShape((14 * scaleFactor).dp))
             .padding((12 * scaleFactor).dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = rule.pattern,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                fontSize = (16 * scaleFactor).sp,
-                modifier = Modifier.weight(1f),
-                maxLines = 1
+            Box(
+                modifier = Modifier
+                    .size((8 * scaleFactor).dp)
+                    .background(modeColorValue, CircleShape)
             )
-            Row {
-                IconButton(onClick = onEdit, modifier = Modifier.size((32 * scaleFactor).dp)) {
-                    Icon(Icons.Default.Edit, null, tint = IosActiveBlue.copy(alpha = 0.8f), modifier = Modifier.size((18 * scaleFactor).dp))
-                }
-                IconButton(onClick = onDelete, modifier = Modifier.size((32 * scaleFactor).dp)) {
-                    Icon(Icons.Default.Delete, null, tint = Color(0xFFFF3B30).copy(alpha = 0.8f), modifier = Modifier.size((20 * scaleFactor).dp))
-                }
+            Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = rule.pattern,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    fontSize = (14 * scaleFactor).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height((2 * scaleFactor).dp))
+                Text(
+                    text = rule.mode.name,
+                    fontSize = (11 * scaleFactor).sp,
+                    fontWeight = FontWeight.Medium,
+                    color = modeColorValue
+                )
             }
-        }
 
-        Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape((10 * scaleFactor).dp))
-                .padding(2.dp)
-        ) {
-            RoutingMode.entries.forEach { mode ->
-                val isSelected = rule.mode == mode
+            Box {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape((8 * scaleFactor).dp))
-                        .background(if (isSelected) IosActiveBlue else Color.Transparent)
-                        .clickable { onUpdateMode(mode) }
-                        .padding(vertical = (8 * scaleFactor).dp),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(modeColorValue.copy(alpha = 0.12f))
+                        .clickable { showModeMenu = true }
+                        .padding(horizontal = (10 * scaleFactor).dp, vertical = (5 * scaleFactor).dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                        fontSize = (12 * scaleFactor).sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                        color = if (isSelected) Color.White else IosSecondaryLabel
+                        text = rule.mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                        fontSize = (11 * scaleFactor).sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = modeColorValue
                     )
                 }
+
+                DropdownMenu(
+                    expanded = showModeMenu,
+                    onDismissRequest = { showModeMenu = false },
+                    modifier = Modifier
+                        .background(Color(0xFF1C1C1E), RoundedCornerShape(12.dp))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                ) {
+                    RoutingMode.entries.forEach { mode ->
+                        val isSelected = rule.mode == mode
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(modeColor(mode), CircleShape)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        color = if (isSelected) modeColor(mode) else Color.White,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 14.sp
+                                    )
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            null,
+                                            tint = modeColor(mode),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                showModeMenu = false
+                                onUpdateMode(mode)
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
+
+            IconButton(onClick = onEdit, modifier = Modifier.size((32 * scaleFactor).dp)) {
+                Icon(Icons.Default.Edit, null, tint = IosActiveBlue.copy(alpha = 0.7f), modifier = Modifier.size((18 * scaleFactor).dp))
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size((32 * scaleFactor).dp)) {
+                Icon(Icons.Default.Delete, null, tint = IosErrorRed.copy(alpha = 0.7f), modifier = Modifier.size((18 * scaleFactor).dp))
             }
         }
     }
@@ -521,21 +834,21 @@ private fun RuleEditDialog(
                     color = Color.White,
                     fontSize = (18 * scaleFactor).sp
                 )
-                
+
                 Spacer(modifier = Modifier.height(8.dp))
-                
+
                 Text(
                     "Define how Aether handles specific traffic. Rules match by domain, IP, or CIDR. Use prefixes like 'keyword:' for partial matches.",
                     fontSize = (13 * scaleFactor).sp,
                     color = IosSecondaryLabel,
                     lineHeight = (18 * scaleFactor).sp
                 )
-                
+
                 Spacer(modifier = Modifier.height(20.dp))
-                
+
                 BasicTextField(
                     value = rawPattern,
-                    onValueChange = { 
+                    onValueChange = {
                         rawPattern = it
                         error = null
                     },
@@ -560,13 +873,21 @@ private fun RuleEditDialog(
                 AnimatedVisibility(visible = error != null) {
                     Text(
                         text = error ?: "",
-                        color = Color(0xFFFF3B30),
+                        color = IosErrorRed,
                         fontSize = (11 * scaleFactor).sp,
                         modifier = Modifier.padding(top = 6.dp, start = 4.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
+
+                Text(
+                    "Routing Mode",
+                    color = IosSecondaryLabel,
+                    fontSize = (12 * scaleFactor).sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = (8 * scaleFactor).dp)
+                )
 
                 Row(
                     modifier = Modifier
@@ -576,21 +897,30 @@ private fun RuleEditDialog(
                 ) {
                     RoutingMode.entries.forEach { mode ->
                         val isSelected = selectedMode == mode
+                        val modeCol = modeColor(mode)
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) IosActiveBlue else Color.Transparent)
+                                .background(if (isSelected) modeCol.copy(alpha = 0.2f) else Color.Transparent)
                                 .clickable { selectedMode = mode }
                                 .padding(vertical = (10 * scaleFactor).dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                                fontSize = (13 * scaleFactor).sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                color = if (isSelected) Color.White else IosSecondaryLabel
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(if (isSelected) modeCol else IosSecondaryLabel, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                                    fontSize = (13 * scaleFactor).sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                    color = if (isSelected) modeCol else IosSecondaryLabel
+                                )
+                            }
                         }
                     }
                 }
@@ -662,6 +992,13 @@ private fun RoutingImportConflictDialog(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Icon(
+                    Icons.Default.Info,
+                    null,
+                    tint = IosActiveBlue,
+                    modifier = Modifier.size((32 * scaleFactor).dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     "Import Conflict",
                     style = MaterialTheme.typography.headlineSmall,
@@ -678,18 +1015,18 @@ private fun RoutingImportConflictDialog(
                     lineHeight = (20 * scaleFactor).sp
                 )
                 Spacer(modifier = Modifier.height(28.dp))
-                
+
                 Button(
                     onClick = onReplace,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30), contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = IosErrorRed, contentColor = Color.White)
                 ) {
-                    Text("Delete Old & Replace", fontWeight = FontWeight.Bold)
+                    Text("Replace Conflicting", fontWeight = FontWeight.Bold)
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 Button(
                     onClick = onMerge,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -698,9 +1035,9 @@ private fun RoutingImportConflictDialog(
                 ) {
                     Text("Merge (Keep Both)", fontWeight = FontWeight.Bold)
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 TextButton(
                     onClick = onCancel,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -781,28 +1118,28 @@ private fun RoutingRulesHelpDialog(
 
                     HelpSection(
                         title = "Routing Modes",
-                        desc = "• Tunnel: Route through Aether (Default).\n• Direct: Bypass Aether and use the device network.\n• Block: Kill the connection (Ad-blocking).",
+                        desc = "Tunnel: Route through Aether (Default).\nDirect: Bypass Aether and use the device network.\nBlock: Kill the connection (Ad-blocking).",
                         icon = Icons.Default.Security,
-                        color = Color(0xFF34C759),
+                        color = IosActiveGreen,
                         scaleFactor = scaleFactor
                     )
 
                     HelpSection(
                         title = "Smart Prefixes",
-                        desc = "• domain: Matches exact domain or subdomains.\n• ip: Matches specific IP or CIDR ranges.\n• keyword: Matches if the URL contains this text.\n• regexp: Advanced Regular Expression matching.",
+                        desc = "domain: Matches exact domain or subdomains.\nip: Matches specific IP or CIDR ranges.\nkeyword: Matches if the URL contains this text.\nregexp: Advanced Regular Expression matching.",
                         icon = Icons.Default.Public,
-                        color = Color(0xFF5856D6),
+                        color = IosPurple,
                         scaleFactor = scaleFactor
                     )
 
                     HelpSection(
                         title = "Formatting Tips",
-                        desc = "• Do not include http:// or https://\n• Use only English characters and symbols\n• Port matching is supported: example.com:443",
+                        desc = "Do not include http:// or https://\nUse only English characters and symbols\nPort matching is supported: example.com:443",
                         icon = Icons.Default.Block,
-                        color = Color(0xFFFF3B30),
+                        color = IosErrorRed,
                         scaleFactor = scaleFactor
                     )
-                    
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -896,7 +1233,7 @@ private fun DeleteConfirmationDialog(
                 Icon(
                     Icons.Default.Delete,
                     null,
-                    tint = Color(0xFFFF3B30),
+                    tint = IosErrorRed,
                     modifier = Modifier.size((32 * scaleFactor).dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
@@ -916,18 +1253,18 @@ private fun DeleteConfirmationDialog(
                     lineHeight = (20 * scaleFactor).sp
                 )
                 Spacer(modifier = Modifier.height(28.dp))
-                
+
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30), contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(containerColor = IosErrorRed, contentColor = Color.White)
                 ) {
                     Text(confirmText, fontWeight = FontWeight.Bold)
                 }
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -963,42 +1300,62 @@ private fun InternalRulesDialog(
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Icon(
+                    Icons.Default.Bookmark,
+                    null,
+                    tint = IosPurple,
+                    modifier = Modifier.size((28 * scaleFactor).dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Internal Routing Rules",
+                    "Prebuilt Rule Sets",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = (18 * scaleFactor).sp
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "Quickly import commonly used routing rule collections.",
+                    color = IosSecondaryLabel,
+                    fontSize = (13 * scaleFactor).sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+
                 InternalRuleButton(
                     title = "Iran Direct Rules",
                     desc = "Bypass tunnel for Iranian domains and IP ranges to improve speed and local access.",
+                    icon = Icons.Default.Public,
+                    color = IosActiveGreen,
                     onClick = { onImport("iran-direct-domains-ipv4-ipv6.astb") },
                     scaleFactor = scaleFactor
                 )
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 InternalRuleButton(
                     title = "Adult Content Block",
                     desc = "Restrict access to adult-oriented domains for a safer browsing experience.",
+                    icon = Icons.Default.Block,
+                    color = IosErrorRed,
                     onClick = { onImport("adult-content-block.astb") },
                     scaleFactor = scaleFactor
                 )
-                
+
                 Spacer(modifier = Modifier.height(12.dp))
-                
+
                 InternalRuleButton(
                     title = "Ads & DNS Block",
                     desc = "Block common advertisement domains and public DNS trackers for better privacy.",
+                    icon = Icons.Default.Security,
+                    color = IosPurple,
                     onClick = { onImport("ads-and-public-dns-block.astb") },
                     scaleFactor = scaleFactor
                 )
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -1014,19 +1371,39 @@ private fun InternalRulesDialog(
 private fun InternalRuleButton(
     title: String,
     desc: String,
+    icon: ImageVector,
+    color: Color,
     onClick: () -> Unit,
     scaleFactor: Float
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(Color.White.copy(alpha = 0.05f))
             .clickable { onClick() }
-            .padding(16.dp)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(desc, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = 16.sp)
+        Box(
+            modifier = Modifier
+                .size((36 * scaleFactor).dp)
+                .background(color.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = color, modifier = Modifier.size((20 * scaleFactor).dp))
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(desc, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = 16.sp)
+        }
+        Icon(
+            Icons.Default.Add,
+            null,
+            tint = color.copy(alpha = 0.6f),
+            modifier = Modifier.size((20 * scaleFactor).dp)
+        )
     }
 }

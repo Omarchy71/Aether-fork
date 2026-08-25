@@ -58,7 +58,7 @@ fun DashboardScreen(
     onRefreshIpInfo: () -> Unit = {},
     onRefreshPing: () -> Unit = {},
     onShowToast: (String, Boolean) -> Unit = { _, _ -> },
-    appVersion: String = "1.5.0",
+    appVersion: String = "1.5.6",
     bottomContentPadding: Dp = 0.dp,
 ) {
     var showProxyOverlay by remember { mutableStateOf(value = true) }

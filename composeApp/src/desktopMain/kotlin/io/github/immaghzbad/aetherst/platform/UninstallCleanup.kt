@@ -66,7 +66,7 @@ object UninstallCleanup {
 
     fun performManualCleanup(): Boolean {
         val stopped = try {
-            val ctrl = io.github.immaghzbad.aetherst.shared.core.ConnectionController.getInstance(PlatformContext())
+            val ctrl = io.github.immaghzbad.aetherst.shared.core.ConnectionController.getImpl(PlatformContext())
             ctrl.stop()
             true
         } catch (_: Exception) { false }

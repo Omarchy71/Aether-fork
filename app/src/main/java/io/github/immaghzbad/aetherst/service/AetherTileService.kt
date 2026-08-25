@@ -12,6 +12,7 @@ import io.github.immaghzbad.aetherst.R
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.core.ConnectionController
 import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,7 @@ class AetherTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
         job?.cancel()
-        job = AetherVpnService.serviceState
+        job = ConnectionController.status
             .onEach { updateTile(it) }
             .launchIn(scope)
     }
@@ -44,9 +45,24 @@ class AetherTileService : TileService() {
             return
         }
 
-        when (AetherVpnService.serviceState.value) {
-            ConnectionStatus.RUNNING -> AetherVpnService.stopVpn(this)
-            ConnectionStatus.STOPPED, ConnectionStatus.ERROR -> AetherVpnService.startVpn(this)
+        val config = repo.config.value
+        val state = ConnectionController.status.value
+
+        when (state) {
+            ConnectionStatus.RUNNING -> {
+                if (config.connectionMode == ConnectionMode.TUNNEL) {
+                    AetherVpnService.stopVpn(this)
+                } else {
+                    AetherProxyService.stopProxy(this)
+                }
+            }
+            ConnectionStatus.STOPPED, ConnectionStatus.ERROR -> {
+                if (config.connectionMode == ConnectionMode.TUNNEL) {
+                    AetherVpnService.startVpn(this)
+                } else {
+                    AetherProxyService.startProxy(this)
+                }
+            }
             else -> Unit
         }
     }
@@ -70,12 +86,24 @@ class AetherTileService : TileService() {
     private fun updateTile(state: ConnectionStatus) {
         val tile = qsTile ?: return
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_aether)
-        
+
+        val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
+
         when (state) {
             ConnectionStatus.RUNNING -> {
                 tile.state = Tile.STATE_ACTIVE
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    tile.subtitle = "Connected"
+                    tile.subtitle = when (config.connectionMode) {
+                        ConnectionMode.TUNNEL -> "VPN Connected"
+                        ConnectionMode.PROXY_ONLY -> {
+                            if (config.httpProxyEnabled) {
+                                "Proxy \u2022 SOCKS5 :${config.socksPort} \u2022 HTTP :${config.httpPort}"
+                            } else {
+                                "Proxy \u2022 SOCKS5 :${config.socksPort}"
+                            }
+                        }
+                        ConnectionMode.SYSTEM_PROXY -> "Proxy \u2022 HTTP :${config.httpPort}"
+                    }
                 }
             }
             ConnectionStatus.STOPPED, ConnectionStatus.ERROR -> {

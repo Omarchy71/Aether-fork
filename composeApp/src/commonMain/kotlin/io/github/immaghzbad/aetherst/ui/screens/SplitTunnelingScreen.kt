@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.immaghzbad.aetherst.platform.AppIcon
+import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.model.AppInfo
 
 private val IosCardBg = Color(0xFF1C1C1E)
@@ -50,6 +51,7 @@ fun SplitTunnelingScreen(
     apps: List<AppInfo>,
     excludedPackages: Set<String>,
     blockedPackages: Set<String>,
+    tunnelAllApps: Boolean,
     onUpdateMode: (String, Int) -> Unit,
     onBack: () -> Unit,
     scaleFactor: Float = 1f
@@ -77,11 +79,12 @@ fun SplitTunnelingScreen(
         }
     }
 
+    val isWindowsDesktop = isDesktop
     val filteredApps = remember(apps, searchQuery, selectedTab, excludedPackages, blockedPackages) {
         apps.filter { app ->
             val matchesTab = if (selectedTab == 0) !app.isSystemApp else app.isSystemApp
-            val matchesSearch = searchQuery.isEmpty() || 
-                               app.name.contains(searchQuery, ignoreCase = true) || 
+            val matchesSearch = searchQuery.isEmpty() ||
+                               app.name.contains(searchQuery, ignoreCase = true) ||
                                app.packageName.contains(searchQuery, ignoreCase = true)
             matchesTab && matchesSearch
         }.sortedWith(
@@ -123,6 +126,39 @@ fun SplitTunnelingScreen(
             }
         }
 
+        if (tunnelAllApps) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = (16 * scaleFactor).dp)
+                    .background(Color(0xFFFFD60A).copy(alpha = 0.1f), RoundedCornerShape((12 * scaleFactor).dp))
+                    .padding((12 * scaleFactor).dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    null,
+                    tint = Color(0xFFFFD60A),
+                    modifier = Modifier.size((18 * scaleFactor).dp)
+                )
+                Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
+                Column {
+                    Text(
+                        "Tunnel Whole Device is ON",
+                        color = Color(0xFFFFD60A),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (14 * scaleFactor).sp
+                    )
+                    Text(
+                        "Turn off \"Tunnel Whole Device\" in Settings to apply split tunneling rules.",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = (12 * scaleFactor).sp,
+                        lineHeight = (17 * scaleFactor).sp
+                    )
+                }
+            }
+        }
+
         Box(modifier = Modifier.padding(horizontal = (16 * scaleFactor).dp, vertical = (8 * scaleFactor).dp)) {
             BasicTextField(
                 value = searchQuery,
@@ -143,11 +179,19 @@ fun SplitTunnelingScreen(
                     ) {
                         Icon(Icons.Default.Search, null, tint = IosSecondaryLabel, modifier = Modifier.size((20 * scaleFactor).dp))
                         Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-                        Box(contentAlignment = Alignment.CenterStart) {
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
-                                Text("Search applications...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
+                                Text(if (isWindowsDesktop) "Search applications, e.g. Chrome, Telegram..." else "Search applications...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
                             }
                             innerTextField()
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            Icon(
+                                Icons.Default.Block,
+                                null,
+                                tint = IosSecondaryLabel,
+                                modifier = Modifier.size((18 * scaleFactor).dp).clickable { searchQuery = "" }
+                            )
                         }
                     }
                 }
@@ -182,6 +226,28 @@ fun SplitTunnelingScreen(
                 }
             }
         }
+        if (isWindowsDesktop) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${filteredApps.size} apps • ${excludedPackages.size + blockedPackages.size} configured",
+                    color = IosSecondaryLabel,
+                    fontSize = (11 * scaleFactor).sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (searchQuery.isNotEmpty()) {
+                    Text(
+                        text = "for \"${searchQuery}\"",
+                        color = IosActiveBlue,
+                        fontSize = (11 * scaleFactor).sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -204,6 +270,7 @@ fun SplitTunnelingScreen(
                     onUpdateMode = { modeIndex ->
                         onUpdateMode(app.packageName, modeIndex)
                     },
+                    enabled = !tunnelAllApps,
                     scaleFactor = scaleFactor
                 )
             }
@@ -216,6 +283,7 @@ private fun AppLineItem(
     app: AppInfo,
     mode: Int,
     onUpdateMode: (Int) -> Unit,
+    enabled: Boolean = true,
     scaleFactor: Float
 ) {
     Column(
@@ -261,6 +329,7 @@ private fun AppLineItem(
         ThreeStateSelector(
             currentMode = mode,
             onModeSelected = onUpdateMode,
+            enabled = enabled,
             scaleFactor = scaleFactor
         )
     }
@@ -270,6 +339,7 @@ private fun AppLineItem(
 private fun ThreeStateSelector(
     currentMode: Int,
     onModeSelected: (Int) -> Unit,
+    enabled: Boolean = true,
     scaleFactor: Float
 ) {
     Row(
@@ -285,7 +355,7 @@ private fun ThreeStateSelector(
                     .weight(1f)
                     .clip(RoundedCornerShape((8 * scaleFactor).dp))
                     .background(if (isSelected) IosActiveBlue else Color.Transparent)
-                    .clickable { onModeSelected(index) }
+                    .clickable(enabled = enabled) { onModeSelected(index) }
                     .padding(vertical = (8 * scaleFactor).dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -293,7 +363,11 @@ private fun ThreeStateSelector(
                     text = label,
                     fontSize = (12 * scaleFactor).sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    color = if (isSelected) Color.White else IosSecondaryLabel
+                    color = if (enabled) {
+                        if (isSelected) Color.White else IosSecondaryLabel
+                    } else {
+                        if (isSelected) Color.White.copy(alpha = 0.4f) else IosSecondaryLabel.copy(alpha = 0.35f)
+                    }
                 )
             }
         }
@@ -415,7 +489,7 @@ private fun SplitTunnelHelpDialog(
                                 fontSize = (14 * scaleFactor).sp
                             )
                             Text(
-                                "Blocked mode is enforced by the compatible packet engine automatically.",
+                                if (isDesktop) "Windows uses Wintun driver (hev-socks5-tunnel). TUN mode requires Administrator privileges and creates a virtual adapter AetherST." else "Blocked mode is enforced by the compatible packet engine automatically.",
                                 color = Color.White.copy(alpha = 0.6f),
                                 fontSize = (12 * scaleFactor).sp,
                                 lineHeight = (17 * scaleFactor).sp
@@ -441,13 +515,13 @@ private fun SplitTunnelHelpDialog(
                         Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
                         Column {
                             Text(
-                                "System Requirement",
+                                text = if (isDesktop) "Windows Details" else "System Requirement",
                                 color = Color(0xFFFFD60A),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = (14 * scaleFactor).sp
                             )
                             Text(
-                                "Android 10 and newer use the platform connection-owner API. Android 8 and 9 use the compatibility resolver.",
+                                text = if (isDesktop) "Windows 10/11 64-bit recommended. App list combines Start Menu (.lnk), Registry Uninstall and Get-StartApps (UWP). Icons are extracted via PowerShell and cached per executable." else "Android 10 and newer use the platform connection-owner API. Android 8 and 9 use the compatibility resolver.",
                                 color = Color.White.copy(alpha = 0.6f),
                                 fontSize = (12 * scaleFactor).sp,
                                 lineHeight = (17 * scaleFactor).sp

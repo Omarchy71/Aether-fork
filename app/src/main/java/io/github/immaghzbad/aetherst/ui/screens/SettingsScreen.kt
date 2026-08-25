@@ -95,6 +95,7 @@ fun SettingsScreen(
         val screenWidth = this.maxWidth
         val scaleFactor = (screenWidth.value / 411f).coerceIn(0.7f, 1.1f)
         val horizontalPadding = 16.dp
+
         val lazyListState = rememberLazyListState()
 
         LaunchedEffect(scrollToSection) {
@@ -272,7 +273,8 @@ fun SettingsScreen(
                                     options = emptyList(),
                                     onOptionSelected = { },
                                     scaleFactor = scaleFactor,
-                                    onClickOverride = onOpenSplitTunneling
+                                    onClickOverride = onOpenSplitTunneling,
+                                    enabled = !config.tunnelAllApps
                                 )
                             }
                             HorizontalDivider(color = IosDividerColor, thickness = 0.5.dp, modifier = Modifier.padding(start = (50 * scaleFactor).dp))
@@ -463,13 +465,13 @@ fun SettingsScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IosIconBadge(icon = Icons.Default.Lock, backgroundColor = Color(0xFF8E8E93), scaleFactor = scaleFactor)
                                     Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
-                                    Text(
-                                        text = "Advanced Authentication",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.White,
-                                        fontSize = (15 * scaleFactor).sp
-                                    )
+                Text(
+                    text = "Advanced",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    fontSize = (15 * scaleFactor).sp
+                )
                                 }
                                 Icon(
                                     imageVector = if (showAdvancedZeroTrust) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -964,7 +966,8 @@ fun IosPickerRow(
     options: List<String>,
     onOptionSelected: (Int) -> Unit,
     scaleFactor: Float = 1f,
-    onClickOverride: (() -> Unit)? = null
+    onClickOverride: (() -> Unit)? = null,
+    enabled: Boolean = true
 ) {
     var expanded by remember { mutableStateOf(value = false) }
 
@@ -972,7 +975,7 @@ fun IosPickerRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { 
+                .clickable(enabled = enabled) { 
                     if (onClickOverride != null) onClickOverride() else expanded = true 
                 }
                 .padding(horizontal = (16 * scaleFactor).dp, vertical = (14 * scaleFactor).dp),
@@ -998,7 +1001,7 @@ fun IosPickerRow(
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = IosSecondaryLabel,
+                    color = if (enabled) IosSecondaryLabel else IosSecondaryLabel.copy(alpha = 0.35f),
                     fontWeight = FontWeight.Normal,
                     maxLines = 1,
                     fontSize = (13 * scaleFactor).sp
@@ -1007,7 +1010,7 @@ fun IosPickerRow(
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
-                    tint = IosSecondaryLabel,
+                    tint = if (enabled) IosSecondaryLabel else IosSecondaryLabel.copy(alpha = 0.35f),
                     modifier = Modifier.size((18 * scaleFactor).dp)
                 )
             }

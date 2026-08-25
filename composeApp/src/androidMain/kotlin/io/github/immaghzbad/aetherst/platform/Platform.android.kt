@@ -149,7 +149,7 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     override fun getFilesDir(): String = context.filesDir.absolutePath
     override fun getCacheDir(): String = context.cacheDir.absolutePath
     override fun getPackageName(): String = context.packageName
-    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.5.0" } catch (_: Exception) { "1.5.0" }
+    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.5.6" } catch (_: Exception) { "1.5.6" }
     override fun exitApp() { Process.killProcess(Process.myPid()) }
 
     override fun readLastCrashLog(): String? {

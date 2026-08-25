@@ -84,6 +84,7 @@ import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.platform.getSystemUtils
 import io.github.immaghzbad.aetherst.platform.getDeviceModel
 import io.github.immaghzbad.aetherst.platform.getOsVersion
+import io.github.immaghzbad.aetherst.shared.desktop.TrayState
 import io.github.immaghzbad.aetherst.shared.ui.AetherViewModel
 import io.github.immaghzbad.aetherst.shared.ui.OnboardingViewModel
 import io.github.immaghzbad.aetherst.shared.ui.components.IosToast
@@ -186,6 +187,7 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
     var showAutoDetect by remember { mutableStateOf(false) }
     var showSpeedTest by remember { mutableStateOf(false) }
     var openZeroTrustSettings by remember { mutableStateOf(false) }
+    var showTrayAdminDialog by remember { mutableStateOf(false) }
 
     val config by viewModel.config.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
@@ -202,6 +204,22 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
     val scrollToZeroTrust by viewModel.scrollToZeroTrust.collectAsState()
     var showRoutingRules by remember { mutableStateOf(false) }
 
+    val trayNavigateKey by TrayState.navigateToSettings.collectAsState()
+    val trayAdminKey by TrayState.adminDialogRequest.collectAsState()
+    LaunchedEffect(trayNavigateKey) {
+        if (trayNavigateKey != 0L) {
+            selectedTab = 1
+            showSplitTunneling = false
+            showRoutingRules = false
+            showAutoDetect = false
+            showSpeedTest = false
+        }
+    }
+    LaunchedEffect(trayAdminKey) {
+        if (trayAdminKey != 0L) {
+            showTrayAdminDialog = true
+        }
+    }
     LaunchedEffect(scrollToZeroTrust) {
         if (scrollToZeroTrust) {
             selectedTab = 1
@@ -358,6 +376,7 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                                 apps = installedApps,
                                 excludedPackages = config.excludedPackages,
                                 blockedPackages = config.blockedPackages,
+                                tunnelAllApps = config.tunnelAllApps,
                                 onUpdateMode = { pkg, mode ->
                                     viewModel.updateAppSplitTunnelingMode(
                                         pkg,
@@ -371,7 +390,9 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                             102 -> SpeedTestScreen(
                                 onBack = { showSpeedTest = false },
                                 onCopy = { viewModel.copyToClipboard(it) },
-                                bottomContentPadding = 0.dp
+                                bottomContentPadding = 0.dp,
+                                connectionStatus = connectionStatus,
+                                config = config
                             )
 
                             101 -> AutoDetectScreen(
@@ -437,6 +458,16 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
             ZeroTrustLoginDialog(
                 onSubmit = { viewModel.submitLoginCode(it) },
                 onDismiss = { viewModel.submitLoginCode("") },
+                scaleFactor = scaleFactor
+            )
+        }
+        if (showTrayAdminDialog) {
+            AdminRequiredDialog(
+                onRelaunch = {
+                    showTrayAdminDialog = false
+                    getSystemUtils(platformContext).relaunchAsAdmin()
+                },
+                onDismiss = { showTrayAdminDialog = false },
                 scaleFactor = scaleFactor
             )
         }

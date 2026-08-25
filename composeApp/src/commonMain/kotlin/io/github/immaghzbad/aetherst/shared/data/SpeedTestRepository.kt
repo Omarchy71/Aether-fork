@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.update
 import okhttp3.*
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,6 +27,10 @@ object SpeedTestRepository {
     private val isCancelled = AtomicBoolean(false)
     private val mutex = kotlinx.coroutines.sync.Mutex()
     private var settings: io.github.immaghzbad.aetherst.platform.Settings? = null
+
+    private var socksHost: String = "127.0.0.1"
+    private var socksPort: Int = 1819
+    private var useProxy: Boolean = false
 
     private const val TAG = "SpeedTest"
     private const val PREFIX = "speed_test_"
@@ -63,9 +69,13 @@ object SpeedTestRepository {
     }
 
 
-    fun startTest() {
+    fun startTest(proxyHost: String = "127.0.0.1", proxyPort: Int = 1819, throughProxy: Boolean = false) {
         if (testJob?.isActive == true) return
         if (!mutex.tryLock()) return
+
+        socksHost = proxyHost
+        socksPort = proxyPort
+        useProxy = throughProxy
 
         isCancelled.set(false)
         val preservedConfig = _state.value.config
@@ -79,7 +89,7 @@ object SpeedTestRepository {
                     throw IllegalStateException("Custom server URL is empty")
                 }
 
-                LogRepository.i("Speed test started: Server=${server.displayName}, URL=$serverUrl", TAG)
+                LogRepository.i("Speed test started: Server=${server.displayName}, URL=$serverUrl, Proxy=${if (useProxy) "SOCKS($socksHost:$socksPort)" else "Direct"}", TAG)
                 _state.update { it.copy(
                     config = preservedConfig,
                     phase = SpeedTestPhase.PING,
@@ -212,6 +222,19 @@ object SpeedTestRepository {
         }
     }
 
+    private fun getProxy(): Proxy {
+        return if (useProxy) {
+            Proxy(Proxy.Type.SOCKS, InetSocketAddress(socksHost, socksPort))
+        } else {
+            Proxy.NO_PROXY
+        }
+    }
+
+    private fun openProxyConnection(urlString: String): HttpURLConnection {
+        val url = java.net.URI(urlString).toURL()
+        return url.openConnection(getProxy()) as HttpURLConnection
+    }
+
 
     private suspend fun measurePingAndJitter(
         baseUrl: String,
@@ -229,7 +252,7 @@ object SpeedTestRepository {
 
                 try {
                     val startTime = System.nanoTime()
-                    val conn = java.net.URI(pingUrl).toURL().openConnection() as HttpURLConnection
+                    val conn = openProxyConnection(pingUrl)
                     conn.connectTimeout = 5000
                     conn.readTimeout = 5000
                     conn.requestMethod = "GET"
@@ -303,7 +326,7 @@ object SpeedTestRepository {
                         val buffer = ByteArray(64 * 1024)
                         while (totalRead.get() < totalBytes && !isCancelled.get()) {
                             try {
-                                val conn = java.net.URI("$baseUrl/__down?bytes=$chunkSize").toURL().openConnection() as HttpURLConnection
+                                val conn = openProxyConnection("$baseUrl/__down?bytes=$chunkSize")
                                 conn.connectTimeout = 10000
                                 conn.readTimeout = 10000
                                 conn.requestMethod = "GET"
@@ -378,7 +401,7 @@ object SpeedTestRepository {
 
             try {
                 while (totalWritten < totalBytes && !isCancelled.get()) {
-                    val conn = java.net.URI(uploadUrl).toURL().openConnection() as HttpURLConnection
+                    val conn = openProxyConnection(uploadUrl)
                     conn.connectTimeout = 10000
                     conn.readTimeout = 10000
                     conn.requestMethod = "POST"
@@ -474,11 +497,12 @@ object SpeedTestRepository {
         return formatted.trimEnd('0').trimEnd('.')
     }
 
-    fun checkServerReachable(server: SpeedTestServer, config: SpeedTestConfig): Boolean {
+    fun checkServerReachable(server: SpeedTestServer, config: SpeedTestConfig, proxyHost: String = "127.0.0.1", proxyPort: Int = 1819, throughProxy: Boolean = false): Boolean {
         return try {
             val url = resolveServerUrl(server, config)
             if (url.isBlank()) return false
-            val conn = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+            val proxy = if (throughProxy) Proxy(Proxy.Type.SOCKS, InetSocketAddress(proxyHost, proxyPort)) else Proxy.NO_PROXY
+            val conn = java.net.URI(url).toURL().openConnection(proxy) as java.net.HttpURLConnection
             conn.connectTimeout = 4000
             conn.readTimeout = 4000
             conn.requestMethod = "HEAD"

@@ -17,13 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toPainter
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
-import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import androidx.lifecycle.ViewModelStore
@@ -31,94 +28,68 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.UninstallCleanup
+import io.github.immaghzbad.aetherst.platform.getSettings
+import io.github.immaghzbad.aetherst.platform.getSystemUtils
 import io.github.immaghzbad.aetherst.shared.App
 import io.github.immaghzbad.aetherst.shared.core.ConnectionController
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
+import io.github.immaghzbad.aetherst.shared.core.Elevation
+import io.github.immaghzbad.aetherst.shared.core.NetworkHealer
+import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.shared.desktop.AetherTray
+import io.github.immaghzbad.aetherst.shared.desktop.TrayActions
+import io.github.immaghzbad.aetherst.shared.desktop.TrayState
+import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
+import io.github.immaghzbad.aetherst.shared.core.SingleInstanceLock
+import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
 import java.io.File
 import java.net.ServerSocket
+import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
-import java.awt.Color as AwtColor
-import java.awt.Font as AwtFont
 
 private var lockSocket: ServerSocket? = null
 private var requestShowWindow: (() -> Unit)? = null
 
-@Volatile
-private var windowShown = false
-
-private fun startupLogFile(): File {
-    val dir = System.getProperty("jpackage.app.dir")
-        ?: ProcessHandle.current().info().command().orElse(null)?.let { File(it).parent }
-        ?: System.getProperty("java.io.tmpdir")
-    return File(dir, "startup_error.log")
-}
-
-private fun appendStartupLog(message: String) {
-    try {
-        startupLogFile().appendText("[${java.time.LocalDateTime.now()}] $message\n")
-    } catch (_: Exception) {}
-}
-
-private fun signalRunningInstance(): Boolean = try {
-    java.net.Socket("127.0.0.1", 18195).use { socket ->
-        socket.getOutputStream().write(1)
-        socket.getOutputStream().flush()
+private fun sweepChildProcesses() {
+    runCatching {
+        ProcessBuilder("taskkill", "/F", "/T", "/IM", "aether.exe")
+            .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS)
     }
-    true
-} catch (_: Exception) {
-    false
-}
-
-private fun killStaleCoreProcesses() {
-    try {
-        val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
-        if (!isWindows) return
-        val processes = listOf("aether-core.exe", "tun2socks.exe", "aether-core", "tun2socks")
-        for (proc in processes) {
-            ProcessBuilder("taskkill", "/F", "/IM", proc).start().waitFor()
-        }
-    } catch (_: Exception) {}
+    runCatching {
+        ProcessBuilder("taskkill", "/F", "/T", "/IM", "hev-socks5-tunnel.exe")
+            .redirectErrorStream(true).start().waitFor(5, TimeUnit.SECONDS)
+    }
 }
 
 private fun cleanTempFiles() {
     try {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "AetherST")
         if (tempDir.exists()) tempDir.walkBottomUp().forEach { it.delete() }
-        val routingFile = File(System.getProperty("java.io.tmpdir"), "routing.ast")
-        if (routingFile.exists()) routingFile.delete()
     } catch (_: Exception) {}
 }
 
-fun main(args: Array<String>) {
-    val jvmArgs = System.getProperty("sun.java.command")?.split(" ") ?: emptyList()
+fun main() {
+    NetworkHealer.heal()
 
-    if (jvmArgs.contains("--cleanup")) {
-        UninstallCleanup.performManualCleanup()
-        cleanTempFiles()
-        exitProcess(0)
+    var bound = false
+    for (attempt in 0..7) {
+        try {
+            val s = ServerSocket(18195)
+            lockSocket = s
+            SingleInstanceLock.socket = s
+            bound = true
+            break
+        } catch (_: Exception) {
+            if (attempt >= 7) break
+            try { Thread.sleep(350) } catch (_: Exception) {}
+        }
     }
-
-    val softwareFallbackTried = args.contains("--software-render")
-    if (softwareFallbackTried) {
-        System.setProperty("skia.renderPipeline", "software")
-    }
-
-    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-        appendStartupLog("Uncaught exception on thread '${thread.name}': ${throwable.stackTraceToString()}")
-    }
-
-    try {
-        UninstallCleanup.handleStartupCleanup()
-    } catch (e: Exception) {
-        appendStartupLog("Startup cleanup failed: ${e.stackTraceToString()}")
-    }
-    killStaleCoreProcesses()
-
-    try {
-        lockSocket = ServerSocket(18195)
-    } catch (_: Exception) {
-        signalRunningInstance()
+    if (!bound) {
+        runCatching {
+            java.net.Socket("127.0.0.1", 18195).use { socket ->
+                socket.getOutputStream().write(1)
+                socket.getOutputStream().flush()
+            }
+        }
         exitProcess(0)
     }
 
@@ -130,35 +101,15 @@ fun main(args: Array<String>) {
         }
     }, "Aether-SingleInstance").apply { isDaemon = true }.start()
 
-    Thread({
-        try {
-            Thread.sleep(20000)
-        } catch (_: InterruptedException) {
-            return@Thread
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            SingleInstanceLock.release()
+            runCatching { lockSocket?.close() }
+            AetherTray.uninstall()
+            sweepChildProcesses()
+            cleanTempFiles()
         }
-        if (!windowShown) {
-            appendStartupLog(
-                "Window did not appear within 20 seconds. softwareFallbackTried=$softwareFallbackTried. " +
-                        "os=${System.getProperty("os.name")} java=${System.getProperty("java.version")}"
-            )
-            if (!softwareFallbackTried) {
-                appendStartupLog("Relaunching with software rendering fallback...")
-                try {
-                    val exePath = ProcessHandle.current().info().command().orElse(null)
-                    if (exePath != null) {
-                        ProcessBuilder(exePath, "--software-render")
-                            .apply { environment()["JAVA_TOOL_OPTIONS"] = "-Dskia.renderPipeline=software" }
-                            .start()
-                        exitProcess(0)
-                    } else {
-                        appendStartupLog("Relaunch skipped: own executable path unavailable")
-                    }
-                } catch (e: Exception) {
-                    appendStartupLog("Relaunch failed: ${e.stackTraceToString()}")
-                }
-            }
-        }
-    }, "Aether-StartupWatchdog").apply { isDaemon = false }.start()
+    )
 
     application {
         val viewModelStoreOwner = remember {
@@ -168,11 +119,11 @@ fun main(args: Array<String>) {
         }
 
         var isVisible by remember { mutableStateOf(true) }
-        var showExitDialog by remember { mutableStateOf(false) }
+        var showCloseDialog by remember { mutableStateOf(false) }
 
         val windowState = rememberWindowState(
-            width = 420.dp,
-            height = 860.dp,
+            width = 432.dp,
+            height = 784.dp,
             position = WindowPosition.Aligned(Alignment.Center)
         )
 
@@ -184,47 +135,71 @@ fun main(args: Array<String>) {
             true
         }
 
-        val traySupported = remember {
-            runCatching { java.awt.SystemTray.isSupported() }.getOrDefault(false)
-        }
-
-        if (traySupported) {
-            val trayIcon = remember {
-                val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
-                val g = image.createGraphics()
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                g.color = AwtColor(0, 122, 255)
-                g.fillOval(2, 2, 28, 28)
-                g.color = AwtColor.WHITE
-                g.font = AwtFont("Arial", AwtFont.BOLD, 18)
-                g.drawString("A", 10, 22)
-                g.dispose()
-                image.toPainter()
-            }
-
-            Tray(
-                icon = trayIcon,
-                tooltip = "AetherST Tunnel",
-                onAction = { isVisible = true },
-                menu = {
-                    Item("Open AetherST", onClick = { isVisible = true })
-                    Separator()
-                    Item("Exit", onClick = {
-                        try {
-                            ConnectionController.getInstance(PlatformContext()).stop()
-                        } catch (_: Exception) {}
-                        cleanTempFiles()
-                        lockSocket?.close()
-                        lockSocket = null
-                        exitApplication()
-                    })
+        val trayActions = remember {
+            TrayActions(
+                onShowWindow = {
+                    isVisible = true
+                    windowState.isMinimized = false
+                },
+                onToggleConnection = {
+                    val context = PlatformContext()
+                    val currentStatus = ConnectionController.status.value
+                    if (currentStatus == ConnectionStatus.RUNNING ||
+                        currentStatus == ConnectionStatus.RECONNECTING) {
+                        ConnectionController.getImpl(context).stop()
+                    } else {
+                        val config = AetherConfigRepository.getInstance(getSettings(context)).config.value
+                        val isAdmin = getSystemUtils(context).isAdministrator()
+                        if (config.connectionMode == ConnectionMode.TUNNEL && !isAdmin) {
+                            isVisible = true
+                            windowState.isMinimized = false
+                            TrayState.requestAdminDialog()
+                        } else {
+                            ConnectionController.getImpl(context).start()
+                        }
+                    }
+                },
+                onOpenSettings = {
+                    isVisible = true
+                    windowState.isMinimized = false
+                    TrayState.requestSettings()
+                },
+                onOpenRouting = {
+                    isVisible = true
+                    windowState.isMinimized = false
+                },
+                onExit = {
+                    val context = PlatformContext()
+                    ConnectionController.getImpl(context).stop()
+                    AetherTray.uninstall()
+                    cleanTempFiles()
+                    sweepChildProcesses()
+                    SingleInstanceLock.release()
+                    runCatching { lockSocket?.close() }
+                    lockSocket = null
+                    exitApplication()
                 }
             )
         }
 
+        LaunchedEffect(trayActions) {
+            AetherTray.install(trayActions)
+        }
+
+        LaunchedEffect(Unit) {
+            ConnectionController.status.collect { status ->
+                AetherTray.setConnectionState(
+                    status == io.github.immaghzbad.aetherst.shared.model.ConnectionStatus.RUNNING ||
+                    status == io.github.immaghzbad.aetherst.shared.model.ConnectionStatus.RECONNECTING
+                )
+            }
+        }
+
         if (isVisible) {
             Window(
-                onCloseRequest = { showExitDialog = true },
+                onCloseRequest = {
+                    showCloseDialog = true
+                },
                 title = "AetherST Tunnel",
                 state = windowState,
                 resizable = false,
@@ -232,7 +207,6 @@ fun main(args: Array<String>) {
                 transparent = true,
                 visible = isVisible
             ) {
-                windowShown = true
                 CompositionLocalProvider(LocalViewModelStoreOwner provides viewModelStoreOwner) {
                     Box(
                         modifier = Modifier
@@ -265,7 +239,7 @@ fun main(args: Array<String>) {
                                                 "A",
                                                 color = Color.White,
                                                 fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                             )
                                         }
                                         Spacer(modifier = Modifier.width(12.dp))
@@ -273,7 +247,7 @@ fun main(args: Array<String>) {
                                             "AetherST Tunnel",
                                             color = Color.White,
                                             fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                         )
                                     }
 
@@ -298,7 +272,7 @@ fun main(args: Array<String>) {
                                             modifier = Modifier
                                                 .size(30.dp)
                                                 .clip(CircleShape)
-                                                .clickable { showExitDialog = true }
+                                                .clickable { showCloseDialog = true }
                                                 .background(Color(0xFFFF3B30).copy(alpha = 0.15f)),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -316,24 +290,88 @@ fun main(args: Array<String>) {
                             Box(modifier = Modifier.weight(1f)) {
                                 App(PlatformContext())
                             }
-
-                            if (showExitDialog) {
-                                ExitDialog(
-                                    onHide = {
-                                        isVisible = false
-                                        showExitDialog = false
-                                    },
-                                    onExit = {
-                                        try {
-                                            ConnectionController.getInstance(PlatformContext()).stop()
-                                        } catch (_: Exception) {}
-                                        cleanTempFiles()
-                                        lockSocket?.close()
-                                        lockSocket = null
-                                        exitApplication()
-                                    },
-                                    onDismiss = { showExitDialog = false }
-                                )
+                        }
+                        if (showCloseDialog) {
+                            val traySupported = remember(showCloseDialog) { AetherTray.isSupported() && AetherTray.isInstalled() }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .clickable(enabled = false) {},
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Card(
+                                    modifier = Modifier.widthIn(max = 340.dp).fillMaxWidth().padding(16.dp),
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "Close AetherST?",
+                                            color = Color.White,
+                                            fontSize = 18.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = if (traySupported) "Hide to system tray or exit completely?" else "Do you want to exit AetherST Tunnel?",
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(20.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            if (traySupported) {
+                                                Button(
+                                                    onClick = {
+                                                        showCloseDialog = false
+                                                        isVisible = false
+                                                    },
+                                                    modifier = Modifier.weight(1f).height(46.dp),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF), contentColor = Color.White)
+                                                ) {
+                                                    Text("Hide to Tray", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 13.sp)
+                                                }
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    showCloseDialog = false
+                                                    val context = PlatformContext()
+                                                    ConnectionController.getImpl(context).stop()
+                                                    AetherTray.uninstall()
+                                                    cleanTempFiles()
+                                                    sweepChildProcesses()
+                                                    SingleInstanceLock.release()
+                                                    runCatching { lockSocket?.close() }
+                                                    lockSocket = null
+                                                    exitApplication()
+                                                },
+                                                modifier = Modifier.weight(if (traySupported) 1f else 1f).height(46.dp),
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30), contentColor = Color.White)
+                                            ) {
+                                                Text("Exit", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 13.sp)
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        TextButton(
+                                            onClick = { showCloseDialog = false },
+                                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Cancel", color = Color.White.copy(alpha = 0.6f), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, fontSize = 13.sp)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -341,47 +379,4 @@ fun main(args: Array<String>) {
             }
         }
     }
-}
-
-@Composable
-private fun ExitDialog(
-    onHide: () -> Unit,
-    onExit: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            Button(
-                onClick = onExit,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Exit Completely", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onHide) {
-                Text("Hide to Tray", color = Color(0xFF007AFF), fontWeight = FontWeight.Bold)
-            }
-        },
-        title = {
-            Text(
-                "Exit AetherST?",
-                color = Color.White,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 18.sp
-            )
-        },
-        text = {
-            Text(
-                "Would you like to keep the tunnel running in the background or exit the application entirely?",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp
-            )
-        },
-        containerColor = Color(0xFF1C1C1E),
-        shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
-    )
 }

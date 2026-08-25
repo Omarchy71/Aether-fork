@@ -51,6 +51,7 @@ fun SplitTunnelingScreen(
     apps: List<AppInfo>,
     excludedPackages: Set<String>,
     blockedPackages: Set<String>,
+    tunnelAllApps: Boolean,
     onUpdateMode: (String, Int) -> Unit,
     onBack: () -> Unit,
     scaleFactor: Float = 1f
@@ -130,6 +131,39 @@ fun SplitTunnelingScreen(
             )
             IconButton(onClick = { showHelpDialog = true }, modifier = Modifier.size((40 * scaleFactor).dp)) {
                 Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size((24 * scaleFactor).dp))
+            }
+        }
+
+        if (tunnelAllApps) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = (16 * scaleFactor).dp)
+                    .background(Color(0xFFFFD60A).copy(alpha = 0.1f), RoundedCornerShape((12 * scaleFactor).dp))
+                    .padding((12 * scaleFactor).dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    null,
+                    tint = Color(0xFFFFD60A),
+                    modifier = Modifier.size((18 * scaleFactor).dp)
+                )
+                Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
+                Column {
+                    Text(
+                        "Tunnel Whole Device is ON",
+                        color = Color(0xFFFFD60A),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (14 * scaleFactor).sp
+                    )
+                    Text(
+                        "Turn off \"Tunnel Whole Device\" in Settings to apply split tunneling rules.",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = (12 * scaleFactor).sp,
+                        lineHeight = (17 * scaleFactor).sp
+                    )
+                }
             }
         }
 
@@ -214,6 +248,7 @@ fun SplitTunnelingScreen(
                     onUpdateMode = { modeIndex ->
                         onUpdateMode(app.packageName, modeIndex)
                     },
+                    enabled = !tunnelAllApps,
                     scaleFactor = scaleFactor
                 )
             }
@@ -226,6 +261,7 @@ private fun AppLineItem(
     app: AppInfo,
     mode: Int,
     onUpdateMode: (Int) -> Unit,
+    enabled: Boolean = true,
     scaleFactor: Float
 ) {
     Column(
@@ -271,6 +307,7 @@ private fun AppLineItem(
         ThreeStateSelector(
             currentMode = mode,
             onModeSelected = onUpdateMode,
+            enabled = enabled,
             scaleFactor = scaleFactor
         )
     }
@@ -280,6 +317,7 @@ private fun AppLineItem(
 private fun ThreeStateSelector(
     currentMode: Int,
     onModeSelected: (Int) -> Unit,
+    enabled: Boolean = true,
     scaleFactor: Float
 ) {
     Row(
@@ -295,7 +333,7 @@ private fun ThreeStateSelector(
                     .weight(1f)
                     .clip(RoundedCornerShape((8 * scaleFactor).dp))
                     .background(if (isSelected) IosActiveBlue else Color.Transparent)
-                    .clickable { onModeSelected(index) }
+                    .clickable(enabled = enabled) { onModeSelected(index) }
                     .padding(vertical = (8 * scaleFactor).dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -303,7 +341,11 @@ private fun ThreeStateSelector(
                     text = label,
                     fontSize = (12 * scaleFactor).sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    color = if (isSelected) Color.White else IosSecondaryLabel
+                    color = if (enabled) {
+                        if (isSelected) Color.White else IosSecondaryLabel
+                    } else {
+                        if (isSelected) Color.White.copy(alpha = 0.4f) else IosSecondaryLabel.copy(alpha = 0.35f)
+                    }
                 )
             }
         }

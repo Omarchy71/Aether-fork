@@ -461,7 +461,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 val cfg = config.value
                 PingRepository.runPing(cfg.socksHost, cfg.socksPort.toIntOrNull() ?: 1819, useProxy = true)
             } else {
-                PingRepository.runPing(useProxy = false)
+                PingRepository.reset()
             }
         }
     }
@@ -491,10 +491,20 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
 
     private fun observeConnectionStatus() {
         viewModelScope.launch {
-            connectionStatus.drop(1).collect { state ->
-                if (state == ConnectionStatus.RUNNING || state == ConnectionStatus.STOPPED) {
-                    refreshIpInfo()
-                    refreshPing()
+            connectionStatus.collect { state ->
+                when (state) {
+                    ConnectionStatus.RUNNING -> {
+                        val cfg = config.value
+                        val host = cfg.socksHost
+                        val port = cfg.socksPort.toIntOrNull() ?: 1819
+                        viewModelScope.launch { IpInfoRepository.fetchIpInfo(host, port, useProxy = true) }
+                        viewModelScope.launch { PingRepository.runPing(host, port, useProxy = true) }
+                    }
+                    ConnectionStatus.STOPPED -> {
+                        viewModelScope.launch { IpInfoRepository.fetchIpInfo(useProxy = false) }
+                        PingRepository.reset()
+                    }
+                    else -> {}
                 }
             }
         }
@@ -543,7 +553,8 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             val existingPatterns = current.routingRules.mapTo(mutableSetOf()) { it.pattern.lowercase() }
             current.routingRules + newRules.filter { it.pattern.lowercase() !in existingPatterns }
         } else {
-            newRules
+            val newPatterns = newRules.mapTo(mutableSetOf()) { it.pattern.lowercase() }
+            current.routingRules.filter { it.pattern.lowercase() !in newPatterns } + newRules
         }
         updateConfig(current.copy(routingRules = finalRules))
         restartConnection()

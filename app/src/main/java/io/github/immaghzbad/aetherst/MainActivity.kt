@@ -2,11 +2,14 @@ package io.github.immaghzbad.aetherst
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.shared.App
 import io.github.immaghzbad.aetherst.shared.platform.Bridge
@@ -64,7 +67,17 @@ class MainActivity : ComponentActivity() {
         }
 
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         setContent {
             App(PlatformContext(this))
         }

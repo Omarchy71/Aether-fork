@@ -60,7 +60,9 @@ private val IosPurple = Color(0xFFAF52DE)
 fun SpeedTestScreen(
     onBack: () -> Unit,
     onCopy: (String) -> Unit = {},
-    bottomContentPadding: Dp = 0.dp
+    bottomContentPadding: Dp = 0.dp,
+    connectionStatus: ConnectionStatus = ConnectionStatus.STOPPED,
+    config: AetherConfig = AetherConfig()
 ) {
     val state by SpeedTestRepository.state.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
@@ -70,6 +72,10 @@ fun SpeedTestScreen(
     val isAndroid = remember { try { Class.forName("android.os.Build"); true } catch(_: Throwable) { false } }
     val navBarPadding = if (isAndroid) WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     val effectiveBottomPadding = if (bottomContentPadding > 0.dp) bottomContentPadding else navBarPadding
+
+    val isRunning = connectionStatus == ConnectionStatus.RUNNING
+    val socksHost = config.socksHost
+    val socksPort = config.socksPort.toIntOrNull() ?: 1819
 
     DisposableEffect(Unit) {
         onDispose { SpeedTestRepository.cancelTest() }
@@ -203,12 +209,18 @@ fun SpeedTestScreen(
                         if (checkingServer) return@Button
                         checkingServer = true
                         scope.launch(Dispatchers.IO) {
+                            val throughProxy = isRunning
                             val needsCheck = state.config.selectedServer != SpeedTestServer.CLOUDFLARE
-                            val reachable = !needsCheck || SpeedTestRepository.checkServerReachable(state.config.selectedServer, state.config)
+                            val reachable = !needsCheck || SpeedTestRepository.checkServerReachable(
+                                state.config.selectedServer, state.config,
+                                proxyHost = socksHost, proxyPort = socksPort, throughProxy = throughProxy
+                            )
                             checkingServer = false
                             if (reachable) {
                                 SpeedTestRepository.reset()
-                                SpeedTestRepository.startTest()
+                                SpeedTestRepository.startTest(
+                                    proxyHost = socksHost, proxyPort = socksPort, throughProxy = throughProxy
+                                )
                             } else {
                                 showServerUnavailable = true
                             }
@@ -270,7 +282,9 @@ fun SpeedTestScreen(
                 showSettings = false
                 SpeedTestRepository.updateConfig(state.config.copy(selectedServer = SpeedTestServer.CLOUDFLARE))
                 SpeedTestRepository.reset()
-                SpeedTestRepository.startTest()
+                SpeedTestRepository.startTest(
+                    proxyHost = socksHost, proxyPort = socksPort, throughProxy = isRunning
+                )
             },
             onDismiss = { showServerUnavailable = false }
         )

@@ -14,6 +14,7 @@ import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
+import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
 import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
 
 class AetherWidgetProvider : AppWidgetProvider() {
@@ -28,9 +29,9 @@ class AetherWidgetProvider : AppWidgetProvider() {
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
             val status = ConnectionController.status.value
             val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(context))).config.value
-            
+
             for (appWidgetId in appWidgetIds) {
-                updateAppWidget(context, appWidgetManager, appWidgetId, status, config.protocol)
+                updateAppWidget(context, appWidgetManager, appWidgetId, status, config)
             }
         }
 
@@ -39,12 +40,22 @@ class AetherWidgetProvider : AppWidgetProvider() {
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int,
             status: ConnectionStatus,
-            currentProtocol: AetherProtocol
+            config: io.github.immaghzbad.aetherst.shared.model.AetherConfig
         ) {
             val views = RemoteViews(context.packageName, R.layout.aether_widget)
 
             val statusText = when (status) {
-                ConnectionStatus.RUNNING -> "Connected"
+                ConnectionStatus.RUNNING -> when (config.connectionMode) {
+                    ConnectionMode.TUNNEL -> "VPN Connected"
+                    ConnectionMode.PROXY_ONLY -> {
+                        if (config.httpProxyEnabled) {
+                            "Proxy Active \u2022 SOCKS5 :${config.socksPort} \u2022 HTTP :${config.httpPort}"
+                        } else {
+                            "Proxy Active \u2022 SOCKS5 :${config.socksPort}"
+                        }
+                    }
+                    ConnectionMode.SYSTEM_PROXY -> "Proxy Active \u2022 HTTP :${config.httpPort}"
+                }
                 ConnectionStatus.STARTING, ConnectionStatus.VALIDATING -> "Connecting..."
                 ConnectionStatus.RECONNECTING -> "Reconnecting..."
                 ConnectionStatus.STOPPING -> "Disconnecting..."
@@ -70,9 +81,9 @@ class AetherWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_button, android.R.drawable.ic_lock_power_off)
             views.setInt(R.id.widget_button, "setBackgroundResource", buttonRes)
 
-            setupProtocolButton(context, views, R.id.proto_masque, AetherProtocol.MASQUE, currentProtocol)
-            setupProtocolButton(context, views, R.id.proto_wire, AetherProtocol.WG, currentProtocol)
-            setupProtocolButton(context, views, R.id.proto_gool, AetherProtocol.GOOL, currentProtocol)
+            setupProtocolButton(context, views, R.id.proto_masque, AetherProtocol.MASQUE, config.protocol)
+            setupProtocolButton(context, views, R.id.proto_wire, AetherProtocol.WG, config.protocol)
+            setupProtocolButton(context, views, R.id.proto_gool, AetherProtocol.GOOL, config.protocol)
 
             val toggleIntent = Intent(context, AetherWidgetProvider::class.java).apply {
                 action = ACTION_TOGGLE
@@ -114,7 +125,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
         val status = ConnectionController.status.value
         val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(context))).config.value
         for (appWidgetId in appWidgetIds) {
-            updateAppWidget(context, appWidgetManager, appWidgetId, status, config.protocol)
+            updateAppWidget(context, appWidgetManager, appWidgetId, status, config)
         }
     }
 
@@ -132,12 +143,16 @@ class AetherWidgetProvider : AppWidgetProvider() {
                     return
                 }
 
-                if (android.net.VpnService.prepare(context) != null) {
-                    val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val config = repository.config.value
+
+                if (config.connectionMode == ConnectionMode.TUNNEL) {
+                    if (android.net.VpnService.prepare(context) != null) {
+                        val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(launchIntent)
+                        return
                     }
-                    context.startActivity(launchIntent)
-                    return
                 }
 
                 val status = ConnectionController.status.value
@@ -146,18 +161,38 @@ class AetherWidgetProvider : AppWidgetProvider() {
                 }
 
                 if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.RECONNECTING) {
-                    AetherVpnService.stopVpn(context)
+                    if (config.connectionMode == ConnectionMode.TUNNEL) {
+                        AetherVpnService.stopVpn(context)
+                    } else {
+                        AetherProxyService.stopProxy(context)
+                    }
                 } else {
-                    AetherVpnService.startVpn(context)
+                    if (config.connectionMode == ConnectionMode.TUNNEL) {
+                        AetherVpnService.startVpn(context)
+                    } else {
+                        AetherProxyService.startProxy(context)
+                    }
                 }
             }
             ACTION_CHANGE_PROTOCOL -> {
                 val protocolName = intent.getStringExtra("protocol") ?: return
                 val nextProtocol = AetherProtocol.valueOf(protocolName)
                 val currentConfig = repository.config.value
-                
+
                 if (currentConfig.protocol != nextProtocol) {
                     repository.updateConfig(currentConfig.copy(protocol = nextProtocol))
+
+                    val status = ConnectionController.status.value
+                    if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.RECONNECTING) {
+                        if (currentConfig.connectionMode == ConnectionMode.TUNNEL) {
+                            AetherVpnService.stopVpn(context)
+                            AetherVpnService.startVpn(context)
+                        } else {
+                            AetherProxyService.stopProxy(context)
+                            AetherProxyService.startProxy(context)
+                        }
+                    }
+
                     updateAllWidgets(context)
                 }
             }

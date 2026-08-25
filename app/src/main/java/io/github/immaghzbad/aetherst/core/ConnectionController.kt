@@ -204,7 +204,6 @@ class ConnectionController private constructor(context: Context) {
                         stopTimer()
                         ConnectionStatus.ERROR
                     } else {
-                        // During STARTING/VALIDATING, propagate error so start() can detect it
                         LogRepository.e("[Controller] Core error during $current")
                         coreStatus
                     }
@@ -217,7 +216,6 @@ class ConnectionController private constructor(context: Context) {
                     } else if (current == ConnectionStatus.STOPPING) {
                         ConnectionStatus.STOPPED
                     } else if (current == ConnectionStatus.STARTING || current == ConnectionStatus.VALIDATING) {
-                        // During startup, propagate stopped so start() can detect it
                         LogRepository.w("[Controller] Core stopped during $current")
                         coreStatus
                     } else {

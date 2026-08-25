@@ -184,7 +184,6 @@ class AetherVpnService : VpnService() {
 
                 LogRepository.i("[VpnService] Core ready, establishing TUN")
 
-                // Pre-TUN diagnostic: verify SOCKS5 is actually reachable
                 val socksPort = config.socksPort.toIntOrNull() ?: 1819
                 val socksReachable = runCatching {
                     Socket().use { s ->

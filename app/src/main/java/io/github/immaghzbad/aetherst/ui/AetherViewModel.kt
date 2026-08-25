@@ -591,7 +591,8 @@ class AetherViewModel(context: Context) : ViewModel() {
             val existingPatterns = current.routingRules.mapTo(mutableSetOf()) { routingPatternKey(it.pattern) }
             current.routingRules + newRules.filter { routingPatternKey(it.pattern) !in existingPatterns }
         } else {
-            newRules
+            val newPatterns = newRules.mapTo(mutableSetOf()) { routingPatternKey(it.pattern) }
+            current.routingRules.filter { routingPatternKey(it.pattern) !in newPatterns } + newRules
         }
         updateConfig(current.copy(routingRules = finalRules))
         restartVpnIfActive()
@@ -620,7 +621,7 @@ class AetherViewModel(context: Context) : ViewModel() {
                 val cfg = config.value
                 PingRepository.runPing(cfg.socksHost, cfg.socksPort.toIntOrNull() ?: 1819, useProxy = true)
             } else {
-                PingRepository.runPing(useProxy = false)
+                PingRepository.reset()
             }
         }
     }
@@ -687,7 +688,7 @@ class AetherViewModel(context: Context) : ViewModel() {
 
                     ConnectionStatus.STOPPED -> {
                         viewModelScope.launch { IpInfoRepository.fetchIpInfo(useProxy = false) }
-                        viewModelScope.launch { PingRepository.runPing(useProxy = false) }
+                        PingRepository.reset()
                     }
 
                     else -> {}
