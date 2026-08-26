@@ -149,7 +149,7 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     override fun getFilesDir(): String = context.filesDir.absolutePath
     override fun getCacheDir(): String = context.cacheDir.absolutePath
     override fun getPackageName(): String = context.packageName
-    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.5.6" } catch (_: Exception) { "1.5.6" }
+    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.0" } catch (_: Exception) { "1.6.0" }
     override fun exitApp() { Process.killProcess(Process.myPid()) }
 
     override fun readLastCrashLog(): String? {
@@ -217,6 +217,16 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
         }
     }
 
+    override fun openVpnSettings() {
+        try {
+            val intent = Intent(AndroidSettings.ACTION_VPN_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
     override fun exportFile(fileName: String, content: String, onResult: (Boolean) -> Unit) {
         Bridge.saveFile?.invoke(fileName, content, onResult)
     }
@@ -271,6 +281,18 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    override fun isNetworkConnected(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val network = cm.activeNetwork ?: return false
+            val capabilities = cm.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override fun execPing(host: String, size: Int, timeoutMs: Int, dontFragment: Boolean): Boolean {
         return try {
             val timeoutSec = (timeoutMs / 1000).coerceAtLeast(1)
@@ -299,6 +321,8 @@ actual fun getCurrentTimestamp(): String {
 }
 
 actual val isDesktop: Boolean = false
+
+actual val isWindows: Boolean = false
 
 actual fun getDeviceModel(): String {
     val manufacturer = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }

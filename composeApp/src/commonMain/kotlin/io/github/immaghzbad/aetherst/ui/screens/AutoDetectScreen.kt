@@ -1,4 +1,6 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -32,13 +34,13 @@ import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.AutoDetectRepository
 import io.github.immaghzbad.aetherst.shared.model.*
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosGroupBg = Color(0xFF2C2C2E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveGreen = Color(0xFF34C759)
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosErrorRed = Color(0xFFFF3B30)
-private val IosAmber = Color(0xFFFF9500)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosGroupBg = AppPalette.divider
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosActiveBlue = AppPalette.accent
+private val IosErrorRed = AppPalette.statusError
+private val IosAmber = AppPalette.statusScanning
 
 @Composable
 fun AutoDetectScreen(
@@ -47,7 +49,7 @@ fun AutoDetectScreen(
     platformContext: PlatformContext,
     bottomContentPadding: Dp = 0.dp
 ) {
-    val state by AutoDetectRepository.state.collectAsState()
+    val state by AutoDetectRepository.state.collectAsStateWithLifecycle()
 
     val retest: () -> Unit = {
         AutoDetectRepository.reset()

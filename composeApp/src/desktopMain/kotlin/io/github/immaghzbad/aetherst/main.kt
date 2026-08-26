@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -41,9 +42,12 @@ import io.github.immaghzbad.aetherst.shared.desktop.TrayState
 import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
 import io.github.immaghzbad.aetherst.shared.core.SingleInstanceLock
 import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
+import java.awt.GraphicsEnvironment
+import java.awt.Rectangle
 import java.io.File
 import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
+import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 
 private var lockSocket: ServerSocket? = null
@@ -97,7 +101,9 @@ fun main() {
         while (true) {
             val client = try { lockSocket?.accept() ?: break } catch (_: Exception) { break }
             runCatching { client.close() }
-            try { requestShowWindow?.invoke() } catch (_: Exception) {}
+            try {
+                SwingUtilities.invokeLater { requestShowWindow?.invoke() }
+            } catch (_: Exception) {}
         }
     }, "Aether-SingleInstance").apply { isDaemon = true }.start()
 
@@ -121,16 +127,58 @@ fun main() {
         var isVisible by remember { mutableStateOf(true) }
         var showCloseDialog by remember { mutableStateOf(false) }
 
+        val useTransparentWindow = remember {
+            runCatching {
+                if (GraphicsEnvironment.isHeadless()) false
+                else {
+                    val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    val gd = ge.defaultScreenDevice
+                    val gc = gd.defaultConfiguration
+                    gc.isTranslucencyCapable
+                }
+            }.getOrDefault(false)
+        }
+
         val windowState = rememberWindowState(
             width = 432.dp,
             height = 784.dp,
             position = WindowPosition.Aligned(Alignment.Center)
         )
 
+        fun bringWindowToFront(composeWindow: ComposeWindow?) {
+            try {
+                val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                val maxBounds: Rectangle = ge.maximumWindowBounds
+                val pos = windowState.position
+                if (pos is WindowPosition.Absolute) {
+                    val x = pos.x.value.toInt()
+                    val y = pos.y.value.toInt()
+                    val w = windowState.size.width.value.toInt()
+                    val h = windowState.size.height.value.toInt()
+                    val outOfBounds = x + w < maxBounds.x + 20 || x > maxBounds.x + maxBounds.width - 20 || y + h < maxBounds.y + 20 || y > maxBounds.y + maxBounds.height - 20
+                    if (outOfBounds) {
+                        windowState.position = WindowPosition.Aligned(Alignment.Center)
+                    }
+                }
+            } catch (_: Exception) {}
+            try {
+                composeWindow?.let { w ->
+                    w.isVisible = true
+                    w.isMinimized = false
+                    w.toFront()
+                    w.requestFocus()
+                    w.isAlwaysOnTop = true
+                    w.isAlwaysOnTop = false
+                }
+            } catch (_: Exception) {}
+        }
+
         remember {
             requestShowWindow = {
-                isVisible = true
-                windowState.isMinimized = false
+                SwingUtilities.invokeLater {
+                    isVisible = true
+                    windowState.isMinimized = false
+                }
             }
             true
         }
@@ -138,8 +186,10 @@ fun main() {
         val trayActions = remember {
             TrayActions(
                 onShowWindow = {
-                    isVisible = true
-                    windowState.isMinimized = false
+                    SwingUtilities.invokeLater {
+                        isVisible = true
+                        windowState.isMinimized = false
+                    }
                 },
                 onToggleConnection = {
                     val context = PlatformContext()
@@ -151,8 +201,10 @@ fun main() {
                         val config = AetherConfigRepository.getInstance(getSettings(context)).config.value
                         val isAdmin = getSystemUtils(context).isAdministrator()
                         if (config.connectionMode == ConnectionMode.TUNNEL && !isAdmin) {
-                            isVisible = true
-                            windowState.isMinimized = false
+                            SwingUtilities.invokeLater {
+                                isVisible = true
+                                windowState.isMinimized = false
+                            }
                             TrayState.requestAdminDialog()
                         } else {
                             ConnectionController.getImpl(context).start()
@@ -160,13 +212,17 @@ fun main() {
                     }
                 },
                 onOpenSettings = {
-                    isVisible = true
-                    windowState.isMinimized = false
+                    SwingUtilities.invokeLater {
+                        isVisible = true
+                        windowState.isMinimized = false
+                    }
                     TrayState.requestSettings()
                 },
                 onOpenRouting = {
-                    isVisible = true
-                    windowState.isMinimized = false
+                    SwingUtilities.invokeLater {
+                        isVisible = true
+                        windowState.isMinimized = false
+                    }
                 },
                 onExit = {
                     val context = PlatformContext()
@@ -177,7 +233,7 @@ fun main() {
                     SingleInstanceLock.release()
                     runCatching { lockSocket?.close() }
                     lockSocket = null
-                    exitApplication()
+                    exitProcess(0)
                 }
             )
         }
@@ -195,18 +251,28 @@ fun main() {
             }
         }
 
-        if (isVisible) {
-            Window(
-                onCloseRequest = {
-                    showCloseDialog = true
-                },
-                title = "AetherST Tunnel",
-                state = windowState,
-                resizable = false,
-                undecorated = true,
-                transparent = true,
-                visible = isVisible
-            ) {
+        LaunchedEffect(isVisible) {
+            if (isVisible) {
+                try {
+                    windowState.isMinimized = false
+                } catch (_: Exception) {}
+            }
+        }
+
+        Window(
+            onCloseRequest = {
+                showCloseDialog = true
+            },
+            title = "AetherST Tunnel",
+            state = windowState,
+            resizable = false,
+            undecorated = useTransparentWindow,
+            transparent = useTransparentWindow,
+            visible = isVisible
+        ) {
+            LaunchedEffect(isVisible) {
+                if (isVisible) bringWindowToFront(window)
+            }
                 CompositionLocalProvider(LocalViewModelStoreOwner provides viewModelStoreOwner) {
                     Box(
                         modifier = Modifier
@@ -353,7 +419,7 @@ fun main() {
                                                     SingleInstanceLock.release()
                                                     runCatching { lockSocket?.close() }
                                                     lockSocket = null
-                                                    exitApplication()
+                                                    exitProcess(0)
                                                 },
                                                 modifier = Modifier.weight(if (traySupported) 1f else 1f).height(46.dp),
                                                 shape = RoundedCornerShape(12.dp),
@@ -379,4 +445,3 @@ fun main() {
             }
         }
     }
-}

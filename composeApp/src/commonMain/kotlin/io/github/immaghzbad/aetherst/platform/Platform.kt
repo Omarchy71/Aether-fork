@@ -34,12 +34,14 @@ interface SystemUtils {
     fun exitApp()
     fun execPing(host: String, size: Int, timeoutMs: Int, dontFragment: Boolean = false): Boolean
     fun getInterfaceMtu(): Int
+    fun isNetworkConnected(): Boolean
     fun readLastCrashLog(): String?
     fun clearCrashLog()
     fun copyToClipboard(text: String)
     fun requestNotificationPermission()
     fun isNotificationPermissionGranted(): Boolean
     fun requestBatteryOptimization()
+    fun openVpnSettings()
     fun exportFile(fileName: String, content: String, onResult: (Boolean) -> Unit)
     fun importFile(onResult: (String?) -> Unit)
     fun shareFile(fileName: String, content: String)
@@ -69,6 +71,8 @@ expect fun getSettings(context: PlatformContext): Settings
 expect fun getCurrentTimestamp(): String
 
 expect val isDesktop: Boolean
+
+expect val isWindows: Boolean
 
 expect fun getDeviceModel(): String
 

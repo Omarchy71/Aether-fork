@@ -1,6 +1,8 @@
 LOCAL_PATH := $(call my-dir)
 MY_LOCAL_PATH := $(LOCAL_PATH)
 
+include $(MY_LOCAL_PATH)/cloak/Android.mk
+
 # 1. Include the upstream hev-socks5-tunnel
 # This will define modules: libyaml, liblwip, libhev-task-system, and hev-socks5-tunnel (static)
 include $(MY_LOCAL_PATH)/third_party/hev-socks5-tunnel/Android.mk

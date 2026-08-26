@@ -6,6 +6,7 @@ import android.os.Process
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
+import io.github.immaghzbad.aetherst.shared.data.ActiveProxyProvider
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.model.SessionTraffic
 import io.github.immaghzbad.aetherst.shared.model.*
@@ -15,11 +16,23 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+
+object SocksGate {
+    private val _readiness = MutableStateFlow(SocksReadiness.NOT_READY)
+    val readiness: StateFlow<SocksReadiness> = _readiness.asStateFlow()
+    fun setReady(v: SocksReadiness) { _readiness.value = v }
+    suspend fun awaitReady(timeoutMs: Long = 5000): Boolean {
+        return try {
+            withTimeout(timeoutMs) { readiness.first { it == SocksReadiness.PROBED_OK }; true }
+        } catch (_: Exception) { false }
+    }
+}
 
 class ConnectionController private constructor(context: Context) {
     private val appContext = context.applicationContext
@@ -77,6 +90,7 @@ class ConnectionController private constructor(context: Context) {
 
         fun updateIsWaitingForCode(waiting: Boolean) {
             _isWaitingForCode.value = waiting
+            io.github.immaghzbad.aetherst.shared.platform.Bridge.isWaitingForCode.value = waiting
         }
     }
 
@@ -104,58 +118,120 @@ class ConnectionController private constructor(context: Context) {
         notifyStatusChanged(appContext, ConnectionStatus.STARTING)
 
         try {
-            val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(appContext))).config.value
-            val bindHost = if (config.shareHotspot) "0.0.0.0" else "127.0.0.1"
-            val bindAddress = "$bindHost:${config.socksPort}"
+            val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(appContext))).config.value.effectiveZeroTrustConfig()
+            var effectiveConfig = config
+            if (CloakController.isSupported(config)) {
+                val cloakStarted = runNativeBounded(30000L, "Cloak.start") { CloakController.start(appContext, config) } == true
+                if (cloakStarted && CloakController.isRunning()) {
+                    effectiveConfig = config.copy(peer = CloakController.getEffectivePeer(config))
+                    LogRepository.i("[Controller] Cloak active, routing MASQUE via ${effectiveConfig.peer}")
+                }
+            }
+            if (PsiphonController.isSupported(effectiveConfig)) {
+                runNativeBounded<Unit>(30000L, "Psiphon.start") { PsiphonController.start(appContext, effectiveConfig, upstream = config.upstreamProxy.takeIf { config.upstreamProxyEnabled && it.isNotBlank() }) }
+                if (PsiphonController.isRunning()) {
+                    var waitPsiphon = 0
+                    while (waitPsiphon < 30 && !PsiphonController.isConnected()) {
+                        delay(1000.milliseconds)
+                        waitPsiphon++
+                    }
+                    var stableWait = 0
+                    while (stableWait < 25 && !PsiphonController.stableFor(10000)) {
+                        delay(1000.milliseconds)
+                        stableWait++
+                    }
+                    LogRepository.i("[Controller] Psiphon settled (stable), proceeding to chain core")
+                    val desiredProto = effectiveConfig.protocol
+                    if (desiredProto != AetherProtocol.MASQUE) {
+                        LogRepository.i("[Controller] Psiphon SOCKS5 carries only MASQUE (TCP); forcing MASQUE outer instead of $desiredProto. Disable Psiphon to use $desiredProto directly.")
+                    }
+                    effectiveConfig = effectiveConfig.copy(protocol = AetherProtocol.MASQUE, upstreamProxy = PsiphonController.getUpstreamProxy())
+                    LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
+                    ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
+                } else {
+                    ActiveProxyProvider.psiphonProxyUrl = null
+                }
+            }
+            val bindHost = if (effectiveConfig.shareHotspot) "0.0.0.0" else "127.0.0.1"
+            val bindAddress = "$bindHost:${effectiveConfig.socksPort}"
 
             isManualTraffic = false
             baseTx = TrafficStats.getUidTxBytes(Process.myUid()).coerceAtLeast(0)
             baseRx = TrafficStats.getUidRxBytes(Process.myUid()).coerceAtLeast(0)
 
             LogRepository.i("[Controller] Starting core at $bindAddress")
-            runner.start(config, bindAddress, onCodeRequired = {
+            runner.start(effectiveConfig, bindAddress, onCodeRequired = {
                 updateIsWaitingForCode(true)
             }, inputProvider = {
                 loginCodeChannel.receive()
             })
 
-            val proxyPort = config.socksPort.toIntOrNull() ?: 1819
-            val startupTimeoutSeconds = when (config.scanMode) {
-                AetherScanMode.TURBO -> 90L
-                AetherScanMode.BALANCED -> 120L
-                AetherScanMode.THOROUGH -> 180L
-                AetherScanMode.STEALTH -> 240L
-                AetherScanMode.IRONCLAD -> 240L
-            } + config.validateSecs.coerceAtLeast(0)
+            val proxyPort = effectiveConfig.socksPort.toIntOrNull() ?: 1819
 
-            val ready = withTimeoutOrNull(startupTimeoutSeconds.seconds) {
+            val baseTimeout = (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds
+            var dpDeadline = System.currentTimeMillis() + baseTimeout.inWholeMilliseconds
+            var dpValidated = false
+            while (currentCoroutineContext().isActive) {
+                if (activeAttemptId.get() != attemptId) break
+                val coreStatus = runner.connectionStatus.value
+                if (coreStatus == ConnectionStatus.DATAPLANE_VALIDATED || coreStatus == ConnectionStatus.SOCKS_READY) {
+                    dpValidated = true
+                    break
+                }
+                if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core reported error during startup")
+                if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly during startup")
+                if (isWaitingForCode.value) {
+                    delay(1000.milliseconds)
+                    continue
+                }
+                if (System.currentTimeMillis() > dpDeadline) {
+                    throw IllegalStateException("Core data-plane validation timed out after ${baseTimeout.inWholeSeconds}s")
+                }
+                delay(250.milliseconds)
+            }
+
+            if (!dpValidated) {
+                val coreStatus = runner.connectionStatus.value
+                if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core failed to start (error)")
+                if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly")
+                throw IllegalStateException("Core data-plane validation timed out after ${baseTimeout.inWholeSeconds}s")
+            }
+            notifyStatusChanged(appContext, ConnectionStatus.DATAPLANE_VALIDATED)
+
+            val socksReady = withTimeoutOrNull(60.seconds) {
                 while (currentCoroutineContext().isActive) {
+                    if (activeAttemptId.get() != attemptId) return@withTimeoutOrNull false
                     val coreStatus = runner.connectionStatus.value
-                    if (coreStatus == ConnectionStatus.RUNNING) return@withTimeoutOrNull true
+                    if (coreStatus == ConnectionStatus.SOCKS_READY) return@withTimeoutOrNull true
                     if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core reported error during startup")
                     if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly during startup")
-                    if (isPortListening("127.0.0.1", proxyPort)) return@withTimeoutOrNull true
+                    if (probeSocksReady("127.0.0.1", proxyPort)) return@withTimeoutOrNull true
                     delay(250.milliseconds)
                 }
                 false
             } ?: false
 
-            if (!ready) {
-                val coreStatus = runner.connectionStatus.value
-                if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core failed to start (error)")
-                if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly")
-                throw IllegalStateException("Core startup timed out after ${startupTimeoutSeconds}s")
+            if (!socksReady) {
+                throw IllegalStateException("SOCKS proxy not ready (0x00 probe failed) after 60s")
             }
+            notifyStatusChanged(appContext, ConnectionStatus.SOCKS_READY)
 
             if (!verifyPortListening("127.0.0.1", proxyPort)) {
                 throw IllegalStateException("Proxy port $proxyPort is not listening")
             }
 
+            delay(3000.milliseconds)
+
             notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
-            
+
             startTimer()
             LogRepository.i("[Controller] Core is active and validated on port $proxyPort")
         } catch (e: Exception) {
+            val st = _status.value
+            if (st == ConnectionStatus.STOPPED || st == ConnectionStatus.STOPPING) {
+                runCatching { cleanup(attemptId) }
+                return@withLock
+            }
             if (runner.connectionStatus.value != ConnectionStatus.RUNNING) {
                 LogRepository.e("[Controller] Startup failed: ${e.localizedMessage}")
                 cleanup(attemptId)
@@ -175,11 +251,40 @@ class ConnectionController private constructor(context: Context) {
         notifyStatusChanged(appContext, ConnectionStatus.STOPPING)
         LogRepository.i("[Controller] Stopping core")
 
-        stopTimer()
-        cleanup(attemptId)
+        try {
+            withTimeoutOrNull(10000.milliseconds) {
+                withContext(Dispatchers.IO) {
+                    runNativeBounded<Unit>(3000L, "Cloak.stop") { CloakController.stop() }
+                    runNativeBounded<Unit>(3000L, "Psiphon.stop") { PsiphonController.stop() }
+                }
+                ActiveProxyProvider.psiphonProxyUrl = null
+                stopTimer()
+                runCatching { cleanup(attemptId) }
+            } ?: LogRepository.w("[Controller] Stop teardown exceeded 10s safety bound")
+        } catch (e: Exception) {
+            LogRepository.e("[Controller] Stop teardown error: ${e.localizedMessage}")
+        } finally {
+            notifyStatusChanged(appContext, ConnectionStatus.STOPPED)
+            LogRepository.i("[Controller] Core stopped")
+        }
+    }
 
-        notifyStatusChanged(appContext, ConnectionStatus.STOPPED)
-        LogRepository.i("[Controller] Core stopped")
+    private suspend fun <T> runNativeBounded(timeoutMs: Long, label: String, block: () -> T): T? {
+        return withContext(Dispatchers.IO) {
+            val done = CompletableDeferred<T?>()
+            val thread = Thread {
+                try {
+                    done.complete(block())
+                } catch (_: Throwable) {
+                    done.complete(null)
+                }
+            }
+            thread.isDaemon = true
+            thread.name = "native-$label"
+            thread.start()
+            withTimeoutOrNull(timeoutMs.milliseconds) { done.await() }
+                ?: run { LogRepository.w("[Controller] $label did not finish within ${timeoutMs}ms; continuing"); null }
+        }
     }
 
     private suspend fun cleanup(attemptId: Long) {
@@ -193,6 +298,7 @@ class ConnectionController private constructor(context: Context) {
 
     private fun handleCoreStatus(coreStatus: ConnectionStatus) {
         _status.update { current ->
+            if (current == ConnectionStatus.STOPPED) return@update current
             if (current == ConnectionStatus.STOPPING && coreStatus != ConnectionStatus.STOPPED) {
                 return@update current
             }
@@ -224,11 +330,21 @@ class ConnectionController private constructor(context: Context) {
                 }
                 ConnectionStatus.RECONNECTING -> {
                     if (current != ConnectionStatus.RECONNECTING) {
+                        stopTimer()
                         ConnectionStatus.RECONNECTING
                     } else {
                         current
                     }
                 }
+                ConnectionStatus.SOCKS_READY -> {
+                    if (current == ConnectionStatus.RECONNECTING) {
+                        startTimer()
+                        ConnectionStatus.RUNNING
+                    } else {
+                        current
+                    }
+                }
+                ConnectionStatus.DATAPLANE_VALIDATED -> current
                 ConnectionStatus.RUNNING -> {
                     if (current != ConnectionStatus.RUNNING) {
                         startTimer()
@@ -265,6 +381,45 @@ class ConnectionController private constructor(context: Context) {
             delay(500.milliseconds)
         }
         return false
+    }
+
+    private suspend fun probeSocksReady(host: String, port: Int): Boolean {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.connect(InetSocketAddress(host, port), 3000)
+                    socket.soTimeout = 6000
+                    val ins = socket.getInputStream()
+                    val out = socket.getOutputStream()
+                    out.write(byteArrayOf(5, 1, 0))
+                    out.flush()
+                    val method = ByteArray(2)
+                    if (!fillStream(ins, method)) return@runCatching false
+                    if (method[0] != 5.toByte() || method[1] != 0.toByte()) return@runCatching false
+                    val addr = InetAddress.getByName("1.1.1.1").address
+                    val req = ByteArray(5 + 4 + 2)
+                    req[0] = 5; req[1] = 1; req[2] = 0; req[3] = 1
+                    System.arraycopy(addr, 0, req, 4, 4)
+                    req[8] = (80 shr 8).toByte(); req[9] = 80.toByte()
+                    out.write(req)
+                    out.flush()
+                    val hdr = ByteArray(4)
+                    if (!fillStream(ins, hdr)) return@runCatching false
+                    hdr[1].toInt() and 0xFF == 0
+                }
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun fillStream(ins: java.io.InputStream, buffer: ByteArray): Boolean {
+        var offset = 0
+        while (offset < buffer.size) {
+            val n = ins.read(buffer, offset, buffer.size - offset)
+            if (n <= 0) return false
+            offset += n
+        }
+        return true
     }
 
     private fun startTimer() {

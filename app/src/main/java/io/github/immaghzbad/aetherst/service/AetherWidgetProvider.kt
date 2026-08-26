@@ -81,17 +81,29 @@ class AetherWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_button, android.R.drawable.ic_lock_power_off)
             views.setInt(R.id.widget_button, "setBackgroundResource", buttonRes)
 
-            setupProtocolButton(context, views, R.id.proto_masque, AetherProtocol.MASQUE, config.protocol)
-            setupProtocolButton(context, views, R.id.proto_wire, AetherProtocol.WG, config.protocol)
-            setupProtocolButton(context, views, R.id.proto_gool, AetherProtocol.GOOL, config.protocol)
+            setupProtocolButton(context, views, R.id.proto_masque, AetherProtocol.MASQUE, config.protocol, appWidgetId)
+            setupProtocolButton(context, views, R.id.proto_wire, AetherProtocol.WG, config.protocol, appWidgetId)
+            setupProtocolButton(context, views, R.id.proto_gool, AetherProtocol.GOOL, config.protocol, appWidgetId)
 
             val toggleIntent = Intent(context, AetherWidgetProvider::class.java).apply {
                 action = ACTION_TOGGLE
             }
             val togglePending = PendingIntent.getBroadcast(
-                context, 0, toggleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context, appWidgetId, toggleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setOnClickPendingIntent(R.id.widget_button_container, togglePending)
+
+            val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val launchPending = PendingIntent.getActivity(
+                context, appWidgetId + 1000, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_root, launchPending)
+            views.setOnClickPendingIntent(R.id.widget_title, launchPending)
+            views.setOnClickPendingIntent(R.id.widget_status, launchPending)
 
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
@@ -101,7 +113,8 @@ class AetherWidgetProvider : AppWidgetProvider() {
             views: RemoteViews,
             viewId: Int,
             protocol: AetherProtocol,
-            currentProtocol: AetherProtocol
+            currentProtocol: AetherProtocol,
+            appWidgetId: Int
         ) {
             val isActive = protocol == currentProtocol
             val bgRes = if (isActive) R.drawable.widget_protocol_active_bg else R.drawable.widget_protocol_inactive_bg
@@ -115,7 +128,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
                 putExtra("protocol", protocol.name)
             }
             val pendingIntent = PendingIntent.getBroadcast(
-                context, protocol.ordinal + 10, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context, appWidgetId * 100 + protocol.ordinal + 10, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setOnClickPendingIntent(viewId, pendingIntent)
         }
@@ -136,10 +149,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_TOGGLE -> {
                 if (!repository.isOnboardingComplete.value) {
-                    val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(launchIntent)
+                    launchMainActivity(context)
                     return
                 }
 
@@ -147,10 +157,7 @@ class AetherWidgetProvider : AppWidgetProvider() {
 
                 if (config.connectionMode == ConnectionMode.TUNNEL) {
                     if (android.net.VpnService.prepare(context) != null) {
-                        val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(launchIntent)
+                        launchMainActivity(context)
                         return
                     }
                 }
@@ -196,6 +203,25 @@ class AetherWidgetProvider : AppWidgetProvider() {
                     updateAllWidgets(context)
                 }
             }
+        }
+    }
+
+    private fun launchMainActivity(context: Context) {
+        try {
+            val launchIntent = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            val pending = PendingIntent.getActivity(context, 9999, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            pending.send()
+        } catch (_: Exception) {
+            try {
+                val fallback = Intent(context, io.github.immaghzbad.aetherst.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                context.startActivity(fallback)
+            } catch (_: Exception) {}
         }
     }
 }

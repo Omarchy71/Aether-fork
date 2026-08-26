@@ -65,6 +65,7 @@ actual object ConnectionController {
         private var prevTx = 0L
         private var prevRx = 0L
         @Volatile private var socksProxy: LocalSocksProxyServer? = null
+        @Volatile private var httpProxy: LocalHttpProxyServer? = null
         @Volatile private var tunnelModeStarted = false
         private var routingEngine: RoutingEngine? = null
         private var statusJob: Job? = null
@@ -100,7 +101,7 @@ actual object ConnectionController {
                     runner.connectionStatus.collect { _status.value = it }
                 }
             }
-            val config = AetherConfigRepository.getInstance(getSettings(context)).config.value
+            val config = AetherConfigRepository.getInstance(getSettings(context)).config.value.effectiveZeroTrustConfig()
             baseTx = trafficProvider.getTxBytes()
             baseRx = trafficProvider.getRxBytes()
 
@@ -112,6 +113,24 @@ actual object ConnectionController {
                 onCodeRequired = { _isWaitingForCode.value = true },
                 inputProvider = { loginCodeChannel.receive() }
             )
+
+            val coreSocksPort = config.socksPort.toIntOrNull() ?: 1819
+            routingEngine = RoutingEngine(config.routingRules)
+            socksProxy = LocalSocksProxyServer(
+                listenHost = "127.0.0.1",
+                listenPort = 10808,
+                targetHost = "127.0.0.1",
+                targetPort = coreSocksPort,
+                routingEngine = routingEngine!!
+            ).apply { start() }
+            httpProxy = LocalHttpProxyServer(
+                listenHost = "127.0.0.1",
+                listenPort = 10809,
+                targetHost = "127.0.0.1",
+                targetPort = coreSocksPort,
+                routingEngine = routingEngine!!
+            ).apply { start() }
+            LogRepository.i("[Controller] Counting proxies started (socks=10808, http=10809) -> core $coreSocksPort")
 
             modeJob?.cancel()
             if (config.connectionMode == ConnectionMode.TUNNEL) {
@@ -128,7 +147,7 @@ actual object ConnectionController {
                     status.collect { s ->
                         if (s == ConnectionStatus.RUNNING) {
                             delay(500.milliseconds)
-                            getSystemUtils(context).setSystemProxy("127.0.0.1", config.httpPort.toIntOrNull() ?: 1820)
+                            getSystemUtils(context).setSystemProxy("127.0.0.1", 10809)
                         }
                     }
                 }
@@ -141,16 +160,17 @@ actual object ConnectionController {
             if (tunnelModeStarted) return
             tunnelModeStarted = true
 
-            val engine = RoutingEngine(config.routingRules)
-            routingEngine = engine
-
-            socksProxy = LocalSocksProxyServer(
-                listenHost = "127.0.0.1",
-                listenPort = 10808,
-                targetHost = "127.0.0.1",
-                targetPort = config.socksPort.toIntOrNull() ?: 1819,
-                routingEngine = engine
-            ).apply { start() }
+            if (socksProxy == null) {
+                val coreSocksPort = config.socksPort.toIntOrNull() ?: 1819
+                if (routingEngine == null) routingEngine = RoutingEngine(config.routingRules)
+                socksProxy = LocalSocksProxyServer(
+                    listenHost = "127.0.0.1",
+                    listenPort = 10808,
+                    targetHost = "127.0.0.1",
+                    targetPort = coreSocksPort,
+                    routingEngine = routingEngine!!
+                ).apply { start() }
+            }
             LogRepository.i("[Controller] Local SOCKS bridge listening on 127.0.0.1:10808")
 
             TunHelper.start(config.socksPort.toIntOrNull() ?: 1819)
@@ -168,6 +188,8 @@ actual object ConnectionController {
                 getSystemUtils(context).clearSystemProxy()
                 socksProxy?.stop()
                 socksProxy = null
+                httpProxy?.stop()
+                httpProxy = null
                 tunnelModeStarted = false
                 TunHelper.stop()
                 routingEngine = null
@@ -198,14 +220,17 @@ actual object ConnectionController {
 
         private fun updateTraffic() {
             val socksStats = socksProxy?.getStats()
-            if (socksStats != null) {
-                val uploadSpeed = (socksStats.txBytes - prevTx).toDouble().coerceAtLeast(0.0)
-                val downloadSpeed = (socksStats.rxBytes - prevRx).toDouble().coerceAtLeast(0.0)
-                prevTx = socksStats.txBytes
-                prevRx = socksStats.rxBytes
+            val httpStats = httpProxy?.getStats()
+            if (socksStats != null || httpStats != null) {
+                val totalTx = (socksStats?.txBytes ?: 0L) + (httpStats?.txBytes ?: 0L)
+                val totalRx = (socksStats?.rxBytes ?: 0L) + (httpStats?.rxBytes ?: 0L)
+                val uploadSpeed = (totalTx - prevTx).toDouble().coerceAtLeast(0.0)
+                val downloadSpeed = (totalRx - prevRx).toDouble().coerceAtLeast(0.0)
+                prevTx = totalTx
+                prevRx = totalRx
                 _sessionTraffic.value = SessionTraffic(
-                    uploadedBytes = socksStats.txBytes,
-                    downloadedBytes = socksStats.rxBytes,
+                    uploadedBytes = totalTx,
+                    downloadedBytes = totalRx,
                     uploadSpeedBps = uploadSpeed,
                     downloadSpeedBps = downloadSpeed
                 )

@@ -15,8 +15,8 @@ android {
     applicationId = "io.github.immaghzbad.aetherst"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.5.6"
+    versionCode = 2
+    versionName = "1.6.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -93,6 +93,7 @@ android {
 }
 
 dependencies {
+  implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
   implementation(project(":composeApp"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)

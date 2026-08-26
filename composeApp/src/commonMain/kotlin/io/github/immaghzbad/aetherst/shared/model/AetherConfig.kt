@@ -1,5 +1,8 @@
 package io.github.immaghzbad.aetherst.shared.model
 
+import io.github.immaghzbad.aetherst.platform.isWindows
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -70,10 +73,21 @@ enum class ConnectionStatus {
     STOPPED,
     STARTING,
     VALIDATING,
+    DATAPLANE_VALIDATED,
+    SOCKS_READY,
+    TUN_ACTIVE,
     RUNNING,
     RECONNECTING,
     STOPPING,
-    ERROR
+    ERROR,
+    FAILED
+}
+
+@Serializable
+enum class SocksReadiness {
+    NOT_READY,
+    LISTENING,
+    PROBED_OK
 }
 
 @Serializable
@@ -111,22 +125,26 @@ data class AetherConfig(
     val appLogLevel: AetherLogLevel = AetherLogLevel.INFO,
     val coreLogLevel: AetherLogLevel = AetherLogLevel.INFO,
     val peer: String = "",
+    val keepaliveEnabled: Boolean = true,
     val keepalive: Int = 5,
     val validateSecs: Int = 10,
     val reconnectSecs: Int = 2,
     val noProfileRetry: Boolean = false,
     val tlsGroups: String = "",
     val mtu: Int = 1100,
-    val connectionMode: ConnectionMode = ConnectionMode.TUNNEL,
+    val connectionMode: ConnectionMode = if (isWindows) ConnectionMode.SYSTEM_PROXY else ConnectionMode.TUNNEL,
     val tunnelEngine: TunnelEngine = TunnelEngine.HEV_TUN2SOCKS,
     val excludedPackages: Set<String> = emptySet(),
     val blockedPackages: Set<String> = emptySet(),
+    val tunneledPackages: Set<String> = emptySet(),
     val routingRules: List<RoutingRule> = emptyList(),
     val teamName: String = "",
     val accessEmail: String = "",
     val accessId: String = "",
     val accessSecret: String = "",
     val accessToken: String = "",
+    val ztStaySignedIn: Boolean = true,
+    val ztTokenExpiry: Long = 0,
     val useGateway: Boolean = false,
     val killSwitch: Boolean = false,
     val ipv6Leak: Boolean = true,
@@ -137,6 +155,7 @@ data class AetherConfig(
     val shareHotspot: Boolean = false,
     val tunnelAllApps: Boolean = true,
     val upstreamProxy: String = "",
+    val upstreamProxyEnabled: Boolean = false,
     val routeSniffing: Boolean = true,
     val sniffingTimeoutMs: Int = 100,
     val reprovision: Boolean = true,
@@ -144,5 +163,72 @@ data class AetherConfig(
     val hevConnectTimeoutMs: Int = 5000,
     val hevReadWriteTimeoutMs: Int = 60000,
     val hevMaxSessionCount: Int = 0,
-    val hevMapdnsCacheSize: Int = 10000
-)
+    val hevMapdnsCacheSize: Int = 10000,
+    val hevUdpMode: String = "udp",
+    val cloakEnabled: Boolean = false,
+    val cloakSniList: String = "www.hcaptcha.com,www.speedtest.net,www.bing.com",
+    val cloakTtlList: String = "4,5,6,8",
+    val cloakJitterMin: Int = 20,
+    val cloakJitterMax: Int = 80,
+    val cloakFragment: Boolean = false,
+    val cloakAdaptive: Boolean = true,
+    val cloakFallbackPorts: String = "443,2053,2083,2087,2096,8443",
+    val cloakLogLevel: String = "info",
+    val cloakRandomizeSniCase: Boolean = false,
+    val psiphonEnabled: Boolean = false,
+    val psiphonChainOuter: String = "masque",
+    val psiphonSocksPort: String = "3080",
+    val psiphonEgressRegion: String = "",
+    val connectButtonStyle: String = "swipe"
+) {
+    /**
+     * Returns a user-facing error message if the Zero Trust configuration is incomplete
+     * or contradictory, or null when it is valid. Only relevant when [protocol] is [AetherProtocol.ZERO_TRUST].
+     */
+    fun zeroTrustError(): String? {
+        if (protocol != AetherProtocol.ZERO_TRUST) return null
+        if (teamName.isBlank()) return "Organization Team Name is required for Zero Trust"
+
+        val hasEmail = accessEmail.isNotBlank()
+        val hasServiceToken = accessId.isNotBlank() || accessSecret.isNotBlank()
+        val hasToken = accessToken.isNotBlank()
+
+        if (!hasEmail && !hasServiceToken && !hasToken) {
+            return "Provide one authentication method: Access Email, Service Token, or Access Token"
+        }
+        if (hasServiceToken && (accessId.isBlank() || accessSecret.isBlank())) {
+            return "Service Token requires both Access Client ID and Access Client Secret"
+        }
+        val providedCount = listOf(hasEmail, hasServiceToken, hasToken).count { it }
+        if (providedCount > 1) return "Use only one authentication method at a time"
+
+        return null
+    }
+
+    fun effectiveZeroTrustConfig(): AetherConfig {
+        if (protocol != AetherProtocol.ZERO_TRUST) return this
+        if (!ztStaySignedIn) {
+            return this.copy(accessToken = "", accessId = "", accessSecret = "")
+        }
+        if (accessToken.isNotBlank() && ztTokenExpiry != 0L && ztTokenExpiry < System.currentTimeMillis()) {
+            return this.copy(accessToken = "")
+        }
+        return this
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    fun parseJwtExpiry(token: String): Long {
+        val parts = token.split(".")
+        if (parts.size < 2) return 0
+        return try {
+            var p = parts[1]
+            val rem = p.length % 4
+            if (rem != 0) p = p.padEnd(p.length + (4 - rem), '=')
+            val json = Base64.UrlSafe.decode(p).decodeToString()
+            val m = Regex("\"exp\"\\s*:\\s*(\\d+)").find(json)
+            m?.groupValues?.get(1)?.toLongOrNull()?.times(1000) ?: 0
+        } catch (_: Exception) {
+            0
+        }
+    }
+}

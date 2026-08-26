@@ -23,11 +23,9 @@ object IpInfoRepository {
     private val mutex = kotlinx.coroutines.sync.Mutex()
 
     suspend fun fetchIpInfo(socksHost: String = "127.0.0.1", socksPort: Int = 1819, useProxy: Boolean = true) {
-        if (!mutex.tryLock()) return
-
+        mutex.lock()
         try {
-            _ipInfo.value = _ipInfo.value.copy(isLoading = true)
-
+            _ipInfo.value = _ipInfo.value.copy(isLoading = true, error = null)
             withContext(Dispatchers.Default) {
                 if (!useProxy) {
                     LogRepository.i("Querying public IP (direct)...", "IpWhois")
@@ -38,37 +36,30 @@ object IpInfoRepository {
                         return@withContext
                     }
                 } else {
-                    delay(2500.milliseconds)
-
-                    for (attempt in 1..3) {
+                    delay(800.milliseconds)
+                    for (attempt in 1..4) {
                         LogRepository.i("Querying public IP via tunnel ($socksHost:$socksPort) attempt $attempt...", "IpWhois")
-
                         val result = fetchParallelViaProxy(socksHost, socksPort)
                         if (result != null) {
                             _ipInfo.value = result
                             LogRepository.i("Tunnel IP: ${result.ip} (${result.country})", "IpWhois")
                             return@withContext
                         }
-
-                        if (attempt < 3) {
-                            delay(2000.milliseconds)
+                        if (attempt < 4) {
+                            delay((1200L * attempt).milliseconds)
                         }
                     }
-
-                    LogRepository.w("SOCKS proxy lookup failed, falling back to direct...", "IpWhois")
-                    val fallback = fetchParallelDirect()
-                    if (fallback != null) {
-                        _ipInfo.value = fallback
-                        LogRepository.i("Fallback direct IP: ${fallback.ip} (${fallback.country})", "IpWhois")
-                        return@withContext
-                    }
+                    LogRepository.w("SOCKS proxy lookup failed after all attempts.", "IpWhois")
                 }
-
                 LogRepository.w("${if (useProxy) "SOCKS proxy" else "Direct"} IP lookup failed after all attempts.", "IpWhois")
-                _ipInfo.value = _ipInfo.value.copy(
+                val prev = _ipInfo.value
+                _ipInfo.value = prev.copy(
                     isLoading = false,
-                    error = if (useProxy) "Proxy Lookup Failed" else "Direct Lookup Failed"
+                    error = if (prev.ip.isEmpty()) if (useProxy) "Proxy Lookup Failed" else "Direct Lookup Failed" else null
                 )
+                if (prev.ip.isNotEmpty()) {
+                    _ipInfo.value = prev.copy(isLoading = false, error = null)
+                }
             }
         } finally {
             mutex.unlock()

@@ -25,6 +25,7 @@ class AetherProxyService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val commandCounter = AtomicLong(0)
+    private var startupJob: Job? = null
 
     companion object {
         const val ACTION_START = "io.github.immaghzbad.aetherst.PROXY_START"
@@ -76,7 +77,7 @@ class AetherProxyService : Service() {
     }
 
     private fun startAttempt(commandId: Long) {
-        scope.launch {
+        startupJob = scope.launch {
             if (commandCounter.get() != commandId) return@launch
             
             showInitialNotification()
@@ -88,7 +89,10 @@ class AetherProxyService : Service() {
 
     private fun stopProxyService(commandId: Long) {
         scope.launch {
-            getController().stop()
+            startupJob?.cancelAndJoin()
+            runCatching { getController().stop() }.onFailure {
+                LogRepository.e("[ProxyService] Controller stop failed: ${it.localizedMessage}")
+            }
             runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
             
             if (commandCounter.get() == commandId) {
@@ -102,11 +106,11 @@ class AetherProxyService : Service() {
         val status = ConnectionController.status.value
         if (status == ConnectionStatus.STOPPED) return
         val text = when (status) {
-            ConnectionStatus.RUNNING -> "Proxy active"
-            ConnectionStatus.STARTING, ConnectionStatus.VALIDATING -> "Starting proxy..."
+            ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> "Proxy active"
+            ConnectionStatus.STARTING, ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY -> "Starting proxy..."
             ConnectionStatus.RECONNECTING -> "Reconnecting..."
             ConnectionStatus.STOPPING -> "Stopping proxy..."
-            ConnectionStatus.ERROR -> "Proxy error"
+            ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "Proxy error"
         }
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(text))

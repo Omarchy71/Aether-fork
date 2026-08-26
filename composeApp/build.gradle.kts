@@ -42,6 +42,7 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodel.compose)
             implementation(libs.androidx.lifecycle.runtime.compose)
+            implementation(libs.androidx.navigation.compose)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.okhttp)
             implementation(libs.moshi.kotlin)
@@ -83,11 +84,11 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
             packageName = "AetherST-Tunnel"
-            packageVersion = "1.0.2"
+            packageVersion = "1.1.0"
             vendor = "ImMaghzBad"
             description = "AetherST High-Performance Proxy Tunnel"
 
-            appResourcesRootDir.set(project.layout.projectDirectory.dir("src/desktopMain/resources/bin"))
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("src/desktopMain/resources"))
 
             windows {
                 dirChooser = true

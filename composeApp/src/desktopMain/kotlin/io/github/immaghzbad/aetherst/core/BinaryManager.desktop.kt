@@ -11,9 +11,21 @@ class DesktopBinaryManager : BinaryManager {
             name
         }
 
-        System.getProperty("compose.application.resources.dir")?.let {
-            val file = File(it, binName)
-            if (file.exists()) return file.absolutePath
+        System.getProperty("compose.application.resources.dir")?.let { resourcesDir ->
+            val candidates = listOf(
+                File(resourcesDir, binName),
+                File(resourcesDir, "bin/$binName"),
+                File(File(resourcesDir, "app/resources"), binName),
+                File(File(resourcesDir, "app/resources/bin"), binName)
+            )
+            for (file in candidates) {
+                if (file.exists()) return file.absolutePath
+            }
+            val binSub = File(resourcesDir, "bin")
+            if (binSub.exists()) {
+                val fileInBin = File(binSub, binName)
+                if (fileInBin.exists()) return fileInBin.absolutePath
+            }
         }
 
         val userDir = File(System.getProperty("user.dir"))
@@ -21,6 +33,8 @@ class DesktopBinaryManager : BinaryManager {
         for (dir in devDirs) {
             val file = File(dir, binName)
             if (file.exists()) return file.absolutePath
+            val fileInBin = File(File(dir, "bin"), binName)
+            if (fileInBin.exists()) return fileInBin.absolutePath
         }
 
         val appData = System.getenv("AppData") ?: System.getProperty("user.home")
@@ -30,7 +44,8 @@ class DesktopBinaryManager : BinaryManager {
 
         if (!targetFile.exists()) {
             try {
-                javaClass.getResourceAsStream("/bin/$binName")?.use { input ->
+                val stream = getResourceStream(binName) ?: getResourceStream("bin/$binName")
+                stream?.use { input ->
                     targetFile.outputStream().use { output -> input.copyTo(output) }
                     if (!System.getProperty("os.name").lowercase().contains("win")) targetFile.setExecutable(true)
                 }
@@ -45,16 +60,42 @@ class DesktopBinaryManager : BinaryManager {
                     extractResource("wintun.dll", targetDir)
                     extractResource("msys-2.0.dll", targetDir)
                 }
+                val expectedSize = getExpectedSize(binName)
+                if (expectedSize > 0 && targetFile.length() < expectedSize * 0.8) {
+                    targetFile.delete()
+                    getResourceStream(binName)?.use { input ->
+                        targetFile.outputStream().use { output -> input.copyTo(output) }
+                    } ?: getResourceStream("bin/$binName")?.use { input ->
+                        targetFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
             } catch (_: Exception) {}
         }
 
         return if (targetFile.exists()) targetFile.absolutePath else binName
     }
 
+    private fun getResourceStream(path: String): java.io.InputStream? {
+        val clean = path.removePrefix("/")
+        return javaClass.getResourceAsStream("/$clean")
+            ?: javaClass.getResourceAsStream("/bin/$clean")
+            ?: javaClass.classLoader.getResourceAsStream(clean)
+            ?: javaClass.classLoader.getResourceAsStream("bin/$clean")
+    }
+
+    private fun getExpectedSize(name: String): Long {
+        return try {
+            getResourceStream(name)?.use { it.available().toLong() }
+                ?: getResourceStream("bin/$name")?.use { it.available().toLong() } ?: 0L
+        } catch (_: Exception) { 0L }
+    }
+
     private fun extractResource(name: String, targetDir: File) {
         val targetFile = File(targetDir, name)
-        if (!targetFile.exists()) {
-            javaClass.getResourceAsStream("/bin/$name")?.use { input ->
+        if (!targetFile.exists() || targetFile.length() == 0L) {
+            getResourceStream(name)?.use { input ->
+                targetFile.outputStream().use { output -> input.copyTo(output) }
+            } ?: getResourceStream("bin/$name")?.use { input ->
                 targetFile.outputStream().use { output -> input.copyTo(output) }
             }
         }

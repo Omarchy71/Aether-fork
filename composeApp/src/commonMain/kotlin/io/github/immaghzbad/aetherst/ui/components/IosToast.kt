@@ -1,4 +1,5 @@
 package io.github.immaghzbad.aetherst.shared.ui.components
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -62,7 +63,7 @@ fun IosToast(
             ) + fadeOut(tween(500))
         ) {
             Surface(
-                color = Color(0xFF1C1C1E).copy(alpha = 0.96f),
+                color = AppPalette.surfaceRaised.copy(alpha = 0.96f),
                 shape = RoundedCornerShape(100.dp),
                 border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                 shadowElevation = 12.dp,
@@ -83,7 +84,7 @@ fun IosToast(
                     Icon(
                         imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = if (isError) Color(0xFFFF3B30) else Color(0xFF34C759),
+                        tint = if (isError) AppPalette.statusError else AppPalette.statusConnected,
                         modifier = Modifier.size((22 * scaleFactor).dp)
                     )
                     

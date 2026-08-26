@@ -1,6 +1,7 @@
 package io.github.immaghzbad.aetherst.core
 
 import android.content.Context
+import io.github.immaghzbad.aetherst.core.PsiphonController
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.model.*
 import kotlinx.coroutines.CancellationException
@@ -22,7 +23,9 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.sync.Mutex
 import kotlin.time.Duration.Companion.milliseconds
 
 class AetherProcessRunner(private val context: Context) {
@@ -33,9 +36,14 @@ class AetherProcessRunner(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val currentAttemptId = AtomicLong(0)
     private var goolOuterValidated = false
+    private var dataPlaneOk = false
+    private val reconnectMutex = Mutex()
+    private val isReconnecting = AtomicBoolean(false)
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.STOPPED)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
+
+    private val quickRetryPending = AtomicBoolean(false)
 
     fun start(config: AetherConfig, bindAddress: String, onCodeRequired: () -> Unit = {}, inputProvider: suspend () -> String = { "" }) {
         synchronized(lock) {
@@ -54,7 +62,12 @@ class AetherProcessRunner(private val context: Context) {
                     }
 
                     if (retryCount > 0) {
-                        val waitTime = (retryCount * 1000L).coerceAtMost(10000L)
+                        val waitTime = if (quickRetryPending.compareAndSet(true, false)) {
+                            LogRepository.i("Recovering connection (Quick retry after cached gateway loss)...")
+                            3000L
+                        } else {
+                            (retryCount * 1000L).coerceAtMost(10000L)
+                        }
                         LogRepository.i("Recovering connection (Retry $retryCount)...")
                         updateState(ConnectionStatus.RECONNECTING, attemptId)
                         delay(waitTime.milliseconds)
@@ -86,6 +99,7 @@ class AetherProcessRunner(private val context: Context) {
     private suspend fun runBinary(config: AetherConfig, attemptId: Long, bindAddress: String, onCodeRequired: () -> Unit, inputProvider: suspend () -> String): Boolean = coroutineScope {
         var proc: Process? = null
         try {
+            dataPlaneOk = false
             val binaryFile = BinaryManager.prepareBinary(context)
             if (currentAttemptId.get() != attemptId) return@coroutineScope true
 
@@ -98,11 +112,6 @@ class AetherProcessRunner(private val context: Context) {
             if (routingFile != null) {
                 commandList.add("--routes")
                 commandList.add(routingFile.absolutePath)
-            }
-
-            if (config.protocol == AetherProtocol.ZERO_TRUST) {
-                commandList.add("--team")
-                commandList.add(config.teamName.ifEmpty { "unnamed" })
             }
 
             commandList.add(
@@ -140,7 +149,7 @@ class AetherProcessRunner(private val context: Context) {
 
             if ((config.protocol == AetherProtocol.WG) || (config.protocol == AetherProtocol.GOOL)) {
                 commandList.add("--keepalive")
-                commandList.add(config.keepalive.toString())
+                commandList.add(if (config.keepaliveEnabled) config.keepalive.toString() else "0")
             }
 
             if (config.tlsGroups.isNotEmpty()) {
@@ -156,28 +165,30 @@ class AetherProcessRunner(private val context: Context) {
 
             if (config.noProfileRetry) commandList.add("--no-profile-retry")
 
-            if (config.teamName.isNotEmpty() && (config.protocol != AetherProtocol.ZERO_TRUST)) {
-                commandList.add("--team")
-                commandList.add(config.teamName)
-            }
-            if (config.accessEmail.isNotEmpty()) {
-                commandList.add("--access-email")
-                commandList.add(config.accessEmail)
-            }
-            if (config.accessId.isNotEmpty()) {
-                commandList.add("--access-id")
-                commandList.add(config.accessId)
-            }
-            if (config.accessSecret.isNotEmpty()) {
-                commandList.add("--access-secret")
-                commandList.add(config.accessSecret)
-            }
-            if (config.accessToken.isNotEmpty()) {
-                commandList.add("--access-token")
-                commandList.add(config.accessToken)
-            }
-            if (config.useGateway) {
-                commandList.add("--gateway")
+            if (config.protocol == AetherProtocol.ZERO_TRUST) {
+                if (config.teamName.isNotEmpty()) {
+                    commandList.add("--team")
+                    commandList.add(config.teamName)
+                }
+                when {
+                    config.accessToken.isNotEmpty() -> {
+                        commandList.add("--access-token")
+                        commandList.add(config.accessToken)
+                    }
+                    config.accessId.isNotEmpty() || config.accessSecret.isNotEmpty() -> {
+                        commandList.add("--access-id")
+                        commandList.add(config.accessId)
+                        commandList.add("--access-secret")
+                        commandList.add(config.accessSecret)
+                    }
+                    config.accessEmail.isNotEmpty() -> {
+                        commandList.add("--access-email")
+                        commandList.add(config.accessEmail)
+                    }
+                }
+                if (config.useGateway) {
+                    commandList.add("--gateway")
+                }
             }
 
             if (config.dnsList.isNotEmpty()) {
@@ -185,9 +196,10 @@ class AetherProcessRunner(private val context: Context) {
                 commandList.add(config.dnsList)
             }
 
-            if (config.upstreamProxy.isNotEmpty()) {
+            if (config.upstreamProxyEnabled && config.upstreamProxy.isNotEmpty()) {
                 commandList.add("--upstream")
                 commandList.add(config.upstreamProxy)
+                if (config.upstreamProxy.startsWith("http://", ignoreCase = true)) commandList.add("--h2")
             }
 
             val pb = ProcessBuilder(commandList)
@@ -228,7 +240,7 @@ class AetherProcessRunner(private val context: Context) {
                 env["AETHER_WG_PEER"] = config.peer
             }
 
-            env["AETHER_WG_KEEPALIVE"] = config.keepalive.toString()
+            env["AETHER_WG_KEEPALIVE"] = if (config.keepaliveEnabled) config.keepalive.toString() else "0"
             env["AETHER_MASQUE_VALIDATE_SECS"] = config.validateSecs.toString()
             env["AETHER_MASQUE_RECONNECT_SECS"] = config.reconnectSecs.toString()
             env["AETHER_WG_RECONNECT_SECS"] = config.reconnectSecs.toString()
@@ -236,14 +248,20 @@ class AetherProcessRunner(private val context: Context) {
             if (config.noProfileRetry) env["AETHER_WG_NO_PROFILE_RETRY"] = "1"
             if (config.tlsGroups.isNotEmpty()) env["AETHER_TLS_GROUPS"] = config.tlsGroups
 
-            if (config.teamName.isNotEmpty()) env["AETHER_TEAM"] = config.teamName
-            if (config.accessEmail.isNotEmpty()) env["AETHER_ACCESS_EMAIL"] = config.accessEmail
-            if (config.accessId.isNotEmpty()) env["AETHER_ACCESS_ID"] = config.accessId
-            if (config.accessSecret.isNotEmpty()) env["AETHER_ACCESS_SECRET"] = config.accessSecret
-            if (config.accessToken.isNotEmpty()) env["AETHER_ACCESS_TOKEN"] = config.accessToken
-            if (config.useGateway) env["AETHER_GATEWAY"] = "1"
+            if (config.protocol == AetherProtocol.ZERO_TRUST) {
+                if (config.teamName.isNotEmpty()) env["AETHER_TEAM"] = config.teamName
+                when {
+                    config.accessToken.isNotEmpty() -> env["AETHER_ACCESS_TOKEN"] = config.accessToken
+                    config.accessId.isNotEmpty() || config.accessSecret.isNotEmpty() -> {
+                        env["AETHER_ACCESS_ID"] = config.accessId
+                        env["AETHER_ACCESS_SECRET"] = config.accessSecret
+                    }
+                    config.accessEmail.isNotEmpty() -> env["AETHER_ACCESS_EMAIL"] = config.accessEmail
+                }
+                if (config.useGateway) env["AETHER_GATEWAY"] = "1"
+            }
             if (config.dnsList.isNotEmpty()) env["AETHER_DNS"] = config.dnsList
-            if (config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
+            if (config.upstreamProxyEnabled && config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
             env["AETHER_ROUTE_SNIFF"] = if (config.routeSniffing) "1" else "0"
             env["AETHER_ROUTE_SNIFF_MS"] = config.sniffingTimeoutMs.toString()
             env["AETHER_REPROVISION"] = if (config.reprovision) "1" else "0"
@@ -318,17 +336,40 @@ class AetherProcessRunner(private val context: Context) {
         }
     }
 
-    private fun parseOutputLine(line: String, attemptId: Long, protocol: AetherProtocol, onCodeRequired: () -> Unit) {
+    private fun isZeroTrustCodePrompt(line: String): Boolean {
+        return line.contains("code") && (
+            line.contains("enter") || line.contains("login") || line.contains("verif") ||
+            line.contains("confirm") || line.contains("otp") || line.contains("one-time") ||
+            line.contains("type the") || line.contains("paste") || line.contains("prompt")
+        )
+    }
+
+    private suspend fun parseOutputLine(line: String, attemptId: Long, protocol: AetherProtocol, onCodeRequired: () -> Unit) {
         if (currentAttemptId.get() != attemptId) return
 
         val lower = line.lowercase()
-        when {
-            lower.contains(" error ") || lower.contains("[error]") -> LogRepository.e(line, "AetherCore")
-            lower.contains(" warn ") || lower.contains("[warn]") -> LogRepository.w(line, "AetherCore")
-            else -> LogRepository.i(line, "AetherCore")
+
+        val isBroken = lower.contains("broken pipe") || lower.contains("stream closed")
+        if (isBroken) {
+            val cause = when {
+                lower.contains("upstream") || lower.contains("socks") -> "UPSTREAM_PSIHON_3080_CLOSED"
+                lower.contains("h2") || lower.contains("stream") -> "H2_STREAM_PEER_CLOSED"
+                else -> "BROKEN_PIPE_UNKNOWN"
+            }
+            LogRepository.e("[AetherCore] $cause: $line", "AetherCore")
+            if (!PsiphonController.isConnected()) {
+                LogRepository.e("[AetherCore] Psiphon upstream down; delaying reconnect 5s before retry", "AetherCore")
+                delay(5000.milliseconds)
+            }
+        } else {
+            when {
+                lower.contains(" error ") || lower.contains("[error]") -> LogRepository.e(line, "AetherCore")
+                lower.contains(" warn ") || lower.contains("[warn]") -> LogRepository.w(line, "AetherCore")
+                else -> LogRepository.i(line, "AetherCore")
+            }
         }
 
-        if (lower.contains("enter code:") || lower.contains("login code required")) {
+        if (isZeroTrustCodePrompt(lower)) {
             onCodeRequired()
             return
         }
@@ -341,51 +382,70 @@ class AetherProcessRunner(private val context: Context) {
                      lower.contains("handshake timeout") || 
                      lower.contains("handshake failed") ||
                      lower.contains("connection refused") ||
-                     lower.contains("all gateways failed")
+                     lower.contains("all gateways failed") ||
+                     lower.contains("broken pipe") ||
+                     lower.contains("stream closed") ||
+                     lower.contains("tunnel ended") ||
+                     lower.contains("tunnel exited")
 
         when {
             lower.contains("scanning") -> {
                 goolOuterValidated = false
+                dataPlaneOk = false
+                quickRetryPending.set(false)
+                SocksGate.setReady(SocksReadiness.NOT_READY)
                 updateState(ConnectionStatus.STARTING, attemptId)
             }
-            lower.contains("validating") -> updateState(ConnectionStatus.VALIDATING, attemptId)
-
-            protocol == AetherProtocol.MASQUE && (
-                lower.contains("tunnel validated") ||
-                lower.contains("data-plane verification passed") ||
-                lower.contains("data plane verification passed") ||
-                lower.contains("connect-ip status: 200") ||
-                lower.contains("connect-ip established") ||
-                (lower.contains("socks") && lower.contains("listening"))
-            ) -> {
-                updateState(ConnectionStatus.RUNNING, attemptId)
+            lower.contains("validating") -> {
+                if (_connectionStatus.value == ConnectionStatus.STARTING) updateState(ConnectionStatus.VALIDATING, attemptId)
             }
-
-            protocol == AetherProtocol.WG && (
-                lower.contains("wireguard tunnel validated") ||
-                lower.contains("wireguard handshake complete") ||
-                (lower.contains("socks") && lower.contains("listening"))
-            ) -> {
-                updateState(ConnectionStatus.RUNNING, attemptId)
+            lower.contains("tls established") || lower.contains("tls handshake complete") -> {
+                if (protocol == AetherProtocol.MASQUE) updateState(ConnectionStatus.VALIDATING, attemptId)
+                else if (protocol == AetherProtocol.WG) updateState(ConnectionStatus.VALIDATING, attemptId)
             }
-
+            lower.contains("connect-ip status: 200") || lower.contains("connect-ip established") -> {
+                quickRetryPending.set(false)
+                dataPlaneOk = true
+                updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
+            }
+            lower.contains("tunnel validated") || lower.contains("data-plane verification passed") || lower.contains("data plane verification passed") -> {
+                quickRetryPending.set(false)
+                dataPlaneOk = true
+                updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
+            }
+            lower.contains("socks") && lower.contains("listening") -> {
+                if (dataPlaneOk) {
+                    updateState(ConnectionStatus.SOCKS_READY, attemptId)
+                } else {
+                    LogRepository.i("[AetherCore] socks listening before data-plane validation; deferring SOCKS_READY", "AetherCore")
+                }
+            }
             protocol == AetherProtocol.GOOL -> {
                 if (lower.contains("outer") && lower.contains("tunnel validated")) {
                     goolOuterValidated = true
+                    updateState(ConnectionStatus.VALIDATING, attemptId)
                 }
                 if (lower.contains("inner") && lower.contains("tunnel validated") && goolOuterValidated) {
-                    updateState(ConnectionStatus.RUNNING, attemptId)
+                    quickRetryPending.set(false)
+                    dataPlaneOk = true
+                    updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
                 }
-            }
-
-            protocol != AetherProtocol.MASQUE && protocol != AetherProtocol.WG && protocol != AetherProtocol.GOOL &&
-            (lower.contains("tunnel validated") || lower.contains("connect-ip status: 200")) -> {
-                updateState(ConnectionStatus.RUNNING, attemptId)
             }
 
             lower.contains("reconnecting") || isLost -> {
-                goolOuterValidated = false
-                updateState(ConnectionStatus.RECONNECTING, attemptId)
+                if (isReconnecting.compareAndSet(false, true)) {
+                    goolOuterValidated = false
+                    dataPlaneOk = false
+                    SocksGate.setReady(SocksReadiness.NOT_READY)
+                    if (PsiphonController.isConnected() && quickRetryPending.compareAndSet(false, true)) {
+                        LogRepository.i("[AetherCore] Cached gateway lost; scheduling single 3s quick retry (Psiphon up)", "AetherCore")
+                    }
+                    updateState(ConnectionStatus.RECONNECTING, attemptId)
+                    scope.launch {
+                        delay(100.milliseconds)
+                        isReconnecting.set(false)
+                    }
+                }
             }
             isCriticalError -> {
                 val current = _connectionStatus.value

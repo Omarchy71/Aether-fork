@@ -1,4 +1,5 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,9 +22,9 @@ import androidx.compose.ui.unit.sp
 import io.github.immaghzbad.aetherst.shared.model.UpdateInfo
 import io.github.immaghzbad.aetherst.platform.isDesktop
 
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
+private val IosActiveBlue = AppPalette.accent
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosSecondaryLabel = AppPalette.textSecondary
 
 @Composable
 fun UpdateScreen(
@@ -53,7 +54,7 @@ fun UpdateScreen(
                 modifier = Modifier
                     .size((80 * scaleFactor).dp)
                     .background(
-                        Brush.linearGradient(listOf(IosActiveBlue, Color(0xFF5856D6))),
+                        Brush.linearGradient(listOf(IosActiveBlue, AppPalette.accentVariant)),
                         RoundedCornerShape((20 * scaleFactor).dp)
                     ),
                 contentAlignment = Alignment.Center

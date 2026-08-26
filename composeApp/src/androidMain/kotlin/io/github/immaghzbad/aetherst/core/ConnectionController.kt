@@ -49,6 +49,13 @@ actual object ConnectionController {
                 }
             }
         }
+        scope.launch {
+            Bridge.isWaitingForCode.collect { waiting ->
+                if (waiting != null) {
+                    _isWaitingForCode.value = waiting
+                }
+            }
+        }
     }
 
     actual fun getInstance(context: PlatformContext) {}

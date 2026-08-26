@@ -1,4 +1,5 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -146,7 +147,7 @@ private fun OnboardingHeader(scaleFactor: Float) {
                 Text(
                     text = slogan,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF8E8E93),
+                    color = AppPalette.textSecondary,
                     textAlign = TextAlign.Center,
                     fontSize = (14 * scaleFactor).sp
                 )
@@ -172,7 +173,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, scaleFactor: Float) {
         Text(
             text = "Let’s prepare your secure connection in a few quick steps.",
             style = MaterialTheme.typography.bodyLarge,
-            color = Color(0xFF8E8E93),
+            color = AppPalette.textSecondary,
             textAlign = TextAlign.Center,
             fontSize = (16 * scaleFactor).sp
         )
@@ -181,7 +182,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, scaleFactor: Float) {
             onClick = onGetStarted,
             modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)
         ) {
             Text("Get Started", fontSize = (18 * scaleFactor).sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
@@ -235,7 +236,7 @@ private fun ProtocolTestStep(
 
         if (state.error != null) {
             Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
-            Text(text = state.error, color = Color(0xFFFF3B30), fontSize = (12 * scaleFactor).sp, textAlign = TextAlign.Center)
+            Text(text = state.error, color = AppPalette.statusError, fontSize = (12 * scaleFactor).sp, textAlign = TextAlign.Center)
         }
 
         Spacer(modifier = Modifier.height((32 * scaleFactor).dp))
@@ -243,7 +244,7 @@ private fun ProtocolTestStep(
         if (state.isProcessing) {
             Button(
                 onClick = onCancel,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2C2E), contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(containerColor = AppPalette.divider, contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
@@ -254,7 +255,7 @@ private fun ProtocolTestStep(
                 onClick = onContinue,
                 modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759), contentColor = Color.White)
+                colors = ButtonDefaults.buttonColors(containerColor = AppPalette.statusConnected, contentColor = Color.White)
             ) {
                 Text("Continue", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
             }
@@ -263,7 +264,7 @@ private fun ProtocolTestStep(
                 onClick = onStart,
                 modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF), contentColor = Color.White)
+                colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)
             ) {
                 Text(
                     text = if (state.error != null) "Try Again" else "Start Connection Test",
@@ -281,7 +282,7 @@ private fun SelectorLabel(scaleFactor: Float) {
     Text(
         text = "SCAN MODE",
         style = MaterialTheme.typography.labelSmall,
-        color = Color(0xFF8E8E93),
+        color = AppPalette.textSecondary,
         fontSize = (11 * scaleFactor).sp,
         modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = (8 * scaleFactor).dp)
     )
@@ -296,7 +297,7 @@ private fun AetherScanModeSelector(
     scaleFactor: Float
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF1C1C1E)).padding(4.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AppPalette.surfaceRaised).padding(4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         allowedModes.forEach { mode ->
@@ -305,7 +306,7 @@ private fun AetherScanModeSelector(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) Color(0xFF007AFF) else Color.Transparent)
+                    .background(if (isSelected) AppPalette.accent else Color.Transparent)
                     .clickable(enabled = enabled) { onSelect(mode) }
                     .padding(vertical = (8 * scaleFactor).dp),
                 contentAlignment = Alignment.Center
@@ -320,7 +321,7 @@ private fun AetherScanModeSelector(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (isSelected) Color.White else Color(0xFF8E8E93),
+                    color = if (isSelected) Color.White else AppPalette.textSecondary,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     fontSize = (12 * scaleFactor).sp
                 )
@@ -332,7 +333,7 @@ private fun AetherScanModeSelector(
 @Composable
 private fun ProtocolRow(name: String, status: ProtocolTestStatus, isActive: Boolean, scaleFactor: Float) {
     Surface(
-        color = Color(0xFF1C1C1E),
+        color = AppPalette.surfaceRaised,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -352,18 +353,18 @@ private fun ProtocolRow(name: String, status: ProtocolTestStatus, isActive: Bool
                             else -> ""
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF007AFF),
+                        color = AppPalette.accent,
                         fontSize = (11 * scaleFactor).sp
                     )
                 }
             }
 
             when (status) {
-                ProtocolTestStatus.WAITING -> Text("Waiting", color = Color(0xFF8E8E93), style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
-                ProtocolTestStatus.CONNECTED -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF34C759), modifier = Modifier.size((20 * scaleFactor).dp))
-                ProtocolTestStatus.FAILED, ProtocolTestStatus.TIMED_OUT -> Icon(Icons.Default.Error, null, tint = Color(0xFFFF3B30), modifier = Modifier.size((20 * scaleFactor).dp))
-                ProtocolTestStatus.CANCELLED -> Text("Cancelled", color = Color(0xFF8E8E93), style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
-                else -> CircularProgressIndicator(modifier = Modifier.size((20 * scaleFactor).dp), strokeWidth = 2.dp, color = Color(0xFF007AFF))
+                ProtocolTestStatus.WAITING -> Text("Waiting", color = AppPalette.textSecondary, style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
+                ProtocolTestStatus.CONNECTED -> Icon(Icons.Default.CheckCircle, null, tint = AppPalette.statusConnected, modifier = Modifier.size((20 * scaleFactor).dp))
+                ProtocolTestStatus.FAILED, ProtocolTestStatus.TIMED_OUT -> Icon(Icons.Default.Error, null, tint = AppPalette.statusError, modifier = Modifier.size((20 * scaleFactor).dp))
+                ProtocolTestStatus.CANCELLED -> Text("Cancelled", color = AppPalette.textSecondary, style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
+                else -> CircularProgressIndicator(modifier = Modifier.size((20 * scaleFactor).dp), strokeWidth = 2.dp, color = AppPalette.accent)
             }
         }
     }
@@ -384,24 +385,24 @@ private fun PermissionStepWrapper(
     val justGranted = state.permissionJustGranted
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.size((72 * scaleFactor).dp).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.12f)), contentAlignment = Alignment.Center) { icon() }
+        Box(modifier = Modifier.size((72 * scaleFactor).dp).clip(CircleShape).background(AppPalette.accent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) { icon() }
         Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = (24 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
-        Text(description, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF8E8E93), textAlign = TextAlign.Center, fontSize = (14 * scaleFactor).sp)
+        Text(description, style = MaterialTheme.typography.bodyMedium, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (14 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((40 * scaleFactor).dp))
         when {
             justGranted -> GrantedIndicator(scaleFactor)
             isVerifying -> VerifyingIndicator(scaleFactor)
             else -> {
-                Button(onClick = onRequest, modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF), contentColor = Color.White)) {
+                Button(onClick = onRequest, modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)) {
                     Text(if (state.error != null) "Try Again" else buttonLabel, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
                 }
             }
         }
         if (state.error != null && !isVerifying && !justGranted) {
             Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
-            Text(state.error, color = Color(0xFFFF9500), fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
+            Text(state.error, color = AppPalette.statusScanning, fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
         }
         if (onSkip != null && !isVerifying && !justGranted) {
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
@@ -413,11 +414,11 @@ private fun PermissionStepWrapper(
 @Composable
 private fun GrantedIndicator(scaleFactor: Float) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF34C759), modifier = Modifier.size((56 * scaleFactor).dp))
+        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AppPalette.statusConnected, modifier = Modifier.size((56 * scaleFactor).dp))
         Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
-        Text("Access Granted", style = MaterialTheme.typography.bodyLarge, color = Color(0xFF34C759), fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
+        Text("Access Granted", style = MaterialTheme.typography.bodyLarge, color = AppPalette.statusConnected, fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-        Text("Continuing to next step...", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8E8E93), textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
+        Text("Continuing to next step...", style = MaterialTheme.typography.bodySmall, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
     }
 }
 
@@ -428,41 +429,41 @@ private fun VerifyingIndicator(scaleFactor: Float) {
     val scale by infiniteTransition.animateFloat(initialValue = 0.85f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse_scale")
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.size((56 * scaleFactor).dp).graphicsLayer(alpha = alpha, scaleX = scale, scaleY = scale).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(modifier = Modifier.size((28 * scaleFactor).dp), strokeWidth = 3.dp, color = Color(0xFF007AFF))
+        Box(modifier = Modifier.size((56 * scaleFactor).dp).graphicsLayer(alpha = alpha, scaleX = scale, scaleY = scale).clip(CircleShape).background(AppPalette.accent.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(modifier = Modifier.size((28 * scaleFactor).dp), strokeWidth = 3.dp, color = AppPalette.accent)
         }
         Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
-        Text("Verifying...", style = MaterialTheme.typography.bodyLarge, color = Color(0xFF007AFF), fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
+        Text("Verifying...", style = MaterialTheme.typography.bodyLarge, color = AppPalette.accent, fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-        Text("Please complete the action, then return to the app.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8E8E93), textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
+        Text("Please complete the action, then return to the app.", style = MaterialTheme.typography.bodySmall, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
     }
 }
 
 @Composable
 private fun VpnPermissionStep(state: OnboardingState, onRequest: () -> Unit, scaleFactor: Float) {
-    PermissionStepWrapper(icon = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF007AFF), modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Allow VPN Access", description = "AetherST needs VPN permission to create a secure tunnel. Your current connection remains untouched for now.", buttonLabel = "Allow Access", state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
+    PermissionStepWrapper(icon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Allow VPN Access", description = "AetherST needs VPN permission to create a secure tunnel. Your current connection remains untouched for now.", buttonLabel = "Allow Access", state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
 }
 
 @Composable
 private fun NotificationPermissionStep(state: OnboardingState, onRequest: () -> Unit, scaleFactor: Float) {
-    PermissionStepWrapper(icon = { Icon(Icons.Default.Notifications, contentDescription = null, tint = Color(0xFF007AFF), modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Stay Informed", description = "Enable notifications to see tunnel status and important updates.", buttonLabel = "Enable Notifications", state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
+    PermissionStepWrapper(icon = { Icon(Icons.Default.Notifications, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Stay Informed", description = "Enable notifications to see tunnel status and important updates.", buttonLabel = "Enable Notifications", state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
 }
 
 @Composable
 private fun BatteryOptimizationStep(state: OnboardingState, onRequest: () -> Unit, onSkip: () -> Unit, scaleFactor: Float) {
-    PermissionStepWrapper(icon = { Icon(Icons.Default.BatteryAlert, contentDescription = null, tint = Color(0xFF007AFF), modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Unrestricted Background Service", description = "To ensure a stable and persistent tunnel connection, please disable battery optimizations for AetherST.", buttonLabel = "Disable Restrictions", state = state, onRequest = onRequest, onSkip = onSkip, scaleFactor = scaleFactor)
+    PermissionStepWrapper(icon = { Icon(Icons.Default.BatteryAlert, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Unrestricted Background Service", description = "To ensure a stable and persistent tunnel connection, please disable battery optimizations for AetherST.", buttonLabel = "Disable Restrictions", state = state, onRequest = onRequest, onSkip = onSkip, scaleFactor = scaleFactor)
 }
 
 @Composable
 private fun SuccessStep(onFinish: () -> Unit, scaleFactor: Float) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF34C759), modifier = Modifier.size((80 * scaleFactor).dp))
+        Icon(Icons.Default.CheckCircle, null, tint = AppPalette.statusConnected, modifier = Modifier.size((80 * scaleFactor).dp))
         Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
         Text("Setup Complete", style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = (24 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
         Text(
             text = "AetherST is ready to protect your connection. You can now enter the dashboard and start the tunnel.",
-            color = Color(0xFF8E8E93),
+            color = AppPalette.textSecondary,
             textAlign = TextAlign.Center,
             fontSize = (14 * scaleFactor).sp
         )
@@ -471,7 +472,7 @@ private fun SuccessStep(onFinish: () -> Unit, scaleFactor: Float) {
             onClick = onFinish,
             modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34C759), contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = AppPalette.statusConnected, contentColor = Color.White)
         ) {
             Text("Start Secure Journey", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
         }
@@ -504,7 +505,7 @@ private fun OnboardingFooter(currentStep: OnboardingStep, scaleFactor: Float) {
                 label = "indicator_width"
             )
             val color by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFF007AFF) else Color(0xFF2C2C2E),
+                targetValue = if (isSelected) AppPalette.accent else AppPalette.divider,
                 animationSpec = tween(400),
                 label = "indicator_color"
             )

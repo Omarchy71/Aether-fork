@@ -1,4 +1,5 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,12 +20,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosGroupBg = Color(0xFF2C2C2E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosActiveGreen = Color(0xFF34C759)
-private val IosErrorRed = Color(0xFFFF3B30)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosGroupBg = AppPalette.divider
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveBlue = AppPalette.accent
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosErrorRed = AppPalette.statusError
 
 @Composable
 fun CrashReportScreen(

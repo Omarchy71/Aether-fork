@@ -46,6 +46,19 @@ object AutoDetectRepository {
             try {
                 updateState(AutoDetectState(
                     phase = AutoDetectPhase.FINGERPRINTING,
+                    currentStep = "Checking internet connection...",
+                    progressPercent = 3
+                ))
+                if (!getSystemUtils(platformContext).isNetworkConnected()) {
+                    updateState(_state.value.copy(
+                        phase = AutoDetectPhase.ERROR,
+                        currentStep = "No internet connection. Connect to a working network and try again.",
+                        progressPercent = 0,
+                        error = "No internet connection"
+                    ))
+                    return@launch
+                }
+                updateState(_state.value.copy(
                     currentStep = "Checking IPv6 connectivity...",
                     progressPercent = 5
                 ))
@@ -288,7 +301,8 @@ object AutoDetectRepository {
                 val start = System.nanoTime()
                 client.newCall(request).execute().use { response ->
                     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
-                    if (response.isSuccessful) {
+                    val body = runCatching { response.body?.string() }.getOrNull() ?: ""
+                    if (response.isSuccessful && (body.contains("fl=") || body.contains("ip="))) {
                         samples.add(elapsed)
                     }
                 }
@@ -366,34 +380,51 @@ object AutoDetectRepository {
             val httpsSamples = measureHttpsLatency(SAMPLES)
             val httpsMedian = medianLatency(httpsSamples)
 
-            val latency = if (httpsMedian > 0) httpsMedian else tcpMedian
-            ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, latency)
+            if (httpsMedian > 0) {
+                ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, httpsMedian)
+            } else {
+                ProtocolProbeResult(
+                    AetherProtocol.MASQUE, ProbeStatus.FAILED, -1,
+                    "TCP reachable but no internet access (captive portal or restricted network)"
+                )
+            }
         }
     }
 
     private suspend fun probeWireGuard(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
-            val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
-            val median = medianLatency(samples)
+            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
+            val tcpMedian = medianLatency(tcpSamples)
+            val httpsSamples = measureHttpsLatency(SAMPLES)
+            val httpsMedian = medianLatency(httpsSamples)
 
-            if (median > 0) {
-                ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.SUCCESS, median)
-            } else {
-                ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.FAILED, -1, "TCP connect failed")
+            when {
+                httpsMedian > 0 -> ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.SUCCESS, httpsMedian)
+                tcpMedian > 0 -> ProtocolProbeResult(
+                    AetherProtocol.WG, ProbeStatus.FAILED, -1,
+                    "TCP reachable but no internet access (captive portal or restricted network)"
+                )
+                else -> ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.FAILED, -1, "Network unreachable")
             }
         }
     }
 
     private suspend fun probeGool(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
-            val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
-            val median = medianLatency(samples)
+            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
+            val tcpMedian = medianLatency(tcpSamples)
+            val httpsSamples = measureHttpsLatency(SAMPLES)
+            val httpsMedian = medianLatency(httpsSamples)
 
-            if (median > 0) {
-                val goolLatency = (median * 1.12).toLong()
-                ProtocolProbeResult(AetherProtocol.GOOL, ProbeStatus.SUCCESS, goolLatency)
-            } else {
-                ProtocolProbeResult(AetherProtocol.GOOL, ProbeStatus.FAILED, -1, "TCP connect failed")
+            when {
+                httpsMedian > 0 -> ProtocolProbeResult(
+                    AetherProtocol.GOOL, ProbeStatus.SUCCESS, (httpsMedian * 1.12).toLong()
+                )
+                tcpMedian > 0 -> ProtocolProbeResult(
+                    AetherProtocol.GOOL, ProbeStatus.FAILED, -1,
+                    "TCP reachable but no internet access (captive portal or restricted network)"
+                )
+                else -> ProtocolProbeResult(AetherProtocol.GOOL, ProbeStatus.FAILED, -1, "Network unreachable")
             }
         }
     }

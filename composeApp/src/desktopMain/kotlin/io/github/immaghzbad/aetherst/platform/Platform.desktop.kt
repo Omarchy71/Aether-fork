@@ -239,9 +239,9 @@ class DesktopSystemUtils : SystemUtils {
             val stream = this::class.java.classLoader.getResourceAsStream("app.properties")
             if (stream != null) {
                 stream.use { props.load(it) }
-                props.getProperty("app.version", "1.0.2")
-            } else "1.0.2"
-        } catch (_: Exception) { "1.0.2" }
+                props.getProperty("app.version", "1.1.0")
+            } else "1.1.0"
+        } catch (_: Exception) { "1.1.0" }
     }
     override fun exitApp() {
         try {
@@ -274,6 +274,7 @@ class DesktopSystemUtils : SystemUtils {
 
     override fun requestNotificationPermission() {}
     override fun requestBatteryOptimization() {}
+    override fun openVpnSettings() {}
 
     override fun exportFile(fileName: String, content: String, onResult: (Boolean) -> Unit) {
         try {
@@ -373,6 +374,20 @@ class DesktopSystemUtils : SystemUtils {
         }
     }
 
+    override fun isNetworkConnected(): Boolean {
+        return try {
+            val hasInterface = java.net.NetworkInterface.getNetworkInterfaces().asSequence().any {
+                it.isUp && !it.isLoopback && !it.isVirtual && it.inetAddresses.asSequence().any { addr -> !addr.isLoopbackAddress }
+            }
+            if (hasInterface) return true
+            runCatching {
+                java.net.Socket().use { s -> s.connect(java.net.InetSocketAddress("1.1.1.1", 53), 2500) }
+            }.isSuccess
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override fun execPing(host: String, size: Int, timeoutMs: Int, dontFragment: Boolean): Boolean {
         return try {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
@@ -409,6 +424,9 @@ actual fun getCurrentTimestamp(): String {
 }
 
 actual val isDesktop: Boolean = true
+
+actual val isWindows: Boolean =
+    System.getProperty("os.name")?.lowercase()?.contains("win") == true
 
 actual fun getDeviceModel(): String {
     return try {

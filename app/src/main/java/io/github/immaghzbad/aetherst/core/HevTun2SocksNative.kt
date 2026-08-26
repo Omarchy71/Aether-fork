@@ -27,6 +27,9 @@ object HevTun2SocksNative {
 
     external fun nativeStart(configStr: String, tunFd: Int): Int
     external fun nativeStop()
+    external fun nativePause()
+    external fun nativeResume()
+    external fun nativeUpdateUpstream(host: String, port: Int)
     external fun nativeGetStats(): LongArray?
     external fun nativeGetVersion(): Int
 }

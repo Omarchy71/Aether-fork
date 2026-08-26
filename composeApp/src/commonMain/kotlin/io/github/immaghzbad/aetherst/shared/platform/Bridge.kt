@@ -10,6 +10,7 @@ object Bridge {
     val statusOverride = MutableStateFlow<ConnectionStatus?>(null)
     val trafficOverride = MutableStateFlow<SessionTraffic?>(null)
     val elapsedOverride = MutableStateFlow<Long?>(null)
+    val isWaitingForCode = MutableStateFlow<Boolean?>(null)
 
     var pickFile: ((onResult: (String?) -> Unit) -> Unit)? = null
     var saveFile: ((fileName: String, content: String, onResult: (Boolean) -> Unit) -> Unit)? = null

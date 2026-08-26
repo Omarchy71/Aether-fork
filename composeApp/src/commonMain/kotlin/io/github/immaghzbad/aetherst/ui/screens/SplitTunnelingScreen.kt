@@ -1,4 +1,5 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -42,9 +44,11 @@ import io.github.immaghzbad.aetherst.platform.AppIcon
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.model.AppInfo
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveBlue = Color(0xFF007AFF)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveBlue = AppPalette.accent
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosInactiveTrack = AppPalette.inactiveTrack
 
 @Composable
 fun SplitTunnelingScreen(
@@ -54,548 +58,201 @@ fun SplitTunnelingScreen(
     tunnelAllApps: Boolean,
     onUpdateMode: (String, Int) -> Unit,
     onBack: () -> Unit,
-    scaleFactor: Float = 1f
+    scaleFactor: Float = 1f,
+    tunneledPackages: Set<String> = emptySet()
 ) {
+    val effectiveTunneled = if (tunneledPackages.isNotEmpty() || excludedPackages.isEmpty()) tunneledPackages else emptySet()
     val focusManager = LocalFocusManager.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) }
     var showHelpDialog by remember { mutableStateOf(false) }
     var animateDialog by remember { mutableStateOf(false) }
+    var modeFilter by remember { mutableIntStateOf(0) }
+    val isWindowsDesktop = isDesktop
 
     if (showHelpDialog) {
-        SplitTunnelHelpDialog(
-            visible = animateDialog,
-            onDismiss = { animateDialog = false },
-            onTransitionEnd = { 
-                showHelpDialog = false 
-            },
-            scaleFactor = scaleFactor
-        )
+        SplitTunnelHelpDialog(visible = animateDialog, onDismiss = { animateDialog = false }, onTransitionEnd = { showHelpDialog = false }, scaleFactor = scaleFactor)
     }
+    LaunchedEffect(showHelpDialog) { if (showHelpDialog) animateDialog = true }
 
-    LaunchedEffect(showHelpDialog) {
-        if (showHelpDialog) {
-            animateDialog = true
-        }
-    }
+    val tunneledCount = effectiveTunneled.size
+    val blockedCount = blockedPackages.size
+    val bypassCount = if (tunnelAllApps) 0 else (apps.size - tunneledCount - blockedCount).coerceAtLeast(0)
 
-    val isWindowsDesktop = isDesktop
-    val filteredApps = remember(apps, searchQuery, selectedTab, excludedPackages, blockedPackages) {
+    val filteredApps = remember(apps, searchQuery, selectedTab, effectiveTunneled, blockedPackages, modeFilter) {
         apps.filter { app ->
             val matchesTab = if (selectedTab == 0) !app.isSystemApp else app.isSystemApp
-            val matchesSearch = searchQuery.isEmpty() ||
-                               app.name.contains(searchQuery, ignoreCase = true) ||
-                               app.packageName.contains(searchQuery, ignoreCase = true)
-            matchesTab && matchesSearch
-        }.sortedWith(
-            compareByDescending<AppInfo> { excludedPackages.contains(it.packageName) || blockedPackages.contains(it.packageName) }
-                .thenBy { it.name.lowercase() }
-        )
+            val matchesSearch = searchQuery.isEmpty() || app.name.contains(searchQuery, ignoreCase = true) || app.packageName.contains(searchQuery, ignoreCase = true)
+            val mode = when {
+                blockedPackages.contains(app.packageName) -> 2
+                effectiveTunneled.contains(app.packageName) -> 1
+                else -> 0
+            }
+            val matchesMode = when (modeFilter) {
+                1 -> mode == 1
+                2 -> mode == 0
+                3 -> mode == 2
+                else -> true
+            }
+            matchesTab && matchesSearch && matchesMode
+        }.sortedWith(compareBy<AppInfo> {
+            when {
+                blockedPackages.contains(it.packageName) -> 0
+                effectiveTunneled.contains(it.packageName) -> 1
+                else -> 2
+            }
+        }.thenBy { it.name.lowercase() })
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { focusManager.clearFocus() }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = (8 * scaleFactor).dp, end = (16 * scaleFactor).dp, top = 36.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size((40 * scaleFactor).dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size((24 * scaleFactor).dp))
-            }
+    Column(modifier = Modifier.fillMaxSize().background(Color.Black).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { focusManager.clearFocus() }) {
+        Row(modifier = Modifier.fillMaxWidth().padding(start = (8 * scaleFactor).dp, end = (16 * scaleFactor).dp, top = if (isWindowsDesktop) 12.dp else 36.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size((36 * scaleFactor).dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size((20 * scaleFactor).dp)) }
             Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
-            Text(
-                text = "Split Tunneling",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.weight(1f),
-                fontSize = (26 * scaleFactor).sp,
-                lineHeight = (30 * scaleFactor).sp
-            )
-            IconButton(onClick = { showHelpDialog = true }, modifier = Modifier.size((40 * scaleFactor).dp)) {
-                Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size((24 * scaleFactor).dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Split Tunneling", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (18 * scaleFactor).sp, lineHeight = (20 * scaleFactor).sp)
+                Text(if (tunnelAllApps) "Whole device tunneled" else "$tunneledCount Tunnel • $bypassCount Bypass • $blockedCount Blocked", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
             }
+            IconButton(onClick = { showHelpDialog = true }, modifier = Modifier.size((36 * scaleFactor).dp)) { Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size((20 * scaleFactor).dp)) }
         }
 
         if (tunnelAllApps) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = (16 * scaleFactor).dp)
-                    .background(Color(0xFFFFD60A).copy(alpha = 0.1f), RoundedCornerShape((12 * scaleFactor).dp))
-                    .padding((12 * scaleFactor).dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Icon(
-                    Icons.Default.Info,
-                    null,
-                    tint = Color(0xFFFFD60A),
-                    modifier = Modifier.size((18 * scaleFactor).dp)
-                )
-                Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (6 * scaleFactor).dp).background(Color(0xFFFFD60A).copy(alpha = 0.1f), RoundedCornerShape(10.dp)).padding((10 * scaleFactor).dp), verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.Info, null, tint = Color(0xFFFFD60A), modifier = Modifier.size((16 * scaleFactor).dp))
+                Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
                 Column {
-                    Text(
-                        "Tunnel Whole Device is ON",
-                        color = Color(0xFFFFD60A),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = (14 * scaleFactor).sp
-                    )
-                    Text(
-                        "Turn off \"Tunnel Whole Device\" in Settings to apply split tunneling rules.",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = (12 * scaleFactor).sp,
-                        lineHeight = (17 * scaleFactor).sp
-                    )
+                    Text("Tunnel Whole Device is ON", color = Color(0xFFFFD60A), fontWeight = FontWeight.Bold, fontSize = (12 * scaleFactor).sp)
+                    Text("Turn off \"Tunnel Whole Device\" in Settings to use per-app rules. Default is Bypass (Direct).", color = Color.White.copy(alpha = 0.6f), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp)
                 }
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp).background(IosActiveGreen.copy(alpha = 0.08f), RoundedCornerShape(10.dp)).padding((8 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Public, null, tint = IosActiveGreen, modifier = Modifier.size((14 * scaleFactor).dp))
+                Spacer(modifier = Modifier.width((6 * scaleFactor).dp))
+                Text("Default: Bypass (Direct). Turn on switch to tunnel, tap block icon to block.", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, lineHeight = (14 * scaleFactor).sp)
             }
         }
 
-        Box(modifier = Modifier.padding(horizontal = (16 * scaleFactor).dp, vertical = (8 * scaleFactor).dp)) {
-            BasicTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height((44 * scaleFactor).dp)
-                    .background(IosCardBg, RoundedCornerShape(12.dp)),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = (14 * scaleFactor).sp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                singleLine = true,
-                cursorBrush = SolidColor(IosActiveBlue),
-                decorationBox = { innerTextField ->
-                    Row(
-                        modifier = Modifier.padding(horizontal = (12 * scaleFactor).dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Search, null, tint = IosSecondaryLabel, modifier = Modifier.size((20 * scaleFactor).dp))
-                        Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                            if (searchQuery.isEmpty()) {
-                                Text(if (isWindowsDesktop) "Search applications, e.g. Chrome, Telegram..." else "Search applications...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
-                            }
-                            innerTextField()
-                        }
-                        if (searchQuery.isNotEmpty()) {
-                            Icon(
-                                Icons.Default.Block,
-                                null,
-                                tint = IosSecondaryLabel,
-                                modifier = Modifier.size((18 * scaleFactor).dp).clickable { searchQuery = "" }
-                            )
-                        }
+        Box(modifier = Modifier.padding(horizontal = (16 * scaleFactor).dp, vertical = (6 * scaleFactor).dp)) {
+            BasicTextField(value = searchQuery, onValueChange = { searchQuery = it }, modifier = Modifier.fillMaxWidth().height((40 * scaleFactor).dp).background(IosCardBg, RoundedCornerShape(10.dp)), textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = (13 * scaleFactor).sp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }), singleLine = true, cursorBrush = SolidColor(IosActiveBlue), decorationBox = { innerTextField ->
+                Row(modifier = Modifier.padding(horizontal = (12 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Search, null, tint = IosSecondaryLabel, modifier = Modifier.size((18 * scaleFactor).dp))
+                    Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (searchQuery.isEmpty()) Text(if (isWindowsDesktop) "Search apps, e.g. Chrome..." else "Search apps...", color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp)
+                        innerTextField()
                     }
+                    if (searchQuery.isNotEmpty()) Icon(Icons.Default.Block, null, tint = IosSecondaryLabel, modifier = Modifier.size((16 * scaleFactor).dp).clickable { searchQuery = "" })
                 }
-            )
+            })
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = (16 * scaleFactor).dp, vertical = (12 * scaleFactor).dp)
-                .background(IosCardBg, RoundedCornerShape(10.dp))
-                .padding(2.dp)
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp).background(IosCardBg, RoundedCornerShape(10.dp)).padding(2.dp)) {
             listOf("User Apps", "System Apps").forEachIndexed { index, title ->
                 val isSelected = selectedTab == index
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSelected) IosActiveBlue else Color.Transparent)
-                        .clickable { selectedTab = index }
-                        .padding(vertical = (8 * scaleFactor).dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) Color.White else IosSecondaryLabel,
-                        fontSize = (12 * scaleFactor).sp
-                    )
-                }
-            }
-        }
-        if (isWindowsDesktop) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "${filteredApps.size} apps • ${excludedPackages.size + blockedPackages.size} configured",
-                    color = IosSecondaryLabel,
-                    fontSize = (11 * scaleFactor).sp,
-                    fontWeight = FontWeight.Medium
-                )
-                if (searchQuery.isNotEmpty()) {
-                    Text(
-                        text = "for \"${searchQuery}\"",
-                        color = IosActiveBlue,
-                        fontSize = (11 * scaleFactor).sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) IosActiveBlue else Color.Transparent).clickable { selectedTab = index }.padding(vertical = (7 * scaleFactor).dp), contentAlignment = Alignment.Center) {
+                    Text(title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, color = if (isSelected) Color.White else IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
                 }
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = (16 * scaleFactor).dp,
-                end = (16 * scaleFactor).dp,
-                bottom = (24 * scaleFactor).dp
-            ),
-            verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp), horizontalArrangement = Arrangement.spacedBy((6 * scaleFactor).dp)) {
+            listOf("All", "Tunnel", "Bypass", "Blocked").forEachIndexed { index, label ->
+                val isSelected = modeFilter == index
+                val count = when (index) { 1 -> tunneledCount; 2 -> bypassCount; 3 -> blockedCount; else -> filteredApps.size }
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) Color.White.copy(alpha = 0.12f) else IosCardBg).clickable { modeFilter = index }.padding(vertical = (6 * scaleFactor).dp), contentAlignment = Alignment.Center) {
+                    Text("$label • $count", color = if (isSelected) Color.White else IosSecondaryLabel, fontSize = (10 * scaleFactor).sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+                }
+            }
+        }
+
+        if (!tunnelAllApps) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (2 * scaleFactor).dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { filteredApps.forEach { if (effectiveTunneled.contains(it.packageName) || blockedPackages.contains(it.packageName)) onUpdateMode(it.packageName, 0) } }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Bypass All", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp) }
+                TextButton(onClick = { filteredApps.forEach { if (!effectiveTunneled.contains(it.packageName)) onUpdateMode(it.packageName, 1) } }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Tunnel All", color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+
+        if (isWindowsDesktop) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (2 * scaleFactor).dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("${filteredApps.size} apps • $tunneledCount tunneled", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+                if (searchQuery.isNotEmpty()) Text("for \"${searchQuery}\"", color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(start = (16 * scaleFactor).dp, end = (16 * scaleFactor).dp, bottom = (24 * scaleFactor).dp), verticalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)) {
             items(filteredApps, key = { it.packageName }) { app ->
                 val mode = when {
-                    excludedPackages.contains(app.packageName) -> 1
                     blockedPackages.contains(app.packageName) -> 2
+                    effectiveTunneled.contains(app.packageName) -> 1
                     else -> 0
                 }
-                AppLineItem(
-                    app = app,
-                    mode = mode,
-                    onUpdateMode = { modeIndex ->
-                        onUpdateMode(app.packageName, modeIndex)
-                    },
-                    enabled = !tunnelAllApps,
-                    scaleFactor = scaleFactor
-                )
+                AppLineItem(app = app, mode = mode, onUpdateMode = { m -> onUpdateMode(app.packageName, m) }, enabled = !tunnelAllApps, scaleFactor = scaleFactor)
             }
         }
     }
 }
 
 @Composable
-private fun AppLineItem(
-    app: AppInfo,
-    mode: Int,
-    onUpdateMode: (Int) -> Unit,
-    enabled: Boolean = true,
-    scaleFactor: Float
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(IosCardBg, RoundedCornerShape((16 * scaleFactor).dp))
-            .padding((12 * scaleFactor).dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AppIcon(
-                app = app,
-                modifier = Modifier
-                    .size((44 * scaleFactor).dp)
-                    .clip(RoundedCornerShape((10 * scaleFactor).dp))
-            )
-            
-            Spacer(modifier = Modifier.width((14 * scaleFactor).dp))
-            
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = app.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontSize = (16 * scaleFactor).sp,
-                    maxLines = 1
-                )
-                Text(
-                    text = app.packageName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = IosSecondaryLabel,
-                    fontSize = (11 * scaleFactor).sp,
-                    maxLines = 1
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
-
-        ThreeStateSelector(
-            currentMode = mode,
-            onModeSelected = onUpdateMode,
-            enabled = enabled,
-            scaleFactor = scaleFactor
-        )
+private fun AppLineItem(app: AppInfo, mode: Int, onUpdateMode: (Int) -> Unit, enabled: Boolean = true, scaleFactor: Float) {
+    val bg = when (mode) {
+        2 -> AppPalette.statusError.copy(alpha = 0.08f)
+        1 -> IosActiveBlue.copy(alpha = 0.08f)
+        else -> IosCardBg
     }
-}
-
-@Composable
-private fun ThreeStateSelector(
-    currentMode: Int,
-    onModeSelected: (Int) -> Unit,
-    enabled: Boolean = true,
-    scaleFactor: Float
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape((10 * scaleFactor).dp))
-            .padding(2.dp)
-    ) {
-        listOf("Tunnel", "Bypass", "Blocked").forEachIndexed { index, label ->
-            val isSelected = currentMode == index
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape((8 * scaleFactor).dp))
-                    .background(if (isSelected) IosActiveBlue else Color.Transparent)
-                    .clickable(enabled = enabled) { onModeSelected(index) }
-                    .padding(vertical = (8 * scaleFactor).dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    fontSize = (12 * scaleFactor).sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    color = if (enabled) {
-                        if (isSelected) Color.White else IosSecondaryLabel
-                    } else {
-                        if (isSelected) Color.White.copy(alpha = 0.4f) else IosSecondaryLabel.copy(alpha = 0.35f)
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SplitTunnelHelpDialog(
-    visible: Boolean,
-    onDismiss: () -> Unit,
-    onTransitionEnd: () -> Unit,
-    scaleFactor: Float
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
-    ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.9f),
-            exit = fadeOut(tween(250)) + scaleOut(tween(250), targetScale = 0.9f)
-        ) {
-            DisposableEffect(Unit) {
-                onDispose {
-                    onTransitionEnd()
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismiss
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding((12 * scaleFactor).dp)
-                        .clip(RoundedCornerShape((24 * scaleFactor).dp))
-                        .background(Color(0xFF1C1C1E).copy(alpha = 0.98f))
-                        .clickable(enabled = false) {}
-                        .padding((24 * scaleFactor).dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            null,
-                            tint = IosActiveBlue,
-                            modifier = Modifier.size((22 * scaleFactor).dp)
-                        )
-                        Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-                        Text(
-                            "Split Tunnel Modes",
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = (20 * scaleFactor).sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy((18 * scaleFactor).dp)) {
-                        HelpItem(
-                            title = "Tunnel",
-                            desc = "Full protection. All traffic for this app is encrypted and routed through the Aether secure tunnel.",
-                            icon = Icons.Default.Security,
-                            color = IosActiveBlue,
-                            scaleFactor = scaleFactor
-                        )
-                        HelpItem(
-                            title = "Bypass",
-                            desc = "Direct access (Default). Uses your local network for maximum speed and compatibility with local apps.",
-                            icon = Icons.Default.Public,
-                            color = Color(0xFF34C759),
-                            scaleFactor = scaleFactor
-                        )
-                        HelpItem(
-                            title = "Blocked",
-                            desc = "Total isolation. This app will have no internet access, ensuring zero data leakage.",
-                            icon = Icons.Default.Block,
-                            color = Color(0xFFFF3B30),
-                            scaleFactor = scaleFactor
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFFFD60A).copy(alpha = 0.1f), RoundedCornerShape((12 * scaleFactor).dp))
-                            .padding((12 * scaleFactor).dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            null,
-                            tint = Color(0xFFFFD60A),
-                            modifier = Modifier.size((18 * scaleFactor).dp)
-                        )
-                        Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
-                        Column {
-                            Text(
-                                "Engine Requirement",
-                                color = Color(0xFFFFD60A),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = (14 * scaleFactor).sp
-                            )
-                            Text(
-                                if (isDesktop) "Windows uses Wintun driver (hev-socks5-tunnel). TUN mode requires Administrator privileges and creates a virtual adapter AetherST." else "Blocked mode is enforced by the compatible packet engine automatically.",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = (12 * scaleFactor).sp,
-                                lineHeight = (17 * scaleFactor).sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFFFD60A).copy(alpha = 0.1f), RoundedCornerShape((12 * scaleFactor).dp))
-                            .padding((12 * scaleFactor).dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            null,
-                            tint = Color(0xFFFFD60A),
-                            modifier = Modifier.size((18 * scaleFactor).dp)
-                        )
-                        Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
-                        Column {
-                            Text(
-                                text = if (isDesktop) "Windows Details" else "System Requirement",
-                                color = Color(0xFFFFD60A),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = (14 * scaleFactor).sp
-                            )
-                            Text(
-                                text = if (isDesktop) "Windows 10/11 64-bit recommended. App list combines Start Menu (.lnk), Registry Uninstall and Get-StartApps (UWP). Icons are extracted via PowerShell and cached per executable." else "Android 10 and newer use the platform connection-owner API. Android 8 and 9 use the compatibility resolver.",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = (12 * scaleFactor).sp,
-                                lineHeight = (17 * scaleFactor).sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height((28 * scaleFactor).dp))
-
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height((50 * scaleFactor).dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = IosActiveBlue,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape((14 * scaleFactor).dp)
-                    ) {
-                        Text(
-                            "Got it",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = (16 * scaleFactor).sp
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HelpItem(
-    title: String,
-    desc: String,
-    icon: ImageVector,
-    color: Color,
-    scaleFactor: Float
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        Box(
-            modifier = Modifier
-                .size((40 * scaleFactor).dp)
-                .background(color.copy(alpha = 0.15f), RoundedCornerShape((12 * scaleFactor).dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size((22 * scaleFactor).dp)
-            )
-        }
-        
-        Spacer(modifier = Modifier.width((16 * scaleFactor).dp))
-        
+    Row(modifier = Modifier.fillMaxWidth().background(bg, RoundedCornerShape((12 * scaleFactor).dp)).padding(horizontal = (10 * scaleFactor).dp, vertical = (8 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
+        AppIcon(app = app, modifier = Modifier.size((36 * scaleFactor).dp).clip(RoundedCornerShape((8 * scaleFactor).dp)))
+        Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = color,
-                fontWeight = FontWeight.Bold,
-                fontSize = (16 * scaleFactor).sp
-            )
-            Spacer(modifier = Modifier.height((4 * scaleFactor).dp))
-            Text(
-                text = desc,
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = (13 * scaleFactor).sp,
-                lineHeight = (19 * scaleFactor).sp
-            )
+            Text(app.name, fontWeight = FontWeight.SemiBold, color = if (mode == 2) AppPalette.statusError else Color.White, fontSize = (13 * scaleFactor).sp, maxLines = 1)
+            Text(app.packageName, color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp, maxLines = 1)
+            if (mode != 0) Text(if (mode == 1) "Tunnel • VPN" else "Blocked • No internet", color = if (mode == 1) IosActiveBlue else AppPalette.statusError, fontSize = (10 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+        }
+        Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+        IconButton(onClick = { if (!enabled) return@IconButton; onUpdateMode(if (mode == 2) 0 else 2) }, modifier = Modifier.size((32 * scaleFactor).dp), enabled = enabled) {
+            Box(modifier = Modifier.size((26 * scaleFactor).dp).background(if (mode == 2) AppPalette.statusError else Color.White.copy(alpha = 0.08f), RoundedCornerShape(7.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Block, null, tint = if (mode == 2) Color.White else IosSecondaryLabel, modifier = Modifier.size((16 * scaleFactor).dp))
+            }
+        }
+        Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
+        Switch(checked = mode == 1, onCheckedChange = { checked -> if (!enabled || mode == 2) return@Switch; onUpdateMode(if (checked) 1 else 0) }, enabled = enabled && mode != 2, modifier = Modifier.graphicsLayer { scaleX = 0.75f; scaleY = 0.75f }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = IosActiveBlue, checkedBorderColor = Color.Transparent, uncheckedThumbColor = Color.White, uncheckedTrackColor = IosInactiveTrack, uncheckedBorderColor = Color.Transparent, disabledCheckedTrackColor = IosActiveBlue.copy(alpha = 0.4f), disabledUncheckedTrackColor = IosInactiveTrack.copy(alpha = 0.4f)))
+    }
+}
+
+@Composable
+private fun SplitTunnelHelpDialog(visible: Boolean, onDismiss: () -> Unit, onTransitionEnd: () -> Unit, scaleFactor: Float) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, dismissOnClickOutside = true)) {
+        AnimatedVisibility(visible = visible, enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.9f), exit = fadeOut(tween(250)) + scaleOut(tween(250), targetScale = 0.9f)) {
+            DisposableEffect(Unit) { onDispose { onTransitionEnd() } }
+            Box(modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss), contentAlignment = Alignment.Center) {
+                Column(modifier = Modifier.fillMaxWidth().padding((12 * scaleFactor).dp).clip(RoundedCornerShape((20 * scaleFactor).dp)).background(AppPalette.surfaceRaised.copy(alpha = 0.98f)).clickable(enabled = false) {}.padding((20 * scaleFactor).dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size((20 * scaleFactor).dp))
+                        Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
+                        Text("Split Tunnel Modes", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = (16 * scaleFactor).sp)
+                    }
+                    Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
+                    Column(verticalArrangement = Arrangement.spacedBy((14 * scaleFactor).dp)) {
+                        HelpItem(title = "Bypass (Default)", desc = "Direct connection. Default when Whole Device is OFF. Best for banking, local apps.", icon = Icons.Default.Public, color = IosActiveGreen, scaleFactor = scaleFactor)
+                        HelpItem(title = "Tunnel", desc = "Encrypted via Aether VPN. Turn on switch for apps you want protected.", icon = Icons.Default.Security, color = IosActiveBlue, scaleFactor = scaleFactor)
+                        HelpItem(title = "Blocked", desc = "No internet. Tap block icon to isolate app completely.", icon = Icons.Default.Block, color = AppPalette.statusError, scaleFactor = scaleFactor)
+                    }
+                    Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
+                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height((44 * scaleFactor).dp), colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text("Got it", fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpItem(title: String, desc: String, icon: ImageVector, color: Color, scaleFactor: Float) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Box(modifier = Modifier.size((36 * scaleFactor).dp).background(color.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = color, modifier = Modifier.size((18 * scaleFactor).dp)) }
+        Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = color, fontWeight = FontWeight.Bold, fontSize = (13 * scaleFactor).sp)
+            Spacer(modifier = Modifier.height((2 * scaleFactor).dp))
+            Text(desc, color = Color.White.copy(alpha = 0.6f), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp)
         }
     }
 }

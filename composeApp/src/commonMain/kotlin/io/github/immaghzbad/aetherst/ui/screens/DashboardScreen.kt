@@ -1,4 +1,7 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
+import io.github.immaghzbad.aetherst.shared.ui.components.*
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -43,30 +46,32 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -99,23 +104,26 @@ import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.platform.getSystemUtils
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.platform.isWindows
 import io.github.immaghzbad.aetherst.shared.data.IpInfo
 import io.github.immaghzbad.aetherst.shared.data.PingState
+import io.github.immaghzbad.aetherst.shared.data.PsiphonEgressRegistry
 import io.github.immaghzbad.aetherst.shared.model.AetherConfig
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
 import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
 import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
 import io.github.immaghzbad.aetherst.shared.model.SessionTraffic
 import io.github.immaghzbad.aetherst.shared.ui.components.CountryFlag
+import io.github.immaghzbad.aetherst.shared.util.CountryNames
 import kotlinx.coroutines.launch
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosGroupBg = Color(0xFF2C2C2E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveGreen = Color(0xFF34C759)
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosScanningAmber = Color(0xFFFF9500)
-private val IosErrorRed = Color(0xFFFF3B30)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosGroupBg = AppPalette.divider
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosActiveBlue = AppPalette.accent
+private val IosScanningAmber = AppPalette.statusScanning
+private val IosErrorRed = AppPalette.statusError
 
 @Composable
 fun DashboardScreen(
@@ -127,7 +135,10 @@ fun DashboardScreen(
     pingState: PingState = PingState(),
     appVersion: String = "1.0.0",
     onToggleVpn: () -> Unit,
+    onForceStop: () -> Unit = {},
+    onUpdateConfig: (AetherConfig) -> Unit = {},
     onUpdateProtocol: (AetherProtocol) -> Unit,
+    onTogglePsiphon: (Boolean) -> Unit = {},
     onRefreshIpInfo: () -> Unit = {},
     onRefreshPing: () -> Unit = {},
     onCopy: (String) -> Unit = {},
@@ -203,6 +214,24 @@ fun DashboardScreen(
                             fontSize = (12 * scaleFactor).sp,
                             lineHeight = (16 * scaleFactor).sp
                         )
+                        if (config.protocol == AetherProtocol.ZERO_TRUST && connectionStatus == ConnectionStatus.RUNNING && config.teamName.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.VerifiedUser, null, tint = IosActiveGreen, modifier = Modifier.size((14 * scaleFactor).dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = buildString {
+                                        append(config.teamName)
+                                        val who = config.accessEmail.ifBlank { config.accessId.ifBlank { config.accessToken.takeIf { it.isNotBlank() }?.let { "token" } } }
+                                        if (!who.isNullOrBlank()) append(" • $who")
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = IosActiveGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = (12 * scaleFactor).sp
+                                )
+                            }
+                        }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (config.connectionMode == ConnectionMode.PROXY_ONLY && connectionStatus == ConnectionStatus.RUNNING) {
@@ -278,55 +307,136 @@ fun DashboardScreen(
                 }
             }
 
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(vertical = 16.dp),
-                contentAlignment = Alignment.Center
+                    .padding(bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
             ) {
-                val isWindows = remember { try { System.getProperty("os.name")?.lowercase()?.contains("win") == true } catch (_: Throwable) { false } }
-                val isAndroid = remember { !isDesktop }
-                val handleToggle: () -> Boolean = {
-                    if (config.protocol == AetherProtocol.ZERO_TRUST && connectionStatus == ConnectionStatus.STOPPED) {
-                        onOpenSettingsToZeroTrust()
-                        false
-                    } else if (isWindows && config.connectionMode == ConnectionMode.TUNNEL && systemUtils?.isAdministrator() == false) {
-                        showAdminRequiredDialog = true
-                        false
-                    } else {
-                        onToggleVpn()
-                        true
-                    }
-                }
-                if ((isDesktop && isWindows) || isAndroid) {
-                    WindowsSwipeSwitch(
-                        connectionStatus = connectionStatus,
-                        onToggle = handleToggle,
-                        onAdminCancelResetKey = if (showAdminRequiredDialog) 1 else 0,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    val minDim = if (screenWidth < screenHeight) screenWidth else screenHeight
-                    val buttonSize = (minDim * 0.35f).coerceIn(100.dp, 160.dp)
-                    IosPowerButton(
-                        connectionStatus = connectionStatus,
-                        onToggle = { handleToggle().let {} },
-                        size = buttonSize
-                    )
-                }
-            }
-
-            if (!isVeryCompactHeight) {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 4.dp)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
+                    val isWindows = remember { try { System.getProperty("os.name")?.lowercase()?.contains("win") == true } catch (_: Throwable) { false } }
+                    val isAndroid = remember { !isDesktop }
+                    val handleToggle: () -> Boolean = {
+                        if (connectionStatus == ConnectionStatus.STOPPING) {
+                            onForceStop()
+                            true
+                        } else if (config.protocol == AetherProtocol.ZERO_TRUST && connectionStatus == ConnectionStatus.STOPPED) {
+                            if (config.zeroTrustError() != null) {
+                                onOpenSettingsToZeroTrust()
+                                false
+                            } else {
+                                onToggleVpn()
+                                true
+                            }
+                        } else if (isWindows && config.connectionMode == ConnectionMode.TUNNEL && systemUtils?.isAdministrator() == false) {
+                            showAdminRequiredDialog = true
+                            false
+                        } else {
+                            onToggleVpn()
+                            true
+                        }
+                    }
+                    if (config.connectButtonStyle == "capsule") {
+                        CapsuleConnectButton(
+                            connectionStatus = connectionStatus,
+                            onToggle = handleToggle,
+                            onRecover = onForceStop,
+                            modifier = Modifier.fillMaxWidth(),
+                            scaleFactor = scaleFactor
+                        )
+                    } else if ((isDesktop && isWindows) || isAndroid) {
+                        WindowsSwipeSwitch(
+                            connectionStatus = connectionStatus,
+                            onToggle = handleToggle,
+                            onRecover = onForceStop,
+                            onAdminCancelResetKey = if (showAdminRequiredDialog) 1 else 0,
+                            modifier = Modifier.fillMaxWidth(),
+                            scaleFactor = scaleFactor
+                        )
+                    } else {
+                        val minDim = if (screenWidth < screenHeight) screenWidth else screenHeight
+                        val buttonSize = (minDim * 0.28f).coerceIn(90.dp, 140.dp)
+                        IosPowerButton(
+                            connectionStatus = connectionStatus,
+                            onToggle = { handleToggle().let {} },
+                            onRecover = onForceStop,
+                            size = buttonSize
+                        )
+                    }
+                }
+
+                if (!isVeryCompactHeight) {
+                    if (!isDesktop) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = IosCardBg)
+                        ) {
+                            val psiphonAllowed = config.protocol == AetherProtocol.MASQUE
+                            val psiphonOn = config.psiphonEnabled && psiphonAllowed
+                            Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(AppPalette.accentVariant), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Shield, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Psiphon Chain", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (13 * scaleFactor).sp)
+                                        Text(if (psiphonAllowed) "Route via Psiphon for non-Iran IP" else "Only available with MASQUE", color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp)
+                                    }
+                                }
+                                Switch(
+                                    checked = config.psiphonEnabled && psiphonAllowed,
+                                    onCheckedChange = { onTogglePsiphon(it) },
+                                    enabled = psiphonAllowed && (connectionStatus == ConnectionStatus.STOPPED || connectionStatus == ConnectionStatus.ERROR),
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = IosActiveGreen, checkedBorderColor = Color.Transparent, uncheckedThumbColor = Color.White, uncheckedTrackColor = AppPalette.inactiveTrack, uncheckedBorderColor = Color.Transparent, disabledCheckedTrackColor = IosActiveGreen.copy(alpha = 0.4f), disabledCheckedThumbColor = Color.White.copy(alpha = 0.9f), disabledCheckedBorderColor = Color.Transparent,                                     disabledUncheckedTrackColor = AppPalette.inactiveTrack.copy(alpha = 0.6f), disabledUncheckedThumbColor = Color.White.copy(alpha = 0.7f), disabledUncheckedBorderColor = Color.Transparent)
+                                )
+                            }
+                                if (psiphonOn) {
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp, modifier = Modifier.padding(start = 50.dp))
+                                    val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                                    val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
+                                    val regionCodes = buildList {
+                                        add("")
+                                        addAll(availableRegions)
+                                        if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                                    }
+                                    val regionOptions = regionCodes.map { CountryNames.label(it) }
+                                    IosPickerRow(
+                                        icon = Icons.Default.Public,
+                                        iconBg = Color(0xFF30B0C7),
+                                        title = "Exit Location",
+                                        value = CountryNames.label(selectedRegion),
+                                        options = regionOptions,
+                                        onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (isDesktop && isWindows) {
+                        IosConnectionModeSegmentedControl(
+                            selectedMode = config.connectionMode,
+                            onModeSelected = { onUpdateConfig(config.copy(connectionMode = it)) },
+                            enabled = connectionStatus == ConnectionStatus.STOPPED || connectionStatus == ConnectionStatus.ERROR,
+                            scaleFactor = scaleFactor
+                        )
+                    }
                     IosProtocolSegmentedControl(
                         selectedProtocol = config.protocol,
                         onProtocolSelected = onUpdateProtocol,
                         enabled = connectionStatus == ConnectionStatus.STOPPED || connectionStatus == ConnectionStatus.ERROR,
+                        allowedProtocols = if (config.psiphonEnabled) setOf(AetherProtocol.MASQUE) else null,
                         scaleFactor = scaleFactor
                     )
                 }
@@ -516,7 +626,7 @@ fun AdminRequiredDialog(
                     .fillMaxWidth()
                     .clickable(enabled = false) { },
                 shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+                colors = CardDefaults.cardColors(containerColor = AppPalette.surfaceRaised),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
@@ -528,13 +638,13 @@ fun AdminRequiredDialog(
                         modifier = Modifier
                             .size((64 * scaleFactor).dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFFF3B30).copy(alpha = 0.15f)),
+                            .background(AppPalette.statusError.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shield,
                             contentDescription = null,
-                            tint = Color(0xFFFF3B30),
+                            tint = AppPalette.statusError,
                             modifier = Modifier.size((32 * scaleFactor).dp)
                         )
                     }
@@ -573,7 +683,7 @@ fun AdminRequiredDialog(
                                 .height((52 * scaleFactor).dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF007AFF),
+                                containerColor = AppPalette.accent,
                                 contentColor = Color.White
                             )
                         ) {
@@ -627,7 +737,7 @@ fun ProxyOverlayPill(
             .padding(horizontal = 8.dp)
             .shadow(24.dp, RoundedCornerShape(20.dp), spotColor = IosActiveBlue.copy(alpha = 0.4f)),
         shape = RoundedCornerShape(20.dp),
-        color = Color(0xFF1C1C1E).copy(alpha = 0.95f),
+        color = AppPalette.surfaceRaised.copy(alpha = 0.95f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
     ) {
         Row(
@@ -736,9 +846,9 @@ fun IosStatusHeroCard(
 ) {
     val statusColor by animateColorAsState(
         targetValue = when (connectionStatus) {
-            ConnectionStatus.RUNNING -> IosActiveGreen
-            ConnectionStatus.STARTING, ConnectionStatus.VALIDATING, ConnectionStatus.RECONNECTING, ConnectionStatus.STOPPING -> IosScanningAmber
-            ConnectionStatus.ERROR -> IosErrorRed
+            ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> IosActiveGreen
+            ConnectionStatus.STARTING, ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY, ConnectionStatus.RECONNECTING, ConnectionStatus.STOPPING -> IosScanningAmber
+            ConnectionStatus.ERROR, ConnectionStatus.FAILED -> IosErrorRed
             ConnectionStatus.STOPPED -> IosSecondaryLabel
         },
         label = "statusColor"
@@ -781,12 +891,13 @@ fun IosStatusHeroCard(
                         Spacer(modifier = Modifier.width((5 * scaleFactor).dp))
                                 Text(
                                     text = when (connectionStatus) {
-                                        ConnectionStatus.RUNNING -> if (config.connectionMode == ConnectionMode.TUNNEL) "PROTECTED & CONNECTED" else "PROXY ACTIVE"
+                                        ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> if (config.connectionMode == ConnectionMode.TUNNEL) "PROTECTED & CONNECTED" else "PROXY ACTIVE"
                                         ConnectionStatus.STARTING -> "FINDING SERVERS..."
-                                        ConnectionStatus.VALIDATING -> "ESTABLISHING LINK..."
+                                        ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED -> "ESTABLISHING LINK..."
+                                        ConnectionStatus.SOCKS_READY -> "CONNECTING..."
                                         ConnectionStatus.RECONNECTING -> "RECONNECTING..."
-                                        ConnectionStatus.STOPPING -> "STOPPING..."
-                                        ConnectionStatus.ERROR -> "CONNECTION ERROR"
+            ConnectionStatus.STOPPING -> "SWIPE TO FORCE STOP"
+                                        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "CONNECTION ERROR"
                                         ConnectionStatus.STOPPED -> "READY TO CONNECT"
                                     },
                                     style = MaterialTheme.typography.labelSmall,
@@ -1021,7 +1132,7 @@ fun IosStatusHeroCard(
 }
 
 @Composable
-private fun TrafficValue(label: String, value: String, speed: Double = 0.0, color: Color, alignment: Alignment.Horizontal, modifier: Modifier = Modifier, scaleFactor: Float = 1f) {
+private fun TrafficValue(label: String, value: String, color: Color, alignment: Alignment.Horizontal, modifier: Modifier = Modifier, speed: Double = 0.0, scaleFactor: Float = 1f) {
     Column(modifier = modifier, horizontalAlignment = alignment) {
         Text(
             text = label,
@@ -1062,6 +1173,7 @@ fun IosConfigChip(label: String, value: String, scaleFactor: Float = 1f) {
 fun IosPowerButton(
     connectionStatus: ConnectionStatus,
     onToggle: () -> Unit,
+    onRecover: () -> Unit = {},
     size: Dp = 140.dp
 ) {
     val isConnected = connectionStatus == ConnectionStatus.RUNNING
@@ -1070,7 +1182,7 @@ fun IosPowerButton(
                     connectionStatus == ConnectionStatus.RECONNECTING ||
                     connectionStatus == ConnectionStatus.STOPPING
     val isError = connectionStatus == ConnectionStatus.ERROR
-    val canToggle = connectionStatus != ConnectionStatus.STOPPING
+    val canToggle = true
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1175,7 +1287,9 @@ fun IosPowerButton(
                     indication = null,
                     enabled = canToggle,
                     onClick = {
-                        scope.launch { onToggle() }
+                        scope.launch {
+                            if (connectionStatus == ConnectionStatus.STOPPING) onRecover() else onToggle()
+                        }
                     }
                 ),
             color = buttonColor,
@@ -1211,19 +1325,76 @@ fun IosPowerButton(
 }
 
 @Composable
+fun CapsuleConnectButton(
+    connectionStatus: ConnectionStatus,
+    onToggle: () -> Boolean,
+    modifier: Modifier = Modifier,
+    scaleFactor: Float = 1f,
+    onRecover: () -> Unit = {}
+) {
+    val sf = scaleFactor.coerceIn(0.7f, 1.1f)
+    val isConnected = connectionStatus == ConnectionStatus.RUNNING
+    val isWorking = connectionStatus in setOf(
+        ConnectionStatus.STARTING, ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED,
+        ConnectionStatus.SOCKS_READY, ConnectionStatus.TUN_ACTIVE, ConnectionStatus.RECONNECTING, ConnectionStatus.STOPPING
+    )
+    val isError = connectionStatus == ConnectionStatus.ERROR
+    val trackColor = when {
+        isConnected -> IosActiveGreen
+        isWorking -> IosScanningAmber
+        isError -> IosErrorRed
+        else -> IosGroupBg
+    }
+    val label = when {
+        connectionStatus == ConnectionStatus.STOPPING -> "FORCE STOP"
+        isWorking -> "CONNECTING..."
+        isConnected -> "DISCONNECT"
+        isError -> "RECONNECT"
+        else -> "CONNECT"
+    }
+    Box(
+        modifier = modifier
+            .height((56 * sf).dp.coerceIn(48.dp, 64.dp))
+            .clip(RoundedCornerShape(28.dp))
+            .background(trackColor)
+            .clickable { if (connectionStatus == ConnectionStatus.STOPPING) onRecover() else onToggle() },
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (isWorking) {
+                CircularProgressIndicator(modifier = Modifier.size((18 * sf).dp), color = Color.White, strokeWidth = 2.5.dp)
+                Spacer(modifier = Modifier.width((8 * sf).dp))
+            }
+            Text(
+                text = label,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = ((14 * sf).coerceIn(12f, 16f)).sp,
+                letterSpacing = (0.6f * sf).sp
+            )
+        }
+    }
+}
+
+@Composable
 fun WindowsSwipeSwitch(
     connectionStatus: ConnectionStatus,
     onToggle: () -> Boolean,
+    modifier: Modifier = Modifier,
+    scaleFactor: Float = 1f,
     onAdminCancelResetKey: Int = 0,
-    modifier: Modifier = Modifier
+    onRecover: () -> Unit = {}
 ) {
     val isConnected = connectionStatus == ConnectionStatus.RUNNING
     val isWorking = connectionStatus == ConnectionStatus.STARTING ||
             connectionStatus == ConnectionStatus.VALIDATING ||
+            connectionStatus == ConnectionStatus.DATAPLANE_VALIDATED ||
+            connectionStatus == ConnectionStatus.SOCKS_READY ||
+            connectionStatus == ConnectionStatus.TUN_ACTIVE ||
             connectionStatus == ConnectionStatus.RECONNECTING ||
             connectionStatus == ConnectionStatus.STOPPING
     val isError = connectionStatus == ConnectionStatus.ERROR
-    val canSwipe = connectionStatus != ConnectionStatus.STOPPING
+    val canSwipe = true
     val scope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
     var isDragging by remember { mutableStateOf(false) }
@@ -1235,17 +1406,15 @@ fun WindowsSwipeSwitch(
             else -> IosGroupBg
         }, label = "trackColor"
     )
-    val text = when {
-        isWorking -> when (connectionStatus) {
-            ConnectionStatus.STARTING -> "CONNECTING..."
-            ConnectionStatus.VALIDATING -> "VALIDATING..."
-            ConnectionStatus.RECONNECTING -> "RECONNECTING..."
-            ConnectionStatus.STOPPING -> "STOPPING..."
-            ConnectionStatus.RUNNING, ConnectionStatus.STOPPED, ConnectionStatus.ERROR -> "WORKING..."
-        }
-        isConnected -> "SWIPE TO DISCONNECT"
-        isError -> "SWIPE TO RECONNECT"
-        else -> "SWIPE TO CONNECT"
+    val text = when (connectionStatus) {
+        ConnectionStatus.STARTING -> "FINDING SERVERS..."
+        ConnectionStatus.VALIDATING -> "VALIDATING..."
+        ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY, ConnectionStatus.TUN_ACTIVE -> "CONNECTING..."
+        ConnectionStatus.RECONNECTING -> "RECONNECTING..."
+        ConnectionStatus.STOPPING -> "SWIPE TO FORCE STOP"
+        ConnectionStatus.RUNNING -> "SWIPE TO DISCONNECT"
+        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "SWIPE TO RECONNECT"
+        ConnectionStatus.STOPPED -> "SWIPE TO CONNECT"
     }
     val hintTransition = rememberInfiniteTransition(label = "hint")
     val hintShift by hintTransition.animateFloat(
@@ -1261,19 +1430,20 @@ fun WindowsSwipeSwitch(
         animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
         label = "dotPhase"
     )
+    val sf = scaleFactor.coerceIn(0.7f, 1.1f)
     BoxWithConstraints(
         modifier = modifier
-            .widthIn(min = 280.dp, max = 360.dp)
-            .height(72.dp)
+            .widthIn(min = (280 * sf).dp, max = (360 * sf).dp)
+            .height((64 * sf).dp.coerceIn(52.dp, 72.dp))
             .shadow(12.dp, RoundedCornerShape(36.dp), spotColor = trackColor.copy(alpha = 0.3f))
             .clip(RoundedCornerShape(36.dp))
             .background(Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
         val maxWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
-        val thumbSize = 56.dp
+        val thumbSize = (48 * sf).dp.coerceIn(42.dp, 56.dp)
         val thumbPx = with(androidx.compose.ui.platform.LocalDensity.current) { thumbSize.toPx() }
-        val horizontalPadding = 8.dp
+        val horizontalPadding = (8 * sf).dp
         val paddingPx = with(androidx.compose.ui.platform.LocalDensity.current) { horizontalPadding.toPx() }
         val maxDrag = (maxWidthPx - thumbPx - paddingPx * 2).coerceAtLeast(0f)
         val dragFraction = when {
@@ -1313,10 +1483,11 @@ fun WindowsSwipeSwitch(
                 text = if (isDisconnectDrag) "RELEASE TO DISCONNECT" else text,
                 color = Color.White.copy(alpha = 0.95f),
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                letterSpacing = 1.sp,
+                fontSize = ((11 * sf).coerceIn(10f, 13f)).sp,
+                letterSpacing = (0.6f * sf).sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 72.dp)
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = (56 * sf).dp)
             )
         }
 
@@ -1346,7 +1517,10 @@ fun WindowsSwipeSwitch(
                                         if (!isConnected) offsetX.value > threshold else offsetX.value < threshold
                                     }
                                     if (shouldTrigger) {
-                                        val success = onToggle()
+                                        val success = if (connectionStatus == ConnectionStatus.STOPPING) {
+                                            onRecover()
+                                            true
+                                        } else onToggle()
                                         if (success) {
                                             if (isWorking) {
                                                 offsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
@@ -1406,11 +1580,14 @@ fun WindowsSwipeSwitch(
                 }
             }
         if (!isWorking && !isConnected) {
+            val connectFraction = if (maxDrag > 0f) (offsetX.value / maxDrag).coerceIn(0f, 1f) else 0f
+            val rightAlpha = if (isDragging) (1f - connectFraction).coerceIn(0f, 1f) else 1f
+            val rightShift = if (isDragging) connectFraction * 40f else hintShift * 0.6f
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 24.dp)
-                    .graphicsLayer { translationX = if (!isDragging) hintShift * 0.6f else 0f },
+                    .graphicsLayer { translationX = rightShift; alpha = rightAlpha },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 repeat(3) { idx ->
@@ -1431,28 +1608,87 @@ fun WindowsSwipeSwitch(
                 )
             }
         }
-        if (!isWorking && isConnected) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 24.dp)
-                    .graphicsLayer { translationX = if (!isDragging) -hintShift * 0.6f else 0f },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp).padding(end = 4.dp)
+    }
+}
+
+@Composable
+fun IosConnectionModeSegmentedControl(
+    selectedMode: ConnectionMode,
+    onModeSelected: (ConnectionMode) -> Unit,
+    enabled: Boolean = true,
+    scaleFactor: Float = 1f
+) {
+    val modes = listOf(
+        ConnectionMode.TUNNEL to "TUN Mode",
+        ConnectionMode.SYSTEM_PROXY to "System Proxy",
+        ConnectionMode.PROXY_ONLY to "Proxy Only"
+    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        color = IosCardBg,
+        shadowElevation = 8.dp,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(IosCardBg)
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            modes.forEach { (mode, label) ->
+                val selected = mode == selectedMode
+                val bg by animateColorAsState(
+                    targetValue = if (selected) IosActiveBlue else Color.Transparent,
+                    animationSpec = tween(250), label = "modeBg"
                 )
-                repeat(3) { idx ->
-                    val alpha = 0.3f + ((1f - dotPhase + idx * 0.33f) % 1f) * 0.7f
-                    Box(
-                        modifier = Modifier
-                            .padding(end = if (idx == 2) 0.dp else 3.dp)
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = alpha.coerceIn(0.3f, 1f)))
+                val textColor by animateColorAsState(
+                    targetValue = if (selected) Color.White else IosSecondaryLabel,
+                    animationSpec = tween(250), label = "modeText"
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height((36 * scaleFactor).dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(bg)
+                        .shadow(
+                            elevation = if (selected) 10.dp else 0.dp,
+                            shape = RoundedCornerShape(50),
+                            spotColor = IosActiveBlue.copy(alpha = 0.4f),
+                            ambientColor = IosActiveBlue.copy(alpha = 0.3f)
+                        )
+                        .clip(RoundedCornerShape(50))
+                        .clickable(enabled = enabled) { onModeSelected(mode) }
+                        .graphicsLayer { alpha = if (enabled || selected) 1f else 0.45f }
+                        .testTag("connection_mode_${mode.name}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.White.copy(alpha = 0.22f),
+                                            Color.White.copy(alpha = 0.06f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+                    }
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        color = textColor,
+                        fontSize = (10 * scaleFactor).sp,
+                        letterSpacing = 0.3.sp,
+                        maxLines = 1
                     )
                 }
             }
@@ -1465,19 +1701,10 @@ fun IosProtocolSegmentedControl(
     selectedProtocol: AetherProtocol,
     onProtocolSelected: (AetherProtocol) -> Unit,
     enabled: Boolean = true,
+    allowedProtocols: Set<AetherProtocol>? = null,
     scaleFactor: Float = 1f
 ) {
-    Column {
-        Text(
-            text = "CONNECTION PROTOCOL",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = IosSecondaryLabel,
-            fontSize = (9 * scaleFactor).sp,
-            letterSpacing = 0.5.sp,
-            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
-        )
-        Surface(
+    Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
             color = IosCardBg,
@@ -1494,6 +1721,7 @@ fun IosProtocolSegmentedControl(
             ) {
                 AetherProtocol.entries.forEach { proto ->
                     val selected = proto == selectedProtocol
+                    val itemEnabled = enabled && (allowedProtocols == null || proto in allowedProtocols)
                     val bg by animateColorAsState(
                         targetValue = if (selected) IosActiveBlue else Color.Transparent,
                         animationSpec = tween(250), label = "protoBg"
@@ -1516,8 +1744,8 @@ fun IosProtocolSegmentedControl(
                                 ambientColor = IosActiveBlue.copy(alpha = 0.3f)
                             )
                             .clip(RoundedCornerShape(50))
-                            .clickable(enabled = enabled) { onProtocolSelected(proto) }
-                            .graphicsLayer { alpha = if (enabled || selected) 1f else 0.45f }
+                            .clickable(enabled = itemEnabled) { onProtocolSelected(proto) }
+                            .graphicsLayer { alpha = if (itemEnabled || selected) 1f else 0.45f }
                             .testTag("protocol_${proto.rawValue}"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1549,7 +1777,6 @@ fun IosProtocolSegmentedControl(
                 }
             }
         }
-    }
 }
 
 private fun formatTime(seconds: Long): String {

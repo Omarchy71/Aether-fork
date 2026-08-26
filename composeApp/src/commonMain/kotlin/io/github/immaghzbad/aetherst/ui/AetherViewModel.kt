@@ -12,6 +12,7 @@ import io.github.immaghzbad.aetherst.shared.core.ConnectionController
 import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
 import io.github.immaghzbad.aetherst.shared.data.IpInfo
 import io.github.immaghzbad.aetherst.shared.data.IpInfoRepository
+import io.github.immaghzbad.aetherst.shared.data.ActiveProxyProvider
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.data.PingRepository
 import io.github.immaghzbad.aetherst.shared.data.PingState
@@ -117,8 +118,9 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
 
         val cfg = config.value
         if (cfg.protocol == AetherProtocol.ZERO_TRUST) {
-            if (cfg.teamName.isEmpty() || cfg.accessEmail.isEmpty()) {
-                showToast("Please complete Zero Trust settings", true)
+            val ztError = cfg.zeroTrustError()
+            if (ztError != null) {
+                showToast(ztError, true)
                 _scrollToZeroTrust.value = true
                 return
             }
@@ -146,6 +148,19 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         } catch (exception: Exception) {
             LogRepository.e("[UI] Connection toggle failed: ${exception.message}")
             ConnectionController.markStatus(ConnectionStatus.ERROR)
+        }
+    }
+
+    fun forceStop() {
+        LogRepository.w("[UI] Force stop requested by user (recovering from stuck state)", "AetherSystem")
+        ConnectionController.markStatus(ConnectionStatus.STOPPED)
+        viewModelScope.launch {
+            try {
+                val mode = config.value.connectionMode
+                if (mode == ConnectionMode.TUNNEL) vpnController.stopVpn() else vpnController.stopProxy()
+            } catch (e: Exception) {
+                LogRepository.e("[UI] Force stop backend teardown failed: ${e.message}")
+            }
         }
     }
 
@@ -207,18 +222,20 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
 
     fun updateAppSplitTunnelingMode(packageName: String, modeOrdinal: Int) {
         val current = config.value
-        val excluded = current.excludedPackages.toMutableSet()
+        val tunneled = current.tunneledPackages.toMutableSet()
         val blocked = current.blockedPackages.toMutableSet()
+        val excluded = current.excludedPackages.toMutableSet()
 
-        excluded.remove(packageName)
+        tunneled.remove(packageName)
         blocked.remove(packageName)
+        excluded.remove(packageName)
 
         when (modeOrdinal) {
-            1 -> excluded.add(packageName)
+            1 -> tunneled.add(packageName)
             2 -> blocked.add(packageName)
         }
 
-        updateConfig(current.copy(excludedPackages = excluded, blockedPackages = blocked))
+        updateConfig(current.copy(tunneledPackages = tunneled.toSet(), blockedPackages = blocked.toSet(), excludedPackages = excluded.toSet()))
         restartConnection()
     }
 
@@ -446,11 +463,24 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         viewModelScope.launch {
             val state = connectionStatus.value
             if (state == ConnectionStatus.RUNNING) {
-                val cfg = config.value
-                IpInfoRepository.fetchIpInfo(cfg.socksHost, cfg.socksPort.toIntOrNull() ?: 1819, useProxy = true)
+                fetchPublicIp()
             } else {
                 IpInfoRepository.fetchIpInfo(useProxy = false)
             }
+        }
+    }
+
+    private suspend fun fetchPublicIp() {
+        val psiphon = ActiveProxyProvider.psiphonProxyUrl
+        if (!psiphon.isNullOrEmpty()) {
+            val body = psiphon.removePrefix("socks5://").removePrefix("socks://")
+            val parts = body.split(":", limit = 2)
+            val host = parts.first()
+            val port = parts.getOrNull(1)?.toIntOrNull() ?: 3080
+            IpInfoRepository.fetchIpInfo(host, port, useProxy = true)
+        } else {
+            val cfg = config.value
+            IpInfoRepository.fetchIpInfo(cfg.socksHost, cfg.socksPort.toIntOrNull() ?: 1819, useProxy = true)
         }
     }
 
@@ -477,6 +507,10 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         systemUtils.requestBatteryOptimization()
     }
 
+    fun openVpnSettings() {
+        systemUtils.openVpnSettings()
+    }
+
     fun requestNotificationPermission() {
         systemUtils.requestNotificationPermission()
     }
@@ -489,22 +523,43 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         }
     }
 
+    private var ipRetryJob: Job? = null
     private fun observeConnectionStatus() {
         viewModelScope.launch {
             connectionStatus.collect { state ->
                 when (state) {
-                    ConnectionStatus.RUNNING -> {
+                    ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE, ConnectionStatus.SOCKS_READY -> {
                         val cfg = config.value
                         val host = cfg.socksHost
                         val port = cfg.socksPort.toIntOrNull() ?: 1819
-                        viewModelScope.launch { IpInfoRepository.fetchIpInfo(host, port, useProxy = true) }
+                        viewModelScope.launch { fetchPublicIp() }
                         viewModelScope.launch { PingRepository.runPing(host, port, useProxy = true) }
+                        ipRetryJob?.cancel()
+                        ipRetryJob = viewModelScope.launch {
+                            var attempts = 0
+                            while (attempts < 6) {
+                                delay(7000.milliseconds)
+                                val current = IpInfoRepository.ipInfo.value
+                                if (current.ip.isEmpty() || current.isLoading) {
+                                    fetchPublicIp()
+                                    attempts++
+                                } else {
+                                    break
+                                }
+                            }
+                        }
                     }
-                    ConnectionStatus.STOPPED -> {
+                    ConnectionStatus.RECONNECTING, ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.VALIDATING, ConnectionStatus.STARTING -> {
+                        ipRetryJob?.cancel()
+                    }
+                    ConnectionStatus.STOPPED, ConnectionStatus.FAILED, ConnectionStatus.ERROR -> {
+                        ipRetryJob?.cancel()
                         viewModelScope.launch { IpInfoRepository.fetchIpInfo(useProxy = false) }
                         PingRepository.reset()
                     }
-                    else -> {}
+                    else -> {
+                        ipRetryJob?.cancel()
+                    }
                 }
             }
         }

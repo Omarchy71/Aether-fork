@@ -110,8 +110,27 @@ class AetherProcessRunner(private val context: PlatformContext) {
             }
 
             if (config.protocol == AetherProtocol.ZERO_TRUST) {
-                command.add("--team")
-                command.add(config.teamName.ifEmpty { "unnamed" })
+                if (config.teamName.isNotEmpty()) {
+                    command.add("--team")
+                    command.add(config.teamName)
+                }
+                when {
+                    config.accessToken.isNotEmpty() -> {
+                        command.add("--access-token")
+                        command.add(config.accessToken)
+                    }
+                    config.accessId.isNotEmpty() || config.accessSecret.isNotEmpty() -> {
+                        command.add("--access-id")
+                        command.add(config.accessId)
+                        command.add("--access-secret")
+                        command.add(config.accessSecret)
+                    }
+                    config.accessEmail.isNotEmpty() -> {
+                        command.add("--access-email")
+                        command.add(config.accessEmail)
+                    }
+                }
+                if (config.useGateway) command.add("--gateway")
             }
             command.add(when (config.ipMode) {
                 AetherIpMode.IPV4 -> "-4"
@@ -138,7 +157,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
             }
             if ((config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL)) {
                 command.add("--keepalive")
-                command.add(config.keepalive.toString())
+                command.add(if (config.keepaliveEnabled) config.keepalive.toString() else "0")
             }
             if (config.tlsGroups.isNotEmpty()) {
                 command.add("--tls-groups")
@@ -149,34 +168,14 @@ class AetherProcessRunner(private val context: PlatformContext) {
             command.add("--reconnect-secs")
             command.add(config.reconnectSecs.toString())
             if (config.noProfileRetry) command.add("--no-profile-retry")
-            if (config.accessEmail.isNotEmpty()) {
-                command.add("--access-email")
-                command.add(config.accessEmail)
-            }
-            if (config.accessId.isNotEmpty()) {
-                command.add("--access-id")
-                command.add(config.accessId)
-            }
-            if (config.accessSecret.isNotEmpty()) {
-                command.add("--access-secret")
-                command.add(config.accessSecret)
-            }
-            if (config.accessToken.isNotEmpty()) {
-                command.add("--access-token")
-                command.add(config.accessToken)
-            }
-            if (config.teamName.isNotEmpty() && config.protocol != AetherProtocol.ZERO_TRUST) {
-                command.add("--team")
-                command.add(config.teamName)
-            }
-            if (config.useGateway) command.add("--gateway")
             if (config.dnsList.isNotEmpty()) {
                 command.add("--dns")
                 command.add(config.dnsList)
             }
-            if (config.upstreamProxy.isNotEmpty()) {
+            if (config.upstreamProxyEnabled && config.upstreamProxy.isNotEmpty()) {
                 command.add("--upstream")
                 command.add(config.upstreamProxy)
+                if (config.upstreamProxy.startsWith("http://", ignoreCase = true)) command.add("--h2")
             }
 
             val env = mutableMapOf<String, String>()
@@ -208,19 +207,26 @@ class AetherProcessRunner(private val context: PlatformContext) {
                 env["AETHER_PEER"] = config.peer
                 env["AETHER_WG_PEER"] = config.peer
             }
-            env["AETHER_WG_KEEPALIVE"] = config.keepalive.toString()
+            env["AETHER_WG_KEEPALIVE"] = if (config.keepaliveEnabled) config.keepalive.toString() else "0"
             env["AETHER_MASQUE_VALIDATE_SECS"] = config.validateSecs.toString()
             env["AETHER_MASQUE_RECONNECT_SECS"] = config.reconnectSecs.toString()
             env["AETHER_WG_RECONNECT_SECS"] = config.reconnectSecs.toString()
             if (config.noProfileRetry) env["AETHER_WG_NO_PROFILE_RETRY"] = "1"
             if (config.tlsGroups.isNotEmpty()) env["AETHER_TLS_GROUPS"] = config.tlsGroups
-            if (config.accessEmail.isNotEmpty()) env["AETHER_ACCESS_EMAIL"] = config.accessEmail
-            if (config.accessId.isNotEmpty()) env["AETHER_ACCESS_ID"] = config.accessId
-            if (config.accessSecret.isNotEmpty()) env["AETHER_ACCESS_SECRET"] = config.accessSecret
-            if (config.accessToken.isNotEmpty()) env["AETHER_ACCESS_TOKEN"] = config.accessToken
-            if (config.useGateway) env["AETHER_GATEWAY"] = "1"
+            if (config.protocol == AetherProtocol.ZERO_TRUST) {
+                if (config.teamName.isNotEmpty()) env["AETHER_TEAM"] = config.teamName
+                when {
+                    config.accessToken.isNotEmpty() -> env["AETHER_ACCESS_TOKEN"] = config.accessToken
+                    config.accessId.isNotEmpty() || config.accessSecret.isNotEmpty() -> {
+                        env["AETHER_ACCESS_ID"] = config.accessId
+                        env["AETHER_ACCESS_SECRET"] = config.accessSecret
+                    }
+                    config.accessEmail.isNotEmpty() -> env["AETHER_ACCESS_EMAIL"] = config.accessEmail
+                }
+                if (config.useGateway) env["AETHER_GATEWAY"] = "1"
+            }
             if (config.dnsList.isNotEmpty()) env["AETHER_DNS"] = config.dnsList
-            if (config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
+            if (config.upstreamProxyEnabled && config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
             env["AETHER_ROUTE_SNIFF"] = if (config.routeSniffing) "1" else "0"
             env["AETHER_ROUTE_SNIFF_MS"] = config.sniffingTimeoutMs.toString()
             env["AETHER_REPROVISION"] = if (config.reprovision) "1" else "0"
@@ -268,7 +274,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
             lower.contains(" warn ") || lower.contains("[warn]") -> LogRepository.w(line, "AetherCore")
             else -> LogRepository.i(line, "AetherCore")
         }
-        if (lower.contains("enter code:") || lower.contains("login code required")) {
+        if (isZeroTrustCodePrompt(lower)) {
             onCodeRequired()
             return
         }
@@ -294,6 +300,14 @@ class AetherProcessRunner(private val context: PlatformContext) {
                 updateState(ConnectionStatus.RECONNECTING, attemptId)
             }
         }
+    }
+
+    private fun isZeroTrustCodePrompt(line: String): Boolean {
+        return line.contains("code") && (
+            line.contains("enter") || line.contains("login") || line.contains("verif") ||
+            line.contains("confirm") || line.contains("otp") || line.contains("one-time") ||
+            line.contains("type the") || line.contains("paste") || line.contains("prompt")
+        )
     }
 
     private fun updateState(state: ConnectionStatus, attemptId: Long) {

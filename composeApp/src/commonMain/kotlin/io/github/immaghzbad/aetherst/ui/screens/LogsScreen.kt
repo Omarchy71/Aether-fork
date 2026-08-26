@@ -1,4 +1,6 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,7 +48,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,13 +74,13 @@ import io.github.immaghzbad.aetherst.shared.ui.AetherViewModel
 import io.github.immaghzbad.aetherst.shared.ui.components.LogsVerticalScrollbar
 import kotlinx.coroutines.launch
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosActiveGreen = Color(0xFF34C759)
-private val IosWarnAmber = Color(0xFFFF9500)
-private val IosErrorRed = Color(0xFFFF3B30)
-private val IosDebugCyan = Color(0xFF64D2FF)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveBlue = AppPalette.accent
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosWarnAmber = AppPalette.statusScanning
+private val IosErrorRed = AppPalette.statusError
+private val IosDebugCyan = AppPalette.debugCyan
 
 @Composable
 fun LogsScreen(
@@ -92,8 +93,8 @@ fun LogsScreen(
         val scaleFactor = (screenWidth.value / 411f).coerceIn(0.7f, 1.1f)
         val horizontalPadding = if (screenWidth < 360.dp) 10.dp else 16.dp
 
-        val config by viewModel.config.collectAsState()
-        val logs by viewModel.logs.collectAsState()
+        val config by viewModel.config.collectAsStateWithLifecycle()
+        val logs by viewModel.logs.collectAsStateWithLifecycle()
 
         var selectedLevelFilter by remember { mutableStateOf<LogLevel?>(null) }
         var selectedSourceFilter by remember { mutableStateOf("ALL") }
@@ -288,7 +289,7 @@ fun LogsScreen(
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 when {
-                                    selected && label == "CORE" -> Color(0xFF5856D6)
+                                    selected && label == "CORE" -> AppPalette.accentVariant
                                     selected -> IosActiveBlue
                                     else -> Color.Transparent
                                 }
@@ -523,7 +524,7 @@ fun IosLogLineItem(
                 val isCoreEntry = entry.tag.equals("AetherCore", ignoreCase = true)
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = if (isCoreEntry) Color(0xFF5856D6).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.08f)
+                    color = if (isCoreEntry) AppPalette.accentVariant.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.08f)
                 ) {
                     Text(
                         text = if (isCoreEntry) "CORE" else "APP",

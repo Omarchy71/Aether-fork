@@ -3,6 +3,7 @@ package io.github.immaghzbad.aetherst.shared.data
 import io.github.immaghzbad.aetherst.shared.model.*
 import io.github.immaghzbad.aetherst.platform.Settings
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.platform.isWindows
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +32,22 @@ class AetherConfigRepository private constructor(private val settings: Settings)
     init {
         LogRepository.currentAppLogLevel = _config.value.appLogLevel
         LogRepository.currentCoreLogLevel = _config.value.coreLogLevel
+        PsiphonEgressRegistry.setAvailableRegions(loadCachedEgressRegions())
+    }
+
+    private fun loadCachedEgressRegions(): List<String> {
+        return settings.getString("psiphon_egress_regions_cache", "")
+            .split(",")
+            .map { it.trim().uppercase() }
+            .filter { it.matches(Regex("^[A-Z]{2}$")) }
+            .distinct()
+            .sorted()
+    }
+
+    fun cacheEgressRegions(regions: List<String>) {
+        val normalized = regions.map { it.trim().uppercase() }.filter { it.matches(Regex("^[A-Z]{2}$")) }.distinct().sorted()
+        settings.putString("psiphon_egress_regions_cache", normalized.joinToString(","))
+        PsiphonEgressRegistry.setAvailableRegions(normalized)
     }
 
     private fun loadConfig(): AetherConfig {
@@ -70,7 +87,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         val connectionMode = if (connectionModeStr.isNotEmpty()) {
             runCatching { ConnectionMode.valueOf(connectionModeStr) }.getOrDefault(ConnectionMode.TUNNEL)
         } else {
-            if (legacyProxyOnly) ConnectionMode.PROXY_ONLY else ConnectionMode.TUNNEL
+            if (legacyProxyOnly) ConnectionMode.PROXY_ONLY else if (isWindows) ConnectionMode.SYSTEM_PROXY else ConnectionMode.TUNNEL
         }
 
         val protocol = runCatching { AetherProtocol.valueOf(protocolStr) }.getOrDefault(AetherProtocol.MASQUE)
@@ -101,6 +118,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             appLogLevel = runCatching { AetherLogLevel.valueOf(appLogLevelStr) }.getOrDefault(AetherLogLevel.INFO),
             coreLogLevel = runCatching { AetherLogLevel.valueOf(coreLogLevelStr) }.getOrDefault(AetherLogLevel.INFO),
             peer = settings.getString("${prefix}peer", ""),
+            keepaliveEnabled = settings.getBoolean("${prefix}keepalive_enabled", true),
             keepalive = settings.getInt("${prefix}keepalive", 5),
             validateSecs = settings.getInt("${prefix}validate_secs", 10),
             reconnectSecs = settings.getInt("${prefix}reconnect_secs", 2),
@@ -122,6 +140,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             dnsList = settings.getString("${prefix}dns_list", "1.1.1.1,1.0.0.1"),
             shareHotspot = settings.getBoolean("${prefix}share_hotspot", false),
             upstreamProxy = settings.getString("${prefix}upstream_proxy", ""),
+            upstreamProxyEnabled = settings.getBoolean("${prefix}upstream_proxy_enabled", false),
             routeSniffing = settings.getBoolean("${prefix}route_sniffing", true),
             sniffingTimeoutMs = settings.getInt("${prefix}sniffing_timeout_ms", 100),
             reprovision = settings.getBoolean("${prefix}reprovision", true),
@@ -130,11 +149,48 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             hevReadWriteTimeoutMs = settings.getInt("${prefix}hev_read_write_timeout_ms", 60000),
             hevMaxSessionCount = settings.getInt("${prefix}hev_max_session_count", 0),
             hevMapdnsCacheSize = settings.getInt("${prefix}hev_mapdns_cache_size", 10000),
+            hevUdpMode = sanitizeHevUdpMode(settings.getString("${prefix}hev_udp_mode", "udp")),
+            cloakEnabled = settings.getBoolean("${prefix}cloak_enabled", false),
+            cloakSniList = settings.getString("${prefix}cloak_sni_list", "www.hcaptcha.com,www.speedtest.net,www.bing.com"),
+            cloakTtlList = settings.getString("${prefix}cloak_ttl_list", "4,5,6,8"),
+            cloakJitterMin = settings.getInt("${prefix}cloak_jitter_min", 20),
+            cloakJitterMax = settings.getInt("${prefix}cloak_jitter_max", 80),
+            cloakFragment = settings.getBoolean("${prefix}cloak_fragment", false),
+            cloakAdaptive = settings.getBoolean("${prefix}cloak_adaptive", true),
+            cloakFallbackPorts = settings.getString("${prefix}cloak_fallback_ports", "443,2053,2083,2087,2096,8443"),
+            cloakLogLevel = sanitizeHevLogLevel(settings.getString("${prefix}cloak_log_level", "info")),
+            cloakRandomizeSniCase = settings.getBoolean("${prefix}cloak_randomize_sni_case", false),
+            psiphonEnabled = settings.getBoolean("${prefix}psiphon_enabled", false),
+            psiphonChainOuter = settings.getString("${prefix}psiphon_chain_outer", "masque"),
+            psiphonSocksPort = settings.getString("${prefix}psiphon_socks_port", "3080"),
+            psiphonEgressRegion = sanitizePsiphonEgressRegion(settings.getString("${prefix}psiphon_egress_region", "")),
+            ztStaySignedIn = settings.getBoolean("${prefix}zt_stay_signed_in", true),
+            ztTokenExpiry = settings.getString("${prefix}zt_token_expiry", "0").toLongOrNull() ?: 0,
+            connectButtonStyle = sanitizeConnectButtonStyle(settings.getString("${prefix}connect_button_style", "swipe")),
+            tunnelAllApps = settings.getBoolean("${prefix}tunnel_all_apps", true),
+            excludedPackages = settings.getStringSet("${prefix}excluded_packages", emptySet()),
+            blockedPackages = settings.getStringSet("${prefix}blocked_packages", emptySet()),
+            tunneledPackages = settings.getStringSet("${prefix}tunneled_packages", emptySet()),
         )
     }
 
     private fun sanitizeHevLogLevel(value: String): String {
         return if (value in setOf("error", "warn", "info", "debug")) value else "warn"
+    }
+
+    private fun sanitizeHevUdpMode(value: String): String {
+        val v = value.lowercase().trim()
+        return if (v in setOf("udp", "icmp", "off", "false")) v else "udp"
+    }
+
+    private fun sanitizePsiphonEgressRegion(value: String): String {
+        val v = value.trim().uppercase()
+        return if (v.isEmpty() || v.matches(Regex("^[A-Z]{2}$"))) v else ""
+    }
+
+    private fun sanitizeConnectButtonStyle(value: String): String {
+        val v = value.trim().lowercase()
+        return if (v == "capsule" || v == "swipe") v else "swipe"
     }
 
     fun updateConfig(newConfig: AetherConfig) {
@@ -208,6 +264,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}app_log_level", cfg.appLogLevel.name)
         settings.putString("${prefix}core_log_level", cfg.coreLogLevel.name)
         settings.putString("${prefix}peer", cfg.peer)
+        settings.putBoolean("${prefix}keepalive_enabled", cfg.keepaliveEnabled)
         settings.putInt("${prefix}keepalive", cfg.keepalive)
         settings.putInt("${prefix}validate_secs", cfg.validateSecs)
         settings.putInt("${prefix}reconnect_secs", cfg.reconnectSecs)
@@ -227,6 +284,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}dns_list", cfg.dnsList)
         settings.putBoolean("${prefix}share_hotspot", cfg.shareHotspot)
         settings.putString("${prefix}upstream_proxy", cfg.upstreamProxy)
+        settings.putBoolean("${prefix}upstream_proxy_enabled", cfg.upstreamProxyEnabled)
         settings.putBoolean("${prefix}route_sniffing", cfg.routeSniffing)
         settings.putInt("${prefix}sniffing_timeout_ms", cfg.sniffingTimeoutMs)
         settings.putBoolean("${prefix}reprovision", cfg.reprovision)
@@ -235,6 +293,28 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putInt("${prefix}hev_read_write_timeout_ms", cfg.hevReadWriteTimeoutMs.coerceIn(1000, 600000))
         settings.putInt("${prefix}hev_max_session_count", cfg.hevMaxSessionCount.coerceIn(0, 200000))
         settings.putInt("${prefix}hev_mapdns_cache_size", cfg.hevMapdnsCacheSize.coerceIn(100, 1000000))
+        settings.putString("${prefix}hev_udp_mode", sanitizeHevUdpMode(cfg.hevUdpMode))
+        settings.putBoolean("${prefix}cloak_enabled", cfg.cloakEnabled)
+        settings.putString("${prefix}cloak_sni_list", cfg.cloakSniList)
+        settings.putString("${prefix}cloak_ttl_list", cfg.cloakTtlList)
+        settings.putInt("${prefix}cloak_jitter_min", cfg.cloakJitterMin.coerceIn(5, 500))
+        settings.putInt("${prefix}cloak_jitter_max", cfg.cloakJitterMax.coerceIn(10, 1000))
+        settings.putBoolean("${prefix}cloak_fragment", cfg.cloakFragment)
+        settings.putBoolean("${prefix}cloak_adaptive", cfg.cloakAdaptive)
+        settings.putString("${prefix}cloak_fallback_ports", cfg.cloakFallbackPorts)
+        settings.putString("${prefix}cloak_log_level", sanitizeHevLogLevel(cfg.cloakLogLevel))
+        settings.putBoolean("${prefix}cloak_randomize_sni_case", cfg.cloakRandomizeSniCase)
+        settings.putBoolean("${prefix}psiphon_enabled", cfg.psiphonEnabled)
+        settings.putString("${prefix}psiphon_chain_outer", cfg.psiphonChainOuter)
+        settings.putString("${prefix}psiphon_socks_port", cfg.psiphonSocksPort)
+        settings.putString("${prefix}psiphon_egress_region", sanitizePsiphonEgressRegion(cfg.psiphonEgressRegion))
+        settings.putBoolean("${prefix}zt_stay_signed_in", cfg.ztStaySignedIn)
+        settings.putString("${prefix}zt_token_expiry", cfg.ztTokenExpiry.toString())
+        settings.putString("${prefix}connect_button_style", sanitizeConnectButtonStyle(cfg.connectButtonStyle))
+        settings.putBoolean("${prefix}tunnel_all_apps", cfg.tunnelAllApps)
+        settings.putStringSet("${prefix}excluded_packages", cfg.excludedPackages)
+        settings.putStringSet("${prefix}blocked_packages", cfg.blockedPackages)
+        settings.putStringSet("${prefix}tunneled_packages", cfg.tunneledPackages)
     }
 
     fun resetToDefaults() {
@@ -324,6 +404,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putBoolean("${p}no_data_check", cfg.noDataCheck)
         settings.putBoolean("${p}quick_reconnect", cfg.quickReconnect)
         settings.putString("${p}peer", cfg.peer)
+        settings.putBoolean("${p}keepalive_enabled", cfg.keepaliveEnabled)
         settings.putInt("${p}keepalive", cfg.keepalive)
         settings.putInt("${p}validate_secs", cfg.validateSecs)
         settings.putInt("${p}reconnect_secs", cfg.reconnectSecs)
@@ -366,6 +447,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             noDataCheck = settings.getBoolean("${p}no_data_check", false),
             quickReconnect = settings.getBoolean("${p}quick_reconnect", true),
             peer = settings.getString("${p}peer", ""),
+            keepaliveEnabled = settings.getBoolean("${p}keepalive_enabled", true),
             keepalive = settings.getInt("${p}keepalive", 5),
             validateSecs = settings.getInt("${p}validate_secs", 10),
             reconnectSecs = settings.getInt("${p}reconnect_secs", 2),
@@ -377,8 +459,11 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             accessId = settings.getString("${p}access_id", ""),
             accessSecret = settings.getString("${p}access_secret", ""),
             accessToken = settings.getString("${p}access_token", ""),
+            ztStaySignedIn = settings.getBoolean("${p}zt_stay_signed_in", true),
+            ztTokenExpiry = settings.getString("${p}zt_token_expiry", "0").toLongOrNull() ?: 0,
             useGateway = settings.getBoolean("${p}use_gateway", false),
             upstreamProxy = settings.getString("${p}upstream_proxy", ""),
+            upstreamProxyEnabled = settings.getBoolean("${p}upstream_proxy_enabled", false),
             routeSniffing = settings.getBoolean("${p}route_sniffing", true),
             sniffingTimeoutMs = settings.getInt("${p}sniffing_timeout_ms", 100),
             reprovision = settings.getBoolean("${p}reprovision", true)

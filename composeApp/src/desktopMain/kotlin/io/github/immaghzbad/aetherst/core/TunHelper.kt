@@ -31,6 +31,13 @@ object TunHelper {
         targetSocksPort = socksTargetPort
         try {
             val context = PlatformContext()
+            try {
+                getBinaryManager(context).prepareBinary("hev-socks5-tunnel.exe")
+            } catch (_: Exception) {}
+            val hevCheck = File(File(getSystemUtils(context).getFilesDir()), "bin/hev-socks5-tunnel.exe")
+            if (!hevCheck.exists()) {
+                LogRepository.e("[Tun] hev binary still missing after prepare at ${hevCheck.absolutePath}")
+            }
             val dataDir = getSystemUtils(context).getFilesDir()
             val dataDirFile = File(dataDir)
 
@@ -69,6 +76,20 @@ object TunHelper {
             val dataDir = getSystemUtils(context).getFilesDir()
             File(dataDir, STOP_FLAG).writeText("stop")
             LogRepository.i("[Tun] Stop flag written; helper will clean up routes and core")
+        } catch (_: Exception) {
+        }
+        forceKillHev()
+    }
+
+    private fun forceKillHev() {
+        try {
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            if (isWindows) {
+                ProcessBuilder("taskkill", "/F", "/T", "/IM", "hev-socks5-tunnel.exe")
+                    .redirectErrorStream(true)
+                    .start()
+                    .waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
         } catch (_: Exception) {
         }
     }
@@ -271,6 +292,7 @@ object TunHelper {
                 Thread.sleep(1000)
             }
         }
+        tailThread?.isDaemon = true
         tailThread?.start()
     }
 }

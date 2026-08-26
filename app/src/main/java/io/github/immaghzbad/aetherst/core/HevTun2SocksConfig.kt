@@ -18,7 +18,7 @@ object HevTun2SocksConfig {
         settings: HevEngineSettings = HevEngineSettings(),
         ipv4Address: String = "198.18.0.1",
         ipv6Address: String = "fd00::1",
-        udp: Boolean = true
+        udpMode: String = "udp"
     ): String {
         val sb = StringBuilder()
         sb.append("tunnel:\n")
@@ -29,8 +29,10 @@ object HevTun2SocksConfig {
         sb.append("\nsocks5:\n")
         sb.append("  address: $socksAddress\n")
         sb.append("  port: $socksPort\n")
-        if (udp) {
-            sb.append("  udp: icmp\n")
+        when (udpMode.lowercase().trim()) {
+            "udp" -> sb.append("  udp: true\n")
+            "icmp" -> sb.append("  udp: icmp\n")
+            else -> { }
         }
 
         sb.append("\nmapdns:\n")

@@ -6,6 +6,7 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.concurrent.TimeUnit
 
 actual class PlatformProcess actual constructor() {
     private var process: Process? = null
@@ -42,6 +43,20 @@ actual class PlatformProcess actual constructor() {
 
     actual fun waitFor(): Int = process?.waitFor() ?: -1
     actual fun destroy() {
-        process?.destroyForcibly()
+        val proc = process ?: return
+        val isWindows = System.getProperty("os.name").lowercase().contains("win")
+        if (isWindows) {
+            runCatching {
+                val pid = proc.pid()
+                if (pid > 0) {
+                    ProcessBuilder("taskkill", "/F", "/T", "/PID", pid.toString())
+                        .redirectErrorStream(true)
+                        .start()
+                        .waitFor(10, TimeUnit.SECONDS)
+                    return
+                }
+            }.getOrElse { proc.destroyForcibly() }
+        }
+        proc.destroyForcibly()
     }
 }

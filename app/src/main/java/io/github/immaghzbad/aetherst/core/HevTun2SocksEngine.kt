@@ -28,6 +28,7 @@ class HevTun2SocksEngine {
         IDLE,
         STARTING,
         RUNNING,
+        PAUSED,
         STOPPING,
         STOPPED,
         FAILED
@@ -61,7 +62,8 @@ class HevTun2SocksEngine {
         socksPort: Int,
         mtu: Int,
         attemptId: Long,
-        settings: HevEngineSettings = HevEngineSettings()
+        settings: HevEngineSettings = HevEngineSettings(),
+        udpMode: String = "udp"
     ): Boolean = lifecycleMutex.withLock {
         if (!active.compareAndSet(false, true)) {
             LogRepository.w("[Hev] [attempt=$attemptId] Start rejected; engine already active")
@@ -77,7 +79,7 @@ class HevTun2SocksEngine {
             val duplicate = ParcelFileDescriptor.dup(tunPfd.fileDescriptor)
             duplicatedFd = duplicate
             val fd = duplicate.fd
-            val config = HevTun2SocksConfig.generate(socksAddress, socksPort, mtu, settings)
+            val config = HevTun2SocksConfig.generate(socksAddress, socksPort, mtu, settings, udpMode = udpMode)
 
             engineJob = scope.launch {
                 try {
@@ -146,12 +148,38 @@ class HevTun2SocksEngine {
     fun requestStop() {
         if (!active.get()) return
         stopping.set(true)
-        if (_state.value == State.STARTING || _state.value == State.RUNNING) {
+        if (_state.value == State.STARTING || _state.value == State.RUNNING || _state.value == State.PAUSED) {
             _state.value = State.STOPPING
         }
         stopStatsPolling()
         runCatching { HevTun2SocksNative.nativeStop() }
             .onFailure { LogRepository.w("[Hev] Stop request failed: ${it.localizedMessage}") }
+    }
+
+    fun pause() {
+        if (!active.get()) return
+        if (_state.value != State.RUNNING && _state.value != State.STARTING) return
+        _state.value = State.PAUSED
+        stopStatsPolling()
+        runCatching { HevTun2SocksNative.nativePause() }
+            .onFailure { LogRepository.w("[Hev] Pause request failed (nativePause unavailable): ${it.localizedMessage}") }
+        LogRepository.i("[Hev] Engine paused (TUN interface kept open for fast resume)")
+    }
+
+    fun resume() {
+        if (!active.get()) return
+        if (_state.value != State.PAUSED) return
+        _state.value = State.RUNNING
+        startStatsPolling(currentAttemptId.get())
+        runCatching { HevTun2SocksNative.nativeResume() }
+            .onFailure { LogRepository.w("[Hev] Resume request failed (nativeResume unavailable): ${it.localizedMessage}") }
+        LogRepository.i("[Hev] Engine resumed")
+    }
+
+    fun updateUpstream(host: String, port: Int) {
+        if (!active.get()) return
+        runCatching { HevTun2SocksNative.nativeUpdateUpstream(host, port) }
+            .onFailure { LogRepository.w("[Hev] UpdateUpstream failed (nativeUpdateUpstream unavailable): ${it.localizedMessage}") }
     }
 
     private fun startStatsPolling(attemptId: Long) {

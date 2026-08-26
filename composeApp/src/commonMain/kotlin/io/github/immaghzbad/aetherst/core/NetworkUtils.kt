@@ -14,7 +14,7 @@ object NetworkUtils {
                 ?.let { Collections.list(it) }
                 .orEmpty()
 
-            interfaces
+            val candidates = interfaces
                 .asSequence()
                 .filter { iface ->
                     runCatching { iface.isUp && !iface.isLoopback }.getOrDefault(false)
@@ -38,7 +38,14 @@ object NetworkUtils {
                         }
                 }
                 .filter { it.score < NOT_A_HOTSPOT }
-                .minWithOrNull(compareBy<HotspotCandidate> { it.score }.thenBy { it.address })
+                .toList()
+
+            candidates
+                .minWithOrNull(
+                    compareBy<HotspotCandidate> { it.score }
+                        .thenByDescending { it.address.endsWith(".1") }
+                        .thenBy { it.address }
+                )
                 ?.address
         } catch (_: Exception) {
             null
@@ -56,11 +63,14 @@ object NetworkUtils {
 
         return when {
             HOTSPOT_MARKERS.any(id::contains) -> 0
-            name.matches(Regex("wlan[1-9]\\d*")) -> 1
-            name.matches(Regex("wl[1-9]\\d*")) -> 2
-            name.matches(Regex("ap\\d*")) -> 3
-
-            address.address.last().toInt().and(0xff) == 1 -> 20
+            name.matches(Regex("wlan\\d+")) -> 1
+            name.matches(Regex("wl\\d+")) -> 2
+            name.matches(Regex("ap\\d*")) -> 1
+            name.matches(Regex("rndis\\d*")) -> 1
+            name.matches(Regex("usb\\d*")) -> 1
+            name.matches(Regex("bt-pan\\d*")) -> 1
+            name.matches(Regex("eth\\d+")) -> 3
+            address.address.last().toInt().and(0xff) == 1 -> 10
             else -> NOT_A_HOTSPOT
         }
     }
@@ -85,7 +95,10 @@ object NetworkUtils {
         "hotspot",
         "tether",
         "bridge",
-        "br0"
+        "br0",
+        "rndis",
+        "usb",
+        "bt-pan"
     )
 
     private val REJECTED_MARKERS = listOf(

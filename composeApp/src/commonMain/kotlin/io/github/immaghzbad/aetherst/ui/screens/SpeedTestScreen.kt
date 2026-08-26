@@ -1,14 +1,36 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,44 +39,79 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.SpeedTestRepository
-import io.github.immaghzbad.aetherst.shared.model.*
+import io.github.immaghzbad.aetherst.shared.model.AetherConfig
+import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
+import io.github.immaghzbad.aetherst.shared.model.SpeedTestConfig
+import io.github.immaghzbad.aetherst.shared.model.SpeedTestPhase
+import io.github.immaghzbad.aetherst.shared.model.SpeedTestResult
+import io.github.immaghzbad.aetherst.shared.model.SpeedTestServer
+import io.github.immaghzbad.aetherst.shared.model.SpeedTestState
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosGroupBg = Color(0xFF2C2C2E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveGreen = Color(0xFF34C759)
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosErrorRed = Color(0xFFFF3B30)
-private val IosAmber = Color(0xFFFF9500)
-private val IosPurple = Color(0xFFAF52DE)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosGroupBg = AppPalette.divider
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosActiveBlue = AppPalette.accent
+private val IosErrorRed = AppPalette.statusError
+private val IosAmber = AppPalette.statusScanning
+private val IosPurple = AppPalette.accentVariantAlt
 
 @Composable
 fun SpeedTestScreen(
@@ -64,7 +121,7 @@ fun SpeedTestScreen(
     connectionStatus: ConnectionStatus = ConnectionStatus.STOPPED,
     config: AetherConfig = AetherConfig()
 ) {
-    val state by SpeedTestRepository.state.collectAsState()
+    val state by SpeedTestRepository.state.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var showServerUnavailable by remember { mutableStateOf(false) }
     var checkingServer by remember { mutableStateOf(false) }
@@ -311,7 +368,7 @@ private fun ServerUnavailableDialog(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C1E)),
+                colors = CardDefaults.cardColors(containerColor = AppPalette.surfaceRaised),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
             ) {
                 Column(

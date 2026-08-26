@@ -1,4 +1,5 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -49,15 +50,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.model.*
 
-private val IosCardBg = Color(0xFF1C1C1E)
-private val IosGroupBg = Color(0xFF2C2C2E)
-private val IosSecondaryLabel = Color(0xFF8E8E93)
-private val IosActiveBlue = Color(0xFF007AFF)
-private val IosActiveGreen = Color(0xFF34C759)
-private val IosErrorRed = Color(0xFFFF3B30)
-private val IosPurple = Color(0xFF5856D6)
+private val IosCardBg = AppPalette.surfaceRaised
+private val IosGroupBg = AppPalette.divider
+private val IosSecondaryLabel = AppPalette.textSecondary
+private val IosActiveBlue = AppPalette.accent
+private val IosActiveGreen = AppPalette.statusConnected
+private val IosErrorRed = AppPalette.statusError
+private val IosPurple = AppPalette.accentVariant
 
 private fun modeColor(mode: RoutingMode): Color = when (mode) {
     RoutingMode.TUNNEL -> IosActiveBlue
@@ -208,7 +210,7 @@ fun RoutingRulesScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = (8 * scaleFactor).dp, end = (4 * scaleFactor).dp, top = 36.dp, bottom = 8.dp),
+                .padding(start = (8 * scaleFactor).dp, end = (4 * scaleFactor).dp, top = if (isDesktop) 12.dp else 36.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.size((40 * scaleFactor).dp)) {
@@ -236,7 +238,7 @@ fun RoutingRulesScreen(
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier
                         .width((240 * scaleFactor).dp)
-                        .background(Color(0xFF1C1C1E).copy(alpha = 0.95f), RoundedCornerShape(14.dp))
+                        .background(AppPalette.surfaceRaised.copy(alpha = 0.95f), RoundedCornerShape(14.dp))
                         .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp))
                 ) {
                     DropdownMenuItem(
@@ -724,7 +726,7 @@ private fun RuleLineItem(
                     expanded = showModeMenu,
                     onDismissRequest = { showModeMenu = false },
                     modifier = Modifier
-                        .background(Color(0xFF1C1C1E), RoundedCornerShape(12.dp))
+                        .background(AppPalette.surfaceRaised, RoundedCornerShape(12.dp))
                         .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                 ) {
                     RoutingMode.entries.forEach { mode ->
@@ -812,7 +814,7 @@ private fun RuleEditDialog(
                     .widthIn(max = (320 * scaleFactor).dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1C1C1E))
+                    .background(AppPalette.surfaceRaised)
                     .clickable(enabled = false) { }
                     .padding(24.dp)
             ) {
@@ -977,7 +979,7 @@ private fun RoutingImportConflictDialog(
                     .widthIn(max = (320 * scaleFactor).dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1C1C1E))
+                    .background(AppPalette.surfaceRaised)
                     .clickable(enabled = false) { }
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -1066,7 +1068,7 @@ private fun RoutingRulesHelpDialog(
                     .fillMaxWidth()
                     .fillMaxHeight(0.85f)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1C1C1E))
+                    .background(AppPalette.surfaceRaised)
                     .clickable(enabled = false) { }
                     .padding(24.dp)
             ) {
@@ -1217,7 +1219,7 @@ private fun DeleteConfirmationDialog(
                     .widthIn(max = (320 * scaleFactor).dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1C1C1E))
+                    .background(AppPalette.surfaceRaised)
                     .clickable(enabled = false) { }
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -1289,7 +1291,7 @@ private fun InternalRulesDialog(
                     .widthIn(max = (350 * scaleFactor).dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1C1C1E))
+                    .background(AppPalette.surfaceRaised)
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
