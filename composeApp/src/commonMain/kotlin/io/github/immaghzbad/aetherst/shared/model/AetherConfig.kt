@@ -62,6 +62,13 @@ enum class TunnelEngine(val displayName: String) {
 }
 
 @Serializable
+enum class PsiphonChainMode(val rawValue: String, val displayName: String) {
+    AUTO("auto", "Auto"),
+    ALWAYS("always", "Always"),
+    FALLBACK("fallback", "Fallback")
+}
+
+@Serializable
 enum class ConnectionMode {
     TUNNEL,
     PROXY_ONLY,
@@ -179,6 +186,9 @@ data class AetherConfig(
     val psiphonChainOuter: String = "masque",
     val psiphonSocksPort: String = "3080",
     val psiphonEgressRegion: String = "",
+    val psiphonChainMode: PsiphonChainMode = PsiphonChainMode.AUTO,
+    val psiphonMasqueOrder: String = "psiphon_first",
+    val psiphonViaAether: Boolean = true,
     val connectButtonStyle: String = "swipe"
 ) {
     /**

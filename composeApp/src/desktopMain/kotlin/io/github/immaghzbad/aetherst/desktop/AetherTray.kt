@@ -30,6 +30,7 @@ class TrayActions(
     val onToggleConnection: () -> Unit,
     val onOpenSettings: () -> Unit,
     val onOpenRouting: () -> Unit,
+    val onOpenLogs: () -> Unit = {},
     val onExit: () -> Unit
 )
 
@@ -222,6 +223,9 @@ object AetherTray {
             addButton("  Settings") {
                 TrayState.requestSettings()
                 actions.onOpenSettings()
+            }
+            addButton("  Logs") {
+                actions.onOpenLogs()
             }
             content.add(Box.createVerticalStrut(2))
             val sep3 = JSeparator(SwingConstants.HORIZONTAL)

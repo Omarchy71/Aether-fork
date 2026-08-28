@@ -110,10 +110,10 @@ object PsiphonController {
                 true
             } catch (e: Exception) {
                 val reason = e.message ?: "unknown error"
-                LogRepository.i("Psiphon library not found or start failed ($reason), using stub on 127.0.0.1:$psiphonPort", "Psiphon")
-                running = true
-                LogRepository.i("Psiphon stub started on 127.0.0.1:$psiphonPort", "Psiphon")
-                true
+                LogRepository.w("Psiphon library not found or start failed ($reason), psiphon disabled", "Psiphon")
+                running = false
+                connected = false
+                false
             }
         } catch (e: Exception) {
             val reason = e.message ?: "unknown error"

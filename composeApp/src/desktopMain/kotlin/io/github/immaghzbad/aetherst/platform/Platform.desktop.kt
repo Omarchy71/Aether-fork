@@ -239,9 +239,9 @@ class DesktopSystemUtils : SystemUtils {
             val stream = this::class.java.classLoader.getResourceAsStream("app.properties")
             if (stream != null) {
                 stream.use { props.load(it) }
-                props.getProperty("app.version", "1.1.0")
-            } else "1.1.0"
-        } catch (_: Exception) { "1.1.0" }
+                props.getProperty("app.version", "1.1.1")
+            } else "1.1.1"
+        } catch (_: Exception) { "1.1.1" }
     }
     override fun exitApp() {
         try {
@@ -328,19 +328,15 @@ class DesktopSystemUtils : SystemUtils {
         try {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             if (!isWindows) return
-
-            val proxyStr = "$host:$port"
+            val proxyStr = "http=$host:$port;https=$host:$port"
             val regPath = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-            
-            ProcessBuilder("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "1", "/f").start().waitFor()
-            ProcessBuilder("reg", "add", regPath, "/v", "ProxyServer", "/t", "REG_SZ", "/d", proxyStr, "/f").start().waitFor()
-            ProcessBuilder("reg", "add", regPath, "/v", "ProxyOverride", "/t", "REG_SZ", "/d", "<local>", "/f").start().waitFor()
-            
-            
-            val psCommand = "[System.Runtime.InteropServices.Marshal]::GetLastWin32Error(); " +
-                           "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WinInet { [DllImport(\"wininet.dll\")] public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength); }'; " +
-                           "[WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0); [WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)"
-            ProcessBuilder("powershell", "-WindowStyle", "Hidden", "-Command", psCommand).start()
+            val bypass = "<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*"
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "1", "/f").start().waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyServer", "/t", "REG_SZ", "/d", proxyStr, "/f").start().waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyOverride", "/t", "REG_SZ", "/d", bypass, "/f").start().waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            val psCommand = "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WinInet { [DllImport(\"wininet.dll\")] public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength); }'; [WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null; [WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null"
+            ProcessBuilder("powershell", "-WindowStyle", "Hidden", "-Command", psCommand).start().waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            try { io.github.immaghzbad.aetherst.shared.data.LogRepository.i("[SystemProxy] set $proxyStr bypass=$bypass") } catch (_: Throwable) {}
         } catch (_: Exception) {}
     }
 
@@ -348,13 +344,44 @@ class DesktopSystemUtils : SystemUtils {
         try {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             if (!isWindows) return
-
             val regPath = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-            ProcessBuilder("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "0", "/f").start().waitFor()
-            
-            val psCommand = "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WinInet { [DllImport(\"wininet.dll\")] public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength); }'; " +
-                           "[WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0); [WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)"
-            ProcessBuilder("powershell", "-WindowStyle", "Hidden", "-Command", psCommand).start()
+            ProcessBuilder("reg", "add", regPath, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "0", "/f").start().waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            val psCommand = "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WinInet { [DllImport(\"wininet.dll\")] public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength); }'; [WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null; [WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null"
+            ProcessBuilder("powershell", "-WindowStyle", "Hidden", "-Command", psCommand).start().waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {}
+    }
+
+    override fun setSystemDns(dnsList: String) {
+        try {
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            if (!isWindows) return
+            val servers = dnsList.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            if (servers.isEmpty()) return
+            val serverArray = servers.joinToString(",") { "'$it'" }
+            val backupFile = File(getFilesDir(), "dns_backup.txt")
+            try {
+                val psBackup = "Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { \$idx=\$_.InterfaceIndex; \$dns=(Get-DnsClientServerAddress -InterfaceIndex \$idx -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses -join ','; \"\$idx=\$dns\" } | Out-File -Encoding utf8 \"${backupFile.absolutePath.replace("\\", "/")}\""
+                ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psBackup).start().waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (_: Throwable) {}
+            val psSet = "Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { try { Set-DnsClientServerAddress -InterfaceIndex \$_.InterfaceIndex -ServerAddresses @($serverArray) -ErrorAction SilentlyContinue } catch {} }; Clear-DnsClientCache -ErrorAction SilentlyContinue"
+            ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psSet).start().waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            try { io.github.immaghzbad.aetherst.shared.data.LogRepository.i("[SystemDns] set to $dnsList") } catch (_: Throwable) {}
+        } catch (_: Exception) {}
+    }
+
+    override fun clearSystemDns() {
+        try {
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            if (!isWindows) return
+            val backupFile = File(getFilesDir(), "dns_backup.txt")
+            if (backupFile.exists()) {
+                val psRestore = "\$map=@{}; Get-Content \"${backupFile.absolutePath.replace("\\", "/")}\" -ErrorAction SilentlyContinue | ForEach-Object { if(\$_ -match '^(\\d+)=(.*)'){ \$map[\$matches[1]]=\$matches[2] } }; Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { \$idx=\"\$(\$_.InterfaceIndex)\"; if(\$map.ContainsKey(\$idx) -and \$map[\$idx]){ try{ Set-DnsClientServerAddress -InterfaceIndex \$_.InterfaceIndex -ServerAddresses @(\$map[\$idx].Split(',')) -ErrorAction SilentlyContinue }catch{} } else { try{ Set-DnsClientServerAddress -InterfaceIndex \$_.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue }catch{} } }; Clear-DnsClientCache -ErrorAction SilentlyContinue; Remove-Item \"${backupFile.absolutePath.replace("\\", "/")}\" -ErrorAction SilentlyContinue"
+                ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psRestore).start().waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            } else {
+                val psReset = "Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { try { Set-DnsClientServerAddress -InterfaceIndex \$_.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue } catch {} }; Clear-DnsClientCache -ErrorAction SilentlyContinue"
+                ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psReset).start().waitFor(8, java.util.concurrent.TimeUnit.SECONDS)
+            }
+            try { io.github.immaghzbad.aetherst.shared.data.LogRepository.i("[SystemDns] restored") } catch (_: Throwable) {}
         } catch (_: Exception) {}
     }
 

@@ -171,7 +171,6 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     fun updateConfig(newConfig: AetherConfig) {
         val oldConfig = config.value
         repository.updateConfig(newConfig)
-        
         val needsRestart = oldConfig.connectionMode != newConfig.connectionMode ||
                 oldConfig.tunnelAllApps != newConfig.tunnelAllApps ||
                 oldConfig.protocol != newConfig.protocol ||
@@ -180,8 +179,13 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 oldConfig.tunnelEngine != newConfig.tunnelEngine ||
                 oldConfig.ipv6Leak != newConfig.ipv6Leak ||
                 oldConfig.socksPort != newConfig.socksPort ||
-                oldConfig.socksHost != newConfig.socksHost
-
+                oldConfig.socksHost != newConfig.socksHost ||
+                oldConfig.psiphonEnabled != newConfig.psiphonEnabled ||
+                oldConfig.psiphonChainMode != newConfig.psiphonChainMode ||
+                oldConfig.psiphonViaAether != newConfig.psiphonViaAether ||
+                oldConfig.psiphonEgressRegion != newConfig.psiphonEgressRegion ||
+                oldConfig.psiphonSocksPort != newConfig.psiphonSocksPort ||
+                oldConfig.psiphonChainOuter != newConfig.psiphonChainOuter
         if (needsRestart) {
             restartConnection()
         }
@@ -225,16 +229,32 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         val tunneled = current.tunneledPackages.toMutableSet()
         val blocked = current.blockedPackages.toMutableSet()
         val excluded = current.excludedPackages.toMutableSet()
-
         tunneled.remove(packageName)
         blocked.remove(packageName)
         excluded.remove(packageName)
-
         when (modeOrdinal) {
             1 -> tunneled.add(packageName)
             2 -> blocked.add(packageName)
         }
+        updateConfig(current.copy(tunneledPackages = tunneled.toSet(), blockedPackages = blocked.toSet(), excludedPackages = excluded.toSet()))
+        restartConnection()
+    }
 
+    fun bulkUpdateAppSplitTunnelingMode(packageNames: List<String>, modeOrdinal: Int) {
+        if (packageNames.isEmpty()) return
+        val current = config.value
+        val tunneled = current.tunneledPackages.toMutableSet()
+        val blocked = current.blockedPackages.toMutableSet()
+        val excluded = current.excludedPackages.toMutableSet()
+        for (pkg in packageNames) {
+            tunneled.remove(pkg)
+            blocked.remove(pkg)
+            excluded.remove(pkg)
+            when (modeOrdinal) {
+                1 -> tunneled.add(pkg)
+                2 -> blocked.add(pkg)
+            }
+        }
         updateConfig(current.copy(tunneledPackages = tunneled.toSet(), blockedPackages = blocked.toSet(), excludedPackages = excluded.toSet()))
         restartConnection()
     }
@@ -392,8 +412,9 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 if (info != null && info.version != appVersion) {
                     _updateInfo.value = info
                 }
-            } catch (e: Exception) {
-                LogRepository.w("Update check failed: ${e.message}")
+            } catch (e: Throwable) {
+                val msg = if (e is VerifyError) "VerifyError (ProGuard/OkHttp mismatch) - update check skipped" else e.message
+                LogRepository.w("Update check failed: $msg")
             }
         }
     }
@@ -427,7 +448,6 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             noDataCheck = result.recommendedNoDataCheck
         )
         repository.applyDetectedConfig(newConfig)
-
         val needsRestart = oldConfig.connectionMode != newConfig.connectionMode ||
                 oldConfig.tunnelAllApps != newConfig.tunnelAllApps ||
                 oldConfig.protocol != newConfig.protocol ||
@@ -436,8 +456,11 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 oldConfig.tunnelEngine != newConfig.tunnelEngine ||
                 oldConfig.ipv6Leak != newConfig.ipv6Leak ||
                 oldConfig.socksPort != newConfig.socksPort ||
-                oldConfig.socksHost != newConfig.socksHost
-
+                oldConfig.socksHost != newConfig.socksHost ||
+                oldConfig.psiphonEnabled != newConfig.psiphonEnabled ||
+                oldConfig.psiphonChainMode != newConfig.psiphonChainMode ||
+                oldConfig.psiphonViaAether != newConfig.psiphonViaAether ||
+                oldConfig.psiphonEgressRegion != newConfig.psiphonEgressRegion
         if (needsRestart) {
             restartConnection()
         }
@@ -532,8 +555,11 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                         val cfg = config.value
                         val host = cfg.socksHost
                         val port = cfg.socksPort.toIntOrNull() ?: 1819
-                        viewModelScope.launch { fetchPublicIp() }
-                        viewModelScope.launch { PingRepository.runPing(host, port, useProxy = true) }
+                        viewModelScope.launch {
+                            PingRepository.runPing(host, port, useProxy = true)
+                            delay(600.milliseconds)
+                            fetchPublicIp()
+                        }
                         ipRetryJob?.cancel()
                         ipRetryJob = viewModelScope.launch {
                             var attempts = 0

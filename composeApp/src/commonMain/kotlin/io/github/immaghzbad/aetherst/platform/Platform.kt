@@ -48,6 +48,8 @@ interface SystemUtils {
     fun readInternalAsset(fileName: String): String?
     fun setSystemProxy(host: String, port: Int)
     fun clearSystemProxy()
+    fun setSystemDns(dnsList: String)
+    fun clearSystemDns()
     fun isAdministrator(): Boolean
     fun relaunchAsAdmin()
 }

@@ -112,6 +112,7 @@ import io.github.immaghzbad.aetherst.shared.model.AetherNoise
 import io.github.immaghzbad.aetherst.shared.model.AetherPerfProfile
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
 import io.github.immaghzbad.aetherst.shared.model.AetherScanMode
+import io.github.immaghzbad.aetherst.shared.model.PsiphonChainMode
 import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
 import io.github.immaghzbad.aetherst.shared.model.TunnelEngine
 import io.github.immaghzbad.aetherst.shared.ui.components.AppDivider
@@ -346,11 +347,19 @@ private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryO
             IosPickerRow(icon = Icons.AutoMirrored.Filled.AltRoute, iconBg = AppPalette.accentVariant, title = "Network Stack", value = config.ipMode.rawValue, options = AetherIpMode.entries.map { it.displayName }, onOptionSelected = { onUpdateConfig(config.copy(ipMode = AetherIpMode.entries[it])) }); AppDivider()
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) { Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) { IosIconBadge(icon = Icons.Default.Tune, backgroundColor = IosActiveGreen); Spacer(modifier = Modifier.width(12.dp)); IosInputField(label = "Custom MTU Size", value = config.mtu.toString(), onValueChange = { onUpdateConfig(config.copy(mtu = it.toIntOrNull() ?: 1100)) }, modifier = Modifier.weight(1f), placeholder = "1100", keyboardType = KeyboardType.Number, testTag = "mtu_input") }; Spacer(modifier = Modifier.width(8.dp)); Button(onClick = onOptimizeMtu, enabled = !isOptimizingMtu, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue.copy(alpha = 0.15f), contentColor = IosActiveBlue, disabledContainerColor = IosActiveBlue.copy(alpha = 0.05f), disabledContentColor = IosActiveBlue.copy(alpha = 0.3f)), contentPadding = PaddingValues(horizontal = 16.dp)) { if (isOptimizingMtu) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = IosActiveBlue, strokeWidth = 2.dp) else Text("Optimize", fontSize = 13.sp, fontWeight = FontWeight.Bold) } }
         } }
-        Text("CLOAK OBFUSCATION (Native - MASQUE H2 Only)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = IosSecondaryLabel, fontSize = 11.sp, letterSpacing = 0.5.sp, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
+        Text("CLOAK OBFUSCATION (MASQUE H2 Only)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = IosSecondaryLabel, fontSize = 11.sp, letterSpacing = 0.5.sp, modifier = Modifier.padding(start = 8.dp, top = 4.dp))
         IosGroupCard { Column {
-            IosSwitchRow(icon = Icons.Default.Security, iconBg = AppPalette.accentVariant, title = "Cloak Decoy (Native)", subtitle = if (config.cloakEnabled) "Enabled - TTL decoy for DPI bypass" else "Disabled - Native JNI libcloak.so", checked = config.cloakEnabled, onCheckedChange = { onUpdateConfig(config.copy(cloakEnabled = it)) }, testTag = "switch_cloak_enabled")
+            IosSwitchRow(icon = Icons.Default.Security, iconBg = AppPalette.accentVariant, title = "Cloak Decoy", subtitle = if (config.cloakEnabled) "Enabled - TTL decoy for DPI bypass" else if (isDesktop) "Disabled - Windows native + embedded relay" else "Disabled - Native libcloak.so", checked = config.cloakEnabled, onCheckedChange = { onUpdateConfig(config.copy(cloakEnabled = it)) }, testTag = "switch_cloak_enabled")
             if (config.cloakEnabled) {
                 AppDivider()
+                if (isDesktop) {
+                    Row(modifier = Modifier.fillMaxWidth().background(AppPalette.statusConnected.copy(alpha = 0.12f)).padding(10.dp), verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.Info, null, tint = AppPalette.statusConnected, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Windows: Cloak is active. Uses native cloak.exe when built, otherwise embedded Kotlin relay. Autostarts with MASQUE H2, no manual setup.", color = AppPalette.statusConnected, fontSize = 11.sp, lineHeight = 14.sp)
+                    }
+                    AppDivider()
+                }
                 if (config.protocol != AetherProtocol.MASQUE || !config.h2Mode) {
                     Row(modifier = Modifier.fillMaxWidth().background(AppPalette.statusScanning.copy(alpha = 0.12f)).padding(10.dp), verticalAlignment = Alignment.Top) {
                         Icon(Icons.Default.Info, null, tint = AppPalette.statusScanning, modifier = Modifier.size(16.dp))
@@ -377,7 +386,7 @@ private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryO
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                 Text("About Cloak", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Cloak is a native decoy system for MASQUE over H2 (TCP/TLS). Before the real TLS handshake it sends a few low-TTL decoy ClientHellos with common SNIs — for example www.bing.com — that expire in transit and are seen by DPI, followed by the real handshake with its actual SNI. This hides the real SNI from SNI-based filters. It works only with MASQUE + H2 Fallback over TCP and is useful when direct MASQUE fails due to SNI inspection while the underlying network path is still reachable. When direct MASQUE already connects, Cloak adds only extra packets and jitter with no speed benefit. Logs appear on the Logs screen with tag CloakCore.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 17.sp)
+                Text("Cloak is a decoy system for MASQUE over H2 (TCP/TLS). Before the real TLS handshake it sends a few low-TTL decoy ClientHellos with common SNIs — for example www.bing.com — that expire in transit and are seen by DPI, followed by the real handshake with its actual SNI. This hides the real SNI from SNI-based filters. On Android it runs as native libcloak.so, on Windows as native cloak.exe or embedded Kotlin relay with identical config. It works only with MASQUE + H2 Fallback over TCP and is useful when direct MASQUE fails due to SNI inspection while the underlying path is still reachable. When direct MASQUE already connects, Cloak adds only extra packets and jitter with no speed benefit. Logs appear on the Logs screen with tag CloakCore.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
     }
@@ -415,7 +424,15 @@ private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryO
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { IosIconBadge(icon = Icons.Default.Language, backgroundColor = IosActiveBlue); Spacer(modifier = Modifier.width(12.dp)); IosInputField(label = "SOCKS5 Host", value = config.socksHost, onValueChange = { onUpdateConfig(config.copy(socksHost = it)) }, modifier = Modifier.weight(1f), placeholder = "127.0.0.1", testTag = "socks_host_input"); Spacer(modifier = Modifier.width(10.dp)); IosInputField(label = "SOCKS Port", value = config.socksPort, onValueChange = { onUpdateConfig(config.copy(socksPort = it)) }, modifier = Modifier.width(75.dp), placeholder = "1819", keyboardType = KeyboardType.Number, testTag = "socks_port_input"); Spacer(modifier = Modifier.width(8.dp)); IosInputField(label = "HTTP Port", value = config.httpPort, onValueChange = { onUpdateConfig(config.copy(httpPort = it)) }, modifier = Modifier.width(75.dp), placeholder = "1820", keyboardType = KeyboardType.Number, testTag = "http_port_input") }
         AppDivider(); IosSwitchRow(icon = Icons.Default.Http, iconBg = IosActiveBlue, title = "Internal HTTP Proxy", subtitle = "Expose an HTTP CONNECT proxy alongside SOCKS5", checked = config.httpProxyEnabled, onCheckedChange = { onUpdateConfig(config.copy(httpProxyEnabled = it)) }, testTag = "switch_http_proxy_enabled"); AppDivider()
         IosInputFieldRow(icon = Icons.Default.Code, iconBg = IosSecondaryLabel, label = "TLS Key Groups", value = config.tlsGroups, onValueChange = { onUpdateConfig(config.copy(tlsGroups = it)) }, placeholder = "P-256:X25519:P-384", testTag = "tls_groups_input"); AppDivider()
-        if (isAndroid) { IosInputFieldRow(icon = Icons.Default.Dns, iconBg = IosActiveBlue, label = "Tunnel DNS Servers", value = config.dnsList, onValueChange = { onUpdateConfig(config.copy(dnsList = it.replace(Regex("\\s*,\\s*"), ","))) }, placeholder = "1.1.1.1,1.0.0.1", testTag = "dns_list_input"); AppDivider() }
+        IosInputFieldRow(icon = Icons.Default.Dns, iconBg = IosActiveBlue, label = if (isDesktop) "DNS Servers (Windows - TUN & System Proxy)" else "Tunnel DNS Servers", value = config.dnsList, onValueChange = { onUpdateConfig(config.copy(dnsList = it.replace(Regex("\\s*,\\s*"), ","))) }, placeholder = "1.1.1.1,1.0.0.1", testTag = "dns_list_input"); AppDivider()
+        if (isDesktop) {
+            Row(modifier = Modifier.fillMaxWidth().background(AppPalette.statusConnected.copy(alpha = 0.08f)).padding(10.dp), verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.Info, null, tint = AppPalette.statusConnected, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Windows: Uses 127.0.0.1 local DNS relay via SOCKS. Requires admin to bind port 53. If not admin, DNS will fallback to ${config.dnsList}. Test on whoer.com.", color = AppPalette.statusConnected, fontSize = 11.sp, lineHeight = 14.sp)
+            }
+            AppDivider()
+        }
         IosInputFieldRow(icon = Icons.AutoMirrored.Filled.AltRoute, iconBg = AppPalette.accentVariant, label = "Forced Peer IP", value = config.peer, onValueChange = { onUpdateConfig(config.copy(peer = it)) }, placeholder = "e.g. 1.2.3.4:443", testTag = "peer_input"); AppDivider()
         IosSwitchRow(icon = Icons.Default.Bolt, iconBg = AppPalette.statusScanning, title = "Keepalive Packets", subtitle = if (config.keepaliveEnabled) "Maintain NAT binding with periodic pings" else "Disabled — no keepalive (battery saver)", checked = config.keepaliveEnabled, onCheckedChange = { onUpdateConfig(config.copy(keepaliveEnabled = it)) }, testTag = "switch_keepalive_enabled"); AppDivider()
         AnimatedVisibility(visible = config.keepaliveEnabled, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) { Column { IosInputFieldRow(icon = Icons.Default.Bolt, iconBg = AppPalette.statusScanning, label = "Keepalive Interval (Secs)", value = config.keepalive.toString(), onValueChange = { onUpdateConfig(config.copy(keepalive = it.toIntOrNull() ?: 5)) }, placeholder = "5", keyboardType = KeyboardType.Number, testTag = "keepalive_input"); AppDivider() } }
@@ -495,27 +512,85 @@ private fun encodeUpstreamCredential(s: String): String = s.replace("@", "%40").
 @Composable private fun PsiphonPage(config: AetherConfig, onUpdateConfig: (AetherConfig) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         IosGroupCard { Column {
-            IosSwitchRow(icon = Icons.Default.Shield, iconBg = AppPalette.accentVariant, title = "Psiphon Chain", subtitle = if (config.psiphonEnabled) "Enabled - route via Psiphon for non-Iran IP" else "Disabled", checked = config.psiphonEnabled, onCheckedChange = { onUpdateConfig(config.copy(psiphonEnabled = it, psiphonChainOuter = "masque")) }, testTag = "switch_psiphon_enabled")
+            IosSwitchRow(icon = Icons.Default.Shield, iconBg = AppPalette.accentVariant, title = "Psiphon Chain", subtitle = if (config.psiphonEnabled) when (config.protocol) { AetherProtocol.MASQUE -> "On - Psiphon over MASQUE" ; AetherProtocol.WG -> "On - Psiphon over WireGuard" ; AetherProtocol.GOOL -> "On - Psiphon over Gool" ; else -> "On - Exit outside Iran" } else "Off - Aether only", checked = config.psiphonEnabled, onCheckedChange = { enabled -> if (enabled) { val outer = when (config.protocol) { AetherProtocol.WG -> "wg" ; AetherProtocol.GOOL -> "gool" ; else -> "masque" }; val proto = when (outer) { "wg" -> AetherProtocol.WG ; "gool" -> AetherProtocol.GOOL ; else -> AetherProtocol.MASQUE }; onUpdateConfig(config.copy(psiphonEnabled = true, psiphonChainOuter = outer, protocol = if (config.protocol == AetherProtocol.ZERO_TRUST) proto else config.protocol)) } else onUpdateConfig(config.copy(psiphonEnabled = false)) }, testTag = "switch_psiphon_enabled")
+            if (!config.psiphonEnabled) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text("When off, you connect with Aether alone. Good for speed. Turn it on when sites block Iranian IPs or you need to appear from another country.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+            }
             if (config.psiphonEnabled) {
                 AppDivider()
-                IosPickerRow(icon = Icons.Default.VpnLock, iconBg = AppPalette.statusConnected, title = "Chain Outer Protocol", value = "masque", options = listOf("masque"), onOptionSelected = { onUpdateConfig(config.copy(psiphonChainOuter = "masque")) })
-                AppDivider()
-                val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
-                val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
-                val regionCodes = buildList {
-                    add("")
-                    addAll(availableRegions)
-                    if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                val outerOptions = listOf("MASQUE", "WireGuard", "Gool")
+                val outerValues = listOf("masque", "wg", "gool")
+                val currentOuter = when (config.psiphonChainOuter) { "wg" -> "WireGuard" ; "gool" -> "Gool" ; else -> "MASQUE" }
+                IosPickerRow(icon = Icons.Default.VpnLock, iconBg = AppPalette.statusConnected, title = "Outer Protocol", value = currentOuter, options = outerOptions, onOptionSelected = { idx -> val outer = outerValues[idx]; val proto = when (outer) { "wg" -> AetherProtocol.WG ; "gool" -> AetherProtocol.GOOL ; else -> AetherProtocol.MASQUE }; onUpdateConfig(config.copy(psiphonChainOuter = outer, protocol = proto)) })
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(when (config.psiphonChainOuter) { "wg" -> "Psiphon over WireGuard via 127.0.0.1:1820. WireGuard handles the tunnel, Psiphon decides the exit." ; "gool" -> "Psiphon over Gool via 127.0.0.1:1820. Double WireGuard with Psiphon exit." ; else -> "Psiphon over MASQUE. MASQUE punches through censorship, Psiphon decides the exit. Most stable option." }, color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
                 }
-                val regionOptions = regionCodes.map { CountryNames.label(it) }
-                IosPickerRow(icon = Icons.Default.Public, iconBg = Color(0xFF30B0C7), title = "Exit Location", value = CountryNames.label(selectedRegion), options = regionOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) })
+                if (config.psiphonChainOuter == "masque") {
+                    AppDivider()
+                    val orderOptions = listOf("Psiphon first", "MASQUE first", "Auto")
+                    val orderValues = listOf("psiphon_first", "masque_first", "auto")
+                    val currentOrder = when (config.psiphonMasqueOrder) { "masque_first" -> "MASQUE first" ; "auto" -> "Auto" ; else -> "Psiphon first" }
+                    IosPickerRow(icon = Icons.Default.SwapHoriz, iconBg = Color(0xFF30B0C7), title = "MASQUE Order", value = currentOrder, options = orderOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonMasqueOrder = orderValues[idx])) })
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(when (config.psiphonMasqueOrder) { "masque_first" -> "MASQUE first: Aether connects directly, then Psiphon rides via 127.0.0.1:1820 to get foreign exit. Fast MASQUE first." ; "auto" -> "Auto: If one connects, it helps the other. Tries both directions and keeps whichever succeeds first." ; else -> "Psiphon first: Psiphon connects first, then MASQUE tunnels through socks5://127.0.0.1:3080. Best behind strict firewalls." }, color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
+                    }
+                }
+                AppDivider()
+                val chainModes = listOf(PsiphonChainMode.AUTO, PsiphonChainMode.FALLBACK, PsiphonChainMode.ALWAYS)
+                val chainLabels = mapOf(PsiphonChainMode.AUTO to "Auto", PsiphonChainMode.FALLBACK to "Fallback", PsiphonChainMode.ALWAYS to "Always")
+                IosPickerRow(icon = Icons.Default.Sync, iconBg = AppPalette.accent, title = "Chain Mode", value = chainLabels[config.psiphonChainMode] ?: "Auto", options = chainModes.map { chainLabels[it]!! }, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonChainMode = chainModes[idx])) })
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    val modeDesc = when (config.psiphonChainMode) {
+                        PsiphonChainMode.AUTO -> "Auto is best for most people. It tries a direct Aether connection first for speed. If it works, it stays connected and quietly prepares Psiphon in the background, then switches your exit to Psiphon without dropping the VPN. Fast when direct works, reliable when it doesn't."
+                        PsiphonChainMode.FALLBACK -> "Fallback is lighter on battery and data. It tries direct first and only starts Psiphon if direct fails. No background work. Pick this if you prefer direct most of the time."
+                        PsiphonChainMode.ALWAYS -> "Always starts Psiphon first, then Aether through it. Every connection is Aether -> Psiphon from the start. Slower to connect but you are guaranteed a foreign exit from second one."
+                    }
+                    Text(modeDesc, color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+                AppDivider()
+                IosSwitchRow(icon = Icons.Default.Public, iconBg = Color(0xFF5856D6), title = "Help Psiphon with Aether", subtitle = if (config.psiphonViaAether) "On - Auto location" else "Off - Choose country", checked = config.psiphonViaAether, onCheckedChange = { checked -> onUpdateConfig(config.copy(psiphonViaAether = checked, psiphonEgressRegion = if (checked) "" else config.psiphonEgressRegion)) }, testTag = "switch_psiphon_via_aether")
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(if (config.psiphonViaAether) "When on, Psiphon borrows the Aether tunnel to reach its servers. Great behind strict firewalls. The country is forced to Auto while this is on, so the list stays empty - that's normal." else "When off, Psiphon connects on its own. You get the full country list and can pick Germany, Netherlands, US and so on. Turn it off if the list was empty or you want manual control.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+                AppDivider()
+                if (config.psiphonViaAether) {
+                    val defaultViaRegions = listOf("AT", "AU", "BE", "BR", "CA", "CH", "CZ", "DE", "DK", "ES", "FI", "FR", "GB", "ID", "IE", "IN", "IT", "JP", "NL", "NO", "PL", "RO", "RS", "SE", "SG", "US")
+                    val availableVia by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                    val mergedVia = (defaultViaRegions + availableVia).distinct().sorted()
+                    val selectedVia = config.psiphonEgressRegion.trim().uppercase()
+                    val viaCodes = buildList { add(""); addAll(mergedVia) ; if (selectedVia.isNotEmpty() && selectedVia !in mergedVia) add(selectedVia) }
+                    val viaOptions = viaCodes.map { CountryNames.label(it) }
+                    IosPickerRow(icon = Icons.Default.Public, iconBg = Color(0xFF30B0C7), title = "Exit Country", value = CountryNames.label(selectedVia), options = viaOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = viaCodes[idx])) })
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text("Auto lets Psiphon pick the fastest available exit. Turn off Help with Aether above to choose a specific country.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("These countries may not be available in Psiphon with Aether mode, if you tried all and couldn't connect set to Auto", color = Color(0xFFFFCC00), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
+                    }
+                } else {
+                    val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                    val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
+                    val regionCodes = buildList {
+                        add("")
+                        addAll(availableRegions)
+                        if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                    }
+                    val regionOptions = regionCodes.map { CountryNames.label(it) }
+                    IosPickerRow(icon = Icons.Default.Public, iconBg = Color(0xFF30B0C7), title = "Exit Country", value = CountryNames.label(selectedRegion), options = regionOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) })
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text("Auto lets Psiphon choose the fastest. Pick a country like Germany or Netherlands if a site or game needs a specific region. The list appears after Psiphon has connected once.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 16.sp)
+                    }
+                }
             }
         } }
         IosGroupCard {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Text("About Psiphon Chain", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                Text("How it works", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Psiphon is chained as inner tunnel over the selected outer protocol (for example masque). Outer handles censorship bypass, inner provides non-Iran exit. Enable the switch on Dashboard or here, select outer protocol, then connect. Works only on Android. When disabled, connection uses single aether core.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 17.sp)
+                Text(when (config.psiphonChainOuter) { "wg" -> "Psiphon over WireGuard: WireGuard builds the tunnel to Cloudflare, Psiphon rides inside via 127.0.0.1:1820 and chooses the exit country. You get WireGuard speed with a foreign IP." ; "gool" -> "Psiphon over Gool: Double WireGuard (WG-in-WG) carries Psiphon via 127.0.0.1:1820. Extra obfuscation with foreign exit." ; else -> "Psiphon over MASQUE: MASQUE punches through censorship, Psiphon decides where you appear. Most stable behind strict firewalls." }, color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 17.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Local proxies: 127.0.0.1:1819 (Aether SOCKS), 127.0.0.1:1820 (Aether HTTP), 127.0.0.1:3080 (Psiphon). Tunnel mode sends all apps through the chain. Zero Trust cannot be chained.", color = IosSecondaryLabel, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
     }

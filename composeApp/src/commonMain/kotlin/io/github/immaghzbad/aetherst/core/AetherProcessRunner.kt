@@ -60,6 +60,11 @@ class AetherProcessRunner(private val context: PlatformContext) {
         runnerJob = scope.launch {
             var retryCount = 0
             while (isActive && (currentAttemptId.get() == attemptId)) {
+                if (!config.smartReconnect && retryCount > 0) {
+                    LogRepository.e("Smart Reconnect disabled -> stopping retry")
+                    updateState(ConnectionStatus.ERROR, attemptId)
+                    break
+                }
                 if (config.smartReconnect && retryCount >= config.reconnectRetryLimit) {
                     LogRepository.e("Smart Reconnect limit reached ($retryCount). Stopping...")
                     updateState(ConnectionStatus.ERROR, attemptId)

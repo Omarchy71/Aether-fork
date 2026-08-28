@@ -3,6 +3,7 @@ package io.github.immaghzbad.aetherst.shared.core
 import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.model.*
+import io.github.immaghzbad.aetherst.core.CloakController
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.platform.getTrafficProvider
@@ -66,6 +67,7 @@ actual object ConnectionController {
         private var prevRx = 0L
         @Volatile private var socksProxy: LocalSocksProxyServer? = null
         @Volatile private var httpProxy: LocalHttpProxyServer? = null
+        @Volatile private var dnsServer: LocalDnsServer? = null
         @Volatile private var tunnelModeStarted = false
         private var routingEngine: RoutingEngine? = null
         private var statusJob: Job? = null
@@ -102,20 +104,32 @@ actual object ConnectionController {
                 }
             }
             val config = AetherConfigRepository.getInstance(getSettings(context)).config.value.effectiveZeroTrustConfig()
+            var effectiveConfig = config
+            try {
+                if (CloakController.isSupported(config)) {
+                    val started = try { CloakController.start(context, config) } catch (_: Throwable) { false }
+                    if (started && CloakController.isRunning()) {
+                        effectiveConfig = config.copy(peer = CloakController.getEffectivePeer(config))
+                        LogRepository.i("[Controller] Cloak active, routing MASQUE via ${effectiveConfig.peer}", "Cloak")
+                    } else if (started) {
+                        LogRepository.w("[Controller] Cloak start reported success but not running, fallback to direct peer", "Cloak")
+                    }
+                }
+            } catch (_: Throwable) {}
             baseTx = trafficProvider.getTxBytes()
             baseRx = trafficProvider.getRxBytes()
 
             getSystemUtils(context).clearSystemProxy()
 
             runner.start(
-                config = config,
-                bindAddress = "127.0.0.1:${config.socksPort}",
+                config = effectiveConfig,
+                bindAddress = "127.0.0.1:${effectiveConfig.socksPort}",
                 onCodeRequired = { _isWaitingForCode.value = true },
                 inputProvider = { loginCodeChannel.receive() }
             )
 
-            val coreSocksPort = config.socksPort.toIntOrNull() ?: 1819
-            routingEngine = RoutingEngine(config.routingRules)
+            val coreSocksPort = effectiveConfig.socksPort.toIntOrNull() ?: 1819
+            routingEngine = RoutingEngine(effectiveConfig.routingRules)
             socksProxy = LocalSocksProxyServer(
                 listenHost = "127.0.0.1",
                 listenPort = 10808,
@@ -131,18 +145,30 @@ actual object ConnectionController {
                 routingEngine = routingEngine!!
             ).apply { start() }
             LogRepository.i("[Controller] Counting proxies started (socks=10808, http=10809) -> core $coreSocksPort")
+            if (effectiveConfig.connectionMode == ConnectionMode.TUNNEL || effectiveConfig.connectionMode == ConnectionMode.SYSTEM_PROXY) {
+                val dnsUpstream = effectiveConfig.dnsList.ifEmpty { "1.1.1.1,1.0.0.1" }
+                val tmpDns = LocalDnsServer(listenHost = "127.0.0.1", listenPort = 53, socksHost = "127.0.0.1", socksPort = coreSocksPort, upstreamList = dnsUpstream)
+                tmpDns.start()
+                if (tmpDns.isRunning()) {
+                    dnsServer = tmpDns
+                    try { getSystemUtils(context).setSystemDns("127.0.0.1") } catch (_: Throwable) {}
+                } else {
+                    LogRepository.w("[Controller] DNS relay failed to bind 53 (needs admin), using system DNS $dnsUpstream without relay")
+                    try { getSystemUtils(context).setSystemDns(dnsUpstream) } catch (_: Throwable) {}
+                }
+            }
 
             modeJob?.cancel()
-            if (config.connectionMode == ConnectionMode.TUNNEL) {
+            if (effectiveConfig.connectionMode == ConnectionMode.TUNNEL) {
                 modeJob = scope.launch {
                     status.collect { s ->
                         if (s == ConnectionStatus.RUNNING) {
                             delay(500.milliseconds)
-                            startTunnelMode(config)
+                            startTunnelMode(effectiveConfig)
                         }
                     }
                 }
-            } else if (config.connectionMode == ConnectionMode.SYSTEM_PROXY) {
+            } else if (effectiveConfig.connectionMode == ConnectionMode.SYSTEM_PROXY) {
                 modeJob = scope.launch {
                     status.collect { s ->
                         if (s == ConnectionStatus.RUNNING) {
@@ -186,12 +212,16 @@ actual object ConnectionController {
                 modeJob?.cancel()
                 modeJob = null
                 getSystemUtils(context).clearSystemProxy()
+                try { getSystemUtils(context).clearSystemDns() } catch (_: Throwable) {}
+                dnsServer?.stop()
+                dnsServer = null
                 socksProxy?.stop()
                 socksProxy = null
                 httpProxy?.stop()
                 httpProxy = null
                 tunnelModeStarted = false
                 TunHelper.stop()
+                try { CloakController.stop() } catch (_: Throwable) {}
                 routingEngine = null
                 statusJob?.cancel()
                 statusJob = null
@@ -201,6 +231,8 @@ actual object ConnectionController {
         private fun startTimer() {
             timerJob?.cancel()
             _elapsedSeconds.value = 0
+            prevTx = 0L
+            prevRx = 0L
             timerJob = scope.launch {
                 var seconds = 0L
                 while (isActive) {
@@ -221,11 +253,12 @@ actual object ConnectionController {
         private fun updateTraffic() {
             val socksStats = socksProxy?.getStats()
             val httpStats = httpProxy?.getStats()
-            if (socksStats != null || httpStats != null) {
+            val hasCounting = socksStats != null || httpStats != null
+            if (hasCounting) {
                 val totalTx = (socksStats?.txBytes ?: 0L) + (httpStats?.txBytes ?: 0L)
                 val totalRx = (socksStats?.rxBytes ?: 0L) + (httpStats?.rxBytes ?: 0L)
-                val uploadSpeed = (totalTx - prevTx).toDouble().coerceAtLeast(0.0)
-                val downloadSpeed = (totalRx - prevRx).toDouble().coerceAtLeast(0.0)
+                val uploadSpeed = (totalTx - prevTx).coerceAtLeast(0L).toDouble()
+                val downloadSpeed = (totalRx - prevRx).coerceAtLeast(0L).toDouble()
                 prevTx = totalTx
                 prevRx = totalRx
                 _sessionTraffic.value = SessionTraffic(
@@ -234,22 +267,22 @@ actual object ConnectionController {
                     uploadSpeedBps = uploadSpeed,
                     downloadSpeedBps = downloadSpeed
                 )
-            } else {
-                val currentTx = trafficProvider.getTxBytes()
-                val currentRx = trafficProvider.getRxBytes()
-                val totalTx = currentTx - baseTx
-                val totalRx = currentRx - baseRx
-                val uploadSpeed = (currentTx - prevTx).toDouble().coerceAtLeast(0.0)
-                val downloadSpeed = (currentRx - prevRx).toDouble().coerceAtLeast(0.0)
-                prevTx = currentTx
-                prevRx = currentRx
-                _sessionTraffic.value = SessionTraffic(
-                    uploadedBytes = totalTx,
-                    downloadedBytes = totalRx,
-                    uploadSpeedBps = uploadSpeed,
-                    downloadSpeedBps = downloadSpeed
-                )
+                return
             }
+            val currentTx = trafficProvider.getTxBytes()
+            val currentRx = trafficProvider.getRxBytes()
+            val totalTx = (currentTx - baseTx).coerceAtLeast(0L)
+            val totalRx = (currentRx - baseRx).coerceAtLeast(0L)
+            val uploadSpeed = (totalTx - prevTx).coerceAtLeast(0L).toDouble()
+            val downloadSpeed = (totalRx - prevRx).coerceAtLeast(0L).toDouble()
+            prevTx = totalTx
+            prevRx = totalRx
+            _sessionTraffic.value = SessionTraffic(
+                uploadedBytes = totalTx,
+                downloadedBytes = totalRx,
+                uploadSpeedBps = uploadSpeed,
+                downloadSpeedBps = downloadSpeed
+            )
         }
 
         fun submitLoginCode(code: String) {

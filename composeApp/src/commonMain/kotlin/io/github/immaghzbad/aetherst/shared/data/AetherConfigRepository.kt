@@ -36,16 +36,19 @@ class AetherConfigRepository private constructor(private val settings: Settings)
     }
 
     private fun loadCachedEgressRegions(): List<String> {
-        return settings.getString("psiphon_egress_regions_cache", "")
+        val defaultRegions = listOf("AT", "AU", "BE", "BR", "CA", "CH", "CZ", "DE", "DK", "ES", "FI", "FR", "GB", "ID", "IE", "IN", "IT", "JP", "NL", "NO", "PL", "RO", "RS", "SE", "SG", "US")
+        val cached = settings.getString("psiphon_egress_regions_cache", "")
             .split(",")
             .map { it.trim().uppercase() }
             .filter { it.matches(Regex("^[A-Z]{2}$")) }
             .distinct()
-            .sorted()
+        return if (cached.isEmpty()) defaultRegions else (defaultRegions + cached).distinct().sorted()
     }
 
     fun cacheEgressRegions(regions: List<String>) {
-        val normalized = regions.map { it.trim().uppercase() }.filter { it.matches(Regex("^[A-Z]{2}$")) }.distinct().sorted()
+        val defaultRegions = listOf("AT", "AU", "BE", "BR", "CA", "CH", "CZ", "DE", "DK", "ES", "FI", "FR", "GB", "ID", "IE", "IN", "IT", "JP", "NL", "NO", "PL", "RO", "RS", "SE", "SG", "US")
+        val existing = settings.getString("psiphon_egress_regions_cache", "").split(",").map { it.trim().uppercase() }.filter { it.matches(Regex("^[A-Z]{2}$")) }
+        val normalized = (defaultRegions + existing + regions.map { it.trim().uppercase() }.filter { it.matches(Regex("^[A-Z]{2}$")) }).distinct().sorted()
         settings.putString("psiphon_egress_regions_cache", normalized.joinToString(","))
         PsiphonEgressRegistry.setAvailableRegions(normalized)
     }
@@ -164,6 +167,8 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             psiphonChainOuter = settings.getString("${prefix}psiphon_chain_outer", "masque"),
             psiphonSocksPort = settings.getString("${prefix}psiphon_socks_port", "3080"),
             psiphonEgressRegion = sanitizePsiphonEgressRegion(settings.getString("${prefix}psiphon_egress_region", "")),
+            psiphonChainMode = sanitizePsiphonChainMode(settings.getString("${prefix}psiphon_chain_mode", "AUTO")),
+            psiphonViaAether = settings.getBoolean("${prefix}psiphon_via_aether", true),
             ztStaySignedIn = settings.getBoolean("${prefix}zt_stay_signed_in", true),
             ztTokenExpiry = settings.getString("${prefix}zt_token_expiry", "0").toLongOrNull() ?: 0,
             connectButtonStyle = sanitizeConnectButtonStyle(settings.getString("${prefix}connect_button_style", "swipe")),
@@ -191,6 +196,10 @@ class AetherConfigRepository private constructor(private val settings: Settings)
     private fun sanitizeConnectButtonStyle(value: String): String {
         val v = value.trim().lowercase()
         return if (v == "capsule" || v == "swipe") v else "swipe"
+    }
+
+    private fun sanitizePsiphonChainMode(value: String): PsiphonChainMode {
+        return try { PsiphonChainMode.valueOf(value.uppercase()) } catch (_: Exception) { PsiphonChainMode.AUTO }
     }
 
     fun updateConfig(newConfig: AetherConfig) {
@@ -308,6 +317,8 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}psiphon_chain_outer", cfg.psiphonChainOuter)
         settings.putString("${prefix}psiphon_socks_port", cfg.psiphonSocksPort)
         settings.putString("${prefix}psiphon_egress_region", sanitizePsiphonEgressRegion(cfg.psiphonEgressRegion))
+        settings.putString("${prefix}psiphon_chain_mode", cfg.psiphonChainMode.name)
+        settings.putBoolean("${prefix}psiphon_via_aether", cfg.psiphonViaAether)
         settings.putBoolean("${prefix}zt_stay_signed_in", cfg.ztStaySignedIn)
         settings.putString("${prefix}zt_token_expiry", cfg.ztTokenExpiry.toString())
         settings.putString("${prefix}connect_button_style", sanitizeConnectButtonStyle(cfg.connectButtonStyle))

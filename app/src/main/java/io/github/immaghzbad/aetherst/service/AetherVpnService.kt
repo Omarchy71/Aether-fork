@@ -8,6 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -26,6 +30,7 @@ import io.github.immaghzbad.aetherst.core.RoutingEngine
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.getSettings
 import io.github.immaghzbad.aetherst.core.SocksTunBridge
+import io.github.immaghzbad.aetherst.shared.data.ActiveProxyProvider
 import io.github.immaghzbad.aetherst.shared.data.AetherConfigRepository
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.model.*
@@ -56,13 +61,26 @@ class AetherVpnService : VpnService() {
     private val commandCounter = AtomicLong(0)
     private var startupJob: Job? = null
     private var statsJob: Job? = null
+    private var lastHevUpstream: String? = null
 
     private var isUserInitiatedStop = false
     private var wasEverRunning = false
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var autoReconnectJob: Job? = null
+    private var lastNetworkLostTime: Long = 0L
 
     companion object {
         const val ACTION_START = "io.github.immaghzbad.aetherst.ACTION_START"
         const val ACTION_STOP = "io.github.immaghzbad.aetherst.ACTION_STOP"
+        const val ACTION_SWITCH_HEV = "io.github.immaghzbad.aetherst.SWITCH_HEV"
+        private var instanceRef: java.lang.ref.WeakReference<AetherVpnService>? = null
+        fun getInstance(): AetherVpnService? = instanceRef?.get()
+        fun switchHevUpstream(host: String, port: Int) {
+            val svc = instanceRef?.get() ?: return
+            svc.scope.launch {
+                svc.switchHevInternal(host, port)
+            }
+        }
         const val CHANNEL_ID = "aether_vpn_status_v2"
         const val ALERT_CHANNEL_ID = "aether_vpn_alerts"
         const val NOTIFICATION_ID = 1001
@@ -93,6 +111,7 @@ class AetherVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        instanceRef = java.lang.ref.WeakReference(this)
         LogRepository.initialize(getSettings(PlatformContext(this)))
         PsiphonController.setVpnService(this)
         createNotificationChannel()
@@ -104,6 +123,7 @@ class AetherVpnService : VpnService() {
             ConnectionController.status.collect { status ->
                 updateNotification()
                 handleTunLifecycle(status)
+                handleAutoReconnectOnStatus(status)
             }
         }
 
@@ -111,6 +131,137 @@ class AetherVpnService : VpnService() {
             AetherConfigRepository.getInstance(getSettings(PlatformContext(this@AetherVpnService))).config.collect {
                 routingEngine?.clearCache()
             }
+        }
+        registerNetworkMonitor()
+    }
+
+    private fun registerNetworkMonitor() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onLost(network: Network) {
+                    scope.launch { handleNetworkLost() }
+                }
+                override fun onAvailable(network: Network) {
+                    scope.launch { handleNetworkAvailable() }
+                }
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        scope.launch { handleNetworkAvailable() }
+                    }
+                }
+            }
+            networkCallback = callback
+            cm.registerNetworkCallback(request, callback)
+        } catch (e: Exception) {
+            LogRepository.w("[VpnService] Network monitor registration failed: ${e.message}")
+        }
+    }
+
+    private fun unregisterNetworkMonitor() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            networkCallback?.let { cm.unregisterNetworkCallback(it) }
+        } catch (_: Exception) {}
+        networkCallback = null
+    }
+
+    private suspend fun handleNetworkLost() {
+        val status = ConnectionController.status.value
+        val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
+        if (!config.smartReconnect) return
+        if (isUserInitiatedStop) return
+        if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.TUN_ACTIVE) {
+            lastNetworkLostTime = System.currentTimeMillis()
+            LogRepository.w("[VpnService] Network lost while $status -> RECONNECTING")
+            try {
+                getController().markReconnecting()
+            } catch (_: Exception) {
+                io.github.immaghzbad.aetherst.shared.platform.Bridge.statusOverride.value = ConnectionStatus.RECONNECTING
+            }
+        }
+    }
+
+    private suspend fun handleNetworkAvailable() {
+        val status = ConnectionController.status.value
+        val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
+        if (!config.smartReconnect) return
+        if (isUserInitiatedStop) return
+        if (status == ConnectionStatus.RECONNECTING || status == ConnectionStatus.ERROR || status == ConnectionStatus.FAILED) {
+            autoReconnectJob?.cancel()
+            autoReconnectJob = scope.launch {
+                delay(1500)
+                if (!isNetworkValidated()) {
+                    delay(2000)
+                }
+                if (!isNetworkValidated()) return@launch
+                val cur = ConnectionController.status.value
+                if (cur == ConnectionStatus.RECONNECTING || cur == ConnectionStatus.ERROR || cur == ConnectionStatus.FAILED) {
+                    LogRepository.i("[VpnService] Network restored -> auto-reconnect from $cur")
+                    withContext(Dispatchers.Main) {
+                        try {
+                            if (vpnInterface == null) {
+                                startAttempt(commandCounter.incrementAndGet())
+                            } else {
+                                hevEngine?.resume()
+                            }
+                        } catch (_: Exception) {
+                            startAttempt(commandCounter.incrementAndGet())
+                        }
+                    }
+                    delay(3000)
+                    if (ConnectionController.status.value == ConnectionStatus.RECONNECTING) {
+                        getController().start()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun isNetworkValidated(): Boolean {
+        return try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val net = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(net) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } catch (_: Exception) { false }
+    }
+
+    private fun handleAutoReconnectOnStatus(status: ConnectionStatus) {
+        if (isUserInitiatedStop) return
+        val cfg = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
+        if (!cfg.smartReconnect) return
+        if (status == ConnectionStatus.ERROR || status == ConnectionStatus.FAILED) {
+            autoReconnectJob?.cancel()
+            autoReconnectJob = scope.launch {
+                var attempts = 0
+                while (attempts < cfg.reconnectRetryLimit && isActive) {
+                    if (!isNetworkValidated()) {
+                        LogRepository.w("[VpnService] Auto-reconnect waiting for network...")
+                        delay(3000)
+                        continue
+                    }
+                    delay((cfg.reconnectSecs * 1000L).coerceAtLeast(2000L))
+                    val cur = ConnectionController.status.value
+                    if (cur != ConnectionStatus.ERROR && cur != ConnectionStatus.FAILED) break
+                    if (isUserInitiatedStop) break
+                    attempts++
+                    LogRepository.i("[VpnService] Auto-reconnect attempt $attempts/${cfg.reconnectRetryLimit} from $cur")
+                    try {
+                        getController().start()
+                    } catch (e: Exception) {
+                        LogRepository.e("[VpnService] Auto-reconnect start failed: ${e.message}")
+                    }
+                    delay(5000)
+                }
+                if (attempts >= cfg.reconnectRetryLimit) {
+                    LogRepository.e("[VpnService] Auto-reconnect limit reached")
+                }
+            }
+        } else if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.STOPPED) {
+            autoReconnectJob?.cancel()
+            autoReconnectJob = null
         }
     }
 
@@ -124,6 +275,11 @@ class AetherVpnService : VpnService() {
             ACTION_STOP -> {
                 isUserInitiatedStop = true
                 stopVpnService(commandCounter.incrementAndGet())
+            }
+            ACTION_SWITCH_HEV -> {
+                val host = intent.getStringExtra("host") ?: "127.0.0.1"
+                val port = intent.getIntExtra("port", 3080)
+                scope.launch { switchHevInternal(host, port) }
             }
             else -> {
                 if (!isUserInitiatedStop) {
@@ -223,22 +379,28 @@ class AetherVpnService : VpnService() {
                                 "rwTimeout=${hevSettings.readWriteTimeoutMs}ms maxSessions=${if (hevSettings.maxSessionCount == 0) "unlimited" else hevSettings.maxSessionCount.toString()} mapdnsCache=${hevSettings.mapdnsCacheSize} udp=${config.hevUdpMode}"
                     )
 
+                    val isPsiphonChained = config.upstreamProxy.isNotEmpty() && config.upstreamProxy.contains("127.0.0.1:3080")
+                    val hevHost = if (isPsiphonChained) "127.0.0.1" else config.socksHost
+                    val hevPort = if (isPsiphonChained) 3080 else config.socksPort.toIntOrNull() ?: 1819
                     val ok = hevEngine?.start(
                         tunPfd = descriptor,
-                        socksAddress = config.socksHost,
-                        socksPort = config.socksPort.toIntOrNull() ?: 1819,
+                        socksAddress = hevHost,
+                        socksPort = hevPort,
                         mtu = 1280,
                         attemptId = attemptId,
                         settings = hevSettings,
                         udpMode = config.hevUdpMode
                     ) == true
                     if (!ok) throw IllegalStateException("HEV engine failed to start")
+                    lastHevUpstream = "$hevHost:$hevPort"
                 } else {
+                    val bridgeHost = if (config.upstreamProxy.isNotEmpty() && config.upstreamProxy.contains("3080")) "127.0.0.1" else config.socksHost
+                    val bridgePort = if (config.upstreamProxy.isNotEmpty() && config.upstreamProxy.contains("3080")) 3080 else config.socksPort.toIntOrNull() ?: 1819
                     socksBridge = SocksTunBridge(
                         vpnService = this@AetherVpnService,
                         tunDescriptor = descriptor,
-                        socksHost = config.socksHost,
-                        socksPort = config.socksPort.toIntOrNull() ?: 1819,
+                        socksHost = bridgeHost,
+                        socksPort = bridgePort,
                         mtu = 1280,
                         blockedPackagesProvider = { if (config.tunnelAllApps) emptySet() else config.blockedPackages },
                         routingEngine = routingEngine!!
@@ -339,11 +501,17 @@ class AetherVpnService : VpnService() {
                             added++
                         } catch (_: PackageManager.NameNotFoundException) {
                             LogRepository.w("[Tun] Ignoring uninstalled package: $pkg")
+                        } catch (e: Exception) {
+                            LogRepository.w("[Tun] Skipping package $pkg: ${e.message}")
                         }
                     }
                 LogRepository.i("[Tun] Bypass-default: $added apps tunneled, rest bypass (allowed mode)")
             } else {
-                builder.addDisallowedApplication(packageName)
+                try {
+                    builder.addDisallowedApplication(packageName)
+                } catch (e: Exception) {
+                    LogRepository.w("[Tun] Failed to disallow self: ${e.message}")
+                }
                 try {
                     val pm = packageManager
                     val allPkgs = pm.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -354,7 +522,10 @@ class AetherVpnService : VpnService() {
                         try {
                             builder.addDisallowedApplication(pkg)
                             disallowed++
-                        } catch (_: PackageManager.NameNotFoundException) {}
+                        } catch (_: PackageManager.NameNotFoundException) {
+                        } catch (e: Exception) {
+                            LogRepository.w("[Tun] Skipping disallow $pkg: ${e.message}")
+                        }
                     }
                     LogRepository.i("[Tun] Bypass-default: 0 tunneled, $disallowed apps bypassed (all bypass)")
                 } catch (e: Exception) {
@@ -431,22 +602,8 @@ class AetherVpnService : VpnService() {
             ConnectionStatus.RECONNECTING -> {
                 if (!wasEverRunning) return
                 stopStatsJob()
-                if (PsiphonController.isConnected()) {
-                    hevEngine?.pause()
-                    LogRepository.i("[VpnService] RECONNECTING: TUN paused, interface kept open")
-                } else {
-                    LogRepository.e("[VpnService] RECONNECTING but Psiphon upstream down; tearing down TUN")
-                    val attemptId = activeAttemptId.get()
-                    stateMutex.withLock {
-                        hevEngine?.requestStop()
-                        hevEngine = null
-                        socksBridge?.stop()
-                        socksBridge = null
-                        closeVpnInterface(attemptId)
-                        activeTunnelEngine = null
-                    }
-                    getController().stop()
-                }
+                hevEngine?.pause()
+                LogRepository.i("[VpnService] RECONNECTING: TUN paused, waiting for core recovery")
             }
             ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY -> {
                 if (!wasEverRunning) return
@@ -455,10 +612,94 @@ class AetherVpnService : VpnService() {
             }
             ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> {
                 if (!wasEverRunning) return
-                hevEngine?.resume()
-                if (statsJob == null) startStatsJob()
+                val psiphonUrl = ActiveProxyProvider.psiphonProxyUrl
+                val cfg = AetherConfigRepository.getInstance(getSettings(PlatformContext(this@AetherVpnService))).config.value
+                val targetHost = if (psiphonUrl != null && psiphonUrl.contains("3080")) "127.0.0.1" else cfg.socksHost
+                val targetPort = if (psiphonUrl != null && psiphonUrl.contains("3080")) 3080 else cfg.socksPort.toIntOrNull() ?: 1819
+                val target = "$targetHost:$targetPort"
+                if (lastHevUpstream != target && hevEngine != null && vpnInterface != null) {
+                    LogRepository.i("[VpnService] HEV restart to $target for psiphon chain (was $lastHevUpstream)")
+                    stopStatsJob()
+                    stateMutex.withLock {
+                        hevEngine?.requestStop()
+                        delay(400)
+                        val descriptor = vpnInterface
+                        if (descriptor != null) {
+                            val newEngine = HevTun2SocksEngine()
+                            val hevSettings = HevEngineSettings(
+                                logLevel = cfg.hevLogLevel,
+                                connectTimeoutMs = cfg.hevConnectTimeoutMs,
+                                readWriteTimeoutMs = cfg.hevReadWriteTimeoutMs,
+                                maxSessionCount = cfg.hevMaxSessionCount,
+                                mapdnsCacheSize = cfg.hevMapdnsCacheSize
+                            )
+                            val ok = newEngine.start(
+                                tunPfd = descriptor,
+                                socksAddress = targetHost,
+                                socksPort = targetPort,
+                                mtu = 1280,
+                                attemptId = activeAttemptId.get(),
+                                settings = hevSettings,
+                                udpMode = cfg.hevUdpMode
+                            )
+                            if (ok) {
+                                hevEngine = newEngine
+                                lastHevUpstream = target
+                                LogRepository.i("[VpnService] HEV restarted to $target")
+                            } else {
+                                LogRepository.e("[VpnService] HEV restart to $target failed")
+                                hevEngine?.resume()
+                            }
+                        }
+                    }
+                    if (statsJob == null) startStatsJob()
+                } else {
+                    hevEngine?.resume()
+                    if (statsJob == null) startStatsJob()
+                    if (lastHevUpstream == null) lastHevUpstream = target
+                }
+                DnsMap.clear()
+                routingEngine?.clearCache()
+            }
+            ConnectionStatus.ERROR, ConnectionStatus.FAILED -> {
+                if (!wasEverRunning) return
+                stopStatsJob()
+                hevEngine?.pause()
             }
             else -> {}
+        }
+    }
+
+    private suspend fun switchHevInternal(host: String, port: Int) {
+        val target = "$host:$port"
+        if (lastHevUpstream == target) return
+        if (hevEngine == null || vpnInterface == null) return
+        LogRepository.i("[VpnService] Switching HEV to $target")
+        stopStatsJob()
+        stateMutex.withLock {
+            hevEngine?.requestStop()
+            delay(400)
+            val descriptor = vpnInterface ?: return@withLock
+            val cfg = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
+            val hevSettings = HevEngineSettings(
+                logLevel = cfg.hevLogLevel,
+                connectTimeoutMs = cfg.hevConnectTimeoutMs,
+                readWriteTimeoutMs = cfg.hevReadWriteTimeoutMs,
+                maxSessionCount = cfg.hevMaxSessionCount,
+                mapdnsCacheSize = cfg.hevMapdnsCacheSize
+            )
+            val newEngine = HevTun2SocksEngine()
+            val ok = newEngine.start(descriptor, host, port, 1280, activeAttemptId.get(), hevSettings, cfg.hevUdpMode)
+            if (ok) {
+                hevEngine = newEngine
+                lastHevUpstream = target
+                LogRepository.i("[VpnService] HEV switched to $target")
+                DnsMap.clear()
+                routingEngine?.clearCache()
+                if (statsJob == null) startStatsJob()
+            } else {
+                LogRepository.e("[VpnService] HEV switch to $target failed")
+            }
         }
     }
 
@@ -665,6 +906,8 @@ class AetherVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        unregisterNetworkMonitor()
+        autoReconnectJob?.cancel()
         scope.cancel()
         super.onDestroy()
     }

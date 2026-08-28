@@ -62,9 +62,16 @@ object AutoDetectRepository {
                     currentStep = "Checking IPv6 connectivity...",
                     progressPercent = 5
                 ))
-                val hasIPv6 = try {
-                    withTimeout(5_000L) { detectIPv6() }
-                } catch (_: Exception) { false }
+                val hasIPv6 = runCatching {
+                    var result = false
+                    repeat(2) { attempt ->
+                        updateState(_state.value.copy(currentStep = "Checking IPv6... attempt ${attempt + 1}/2", progressPercent = 5 + attempt))
+                        result = try { withTimeout(3000L) { detectIPv6() } } catch (_: Exception) { false }
+                        if (result) return@runCatching true
+                        delay(400)
+                    }
+                    result
+                }.getOrDefault(false)
                 updateState(_state.value.copy(
                     liveFingerprint = NetworkFingerprint(
                         networkType = "open", supportsDPI = false, supportsUDP = true,
@@ -73,10 +80,15 @@ object AutoDetectRepository {
                     currentStep = "Checking DPI restrictions...",
                     progressPercent = 8
                 ))
-
-                val isDPI = try {
-                    withTimeout(6_000L) { detectDPI() }
-                } catch (_: Exception) { false }
+                val isDPI = runCatching {
+                    var result = false
+                    repeat(2) { attempt ->
+                        updateState(_state.value.copy(currentStep = "Probing DPI... attempt ${attempt + 1}/2", progressPercent = 8 + attempt * 2))
+                        result = try { withTimeout(4000L) { detectDPI() } } catch (_: Exception) { false }
+                        if (attempt == 0) delay(300)
+                    }
+                    result
+                }.getOrDefault(false)
                 updateState(_state.value.copy(
                     liveFingerprint = NetworkFingerprint(
                         networkType = if (isDPI) "restricted" else "open",
@@ -86,10 +98,16 @@ object AutoDetectRepository {
                     currentStep = "Detecting ISP...",
                     progressPercent = 12
                 ))
-
-                val isp = try {
-                    withTimeout(6_000L) { detectIsp() }
-                } catch (_: Exception) { "Unknown" }
+                val isp = runCatching {
+                    var res = "Unknown"
+                    repeat(2) { attempt ->
+                        updateState(_state.value.copy(currentStep = "Detecting ISP... attempt ${attempt + 1}/2", progressPercent = 12 + attempt))
+                        res = try { withTimeout(4000L) { detectIsp() } } catch (_: Exception) { "Unknown" }
+                        if (res != "Unknown") return@runCatching res
+                        delay(300)
+                    }
+                    res
+                }.getOrDefault("Unknown")
                 val fingerprint = NetworkFingerprint(
                     networkType = if (isDPI) "restricted" else "open",
                     supportsDPI = isDPI, supportsUDP = true,
@@ -269,30 +287,28 @@ object AutoDetectRepository {
 
     private fun measureTcpLatency(host: String, port: Int, sampleCount: Int): List<Long> {
         val samples = mutableListOf<Long>()
-
         repeat(sampleCount) {
             try {
                 val sock = Socket()
                 sock.tcpNoDelay = true
                 val start = System.nanoTime()
-                sock.connect(InetSocketAddress(host, port), 2500)
+                sock.connect(InetSocketAddress(host, port), 2000)
                 val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
                 sock.close()
-                samples.add(elapsed)
+                if (elapsed in 1..4000) samples.add(elapsed)
             } catch (_: Exception) {
             }
+            if (sampleCount > 1) Thread.sleep(80)
         }
-
         return samples
     }
 
     private fun measureHttpsLatency(sampleCount: Int): List<Long> {
         val samples = mutableListOf<Long>()
         val client = NetworkClient.instance.newBuilder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS)
             .build()
-
         repeat(sampleCount) {
             try {
                 val request = Request.Builder().url(HTTPS_TARGET)
@@ -303,13 +319,13 @@ object AutoDetectRepository {
                     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
                     val body = runCatching { response.body?.string() }.getOrNull() ?: ""
                     if (response.isSuccessful && (body.contains("fl=") || body.contains("ip="))) {
-                        samples.add(elapsed)
+                        if (elapsed in 1..4000) samples.add(elapsed)
                     }
                 }
             } catch (_: Exception) {
             }
+            if (sampleCount > 1) Thread.sleep(100)
         }
-
         return samples
     }
 
@@ -322,24 +338,21 @@ object AutoDetectRepository {
     private suspend fun probeAllProtocols(context: PlatformContext): List<ProtocolProbeResult> {
         val protocols = listOf(AetherProtocol.MASQUE, AetherProtocol.WG, AetherProtocol.GOOL)
         val results = mutableListOf<ProtocolProbeResult>()
-
         for ((index, protocol) in protocols.withIndex()) {
             updateState(_state.value.copy(
                 protocolResults = results + ProtocolProbeResult(protocol, ProbeStatus.RUNNING),
                 currentStep = "Measuring ${protocol.displayName} latency...",
                 progressPercent = 20 + (index * 10)
             ))
-
-            val result = probeProtocol(protocol, context)
+            val result = try {
+                withTimeout(9000L) { probeProtocol(protocol, context) }
+            } catch (_: Exception) {
+                ProtocolProbeResult(protocol, ProbeStatus.FAILED, -1, "Timeout on weak network")
+            }
             results.add(result)
-
-            updateState(_state.value.copy(
-                protocolResults = results.map { it }
-            ))
-
-            delay(200)
+            updateState(_state.value.copy(protocolResults = results.map { it }, progressPercent = 20 + (index + 1) * 10))
+            delay(180)
         }
-
         return results
     }
 
@@ -364,11 +377,12 @@ object AutoDetectRepository {
 
     private suspend fun probeMasque(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
-            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
+            updateState(_state.value.copy(currentStep = "MASQUE: TCP latency..."))
+            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 3)
             val tcpMedian = medianLatency(tcpSamples)
-
             if (tcpMedian < 0) {
-                val httpsSamples = measureHttpsLatency(SAMPLES)
+                updateState(_state.value.copy(currentStep = "MASQUE: HTTPS probe..."))
+                val httpsSamples = measureHttpsLatency(3)
                 val httpsMedian = medianLatency(httpsSamples)
                 return@withContext if (httpsMedian > 0) {
                     ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, httpsMedian)
@@ -376,10 +390,9 @@ object AutoDetectRepository {
                     ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.FAILED, -1, "Network unreachable")
                 }
             }
-
-            val httpsSamples = measureHttpsLatency(SAMPLES)
+            updateState(_state.value.copy(currentStep = "MASQUE: HTTPS latency..."))
+            val httpsSamples = measureHttpsLatency(3)
             val httpsMedian = medianLatency(httpsSamples)
-
             if (httpsMedian > 0) {
                 ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, httpsMedian)
             } else {
@@ -393,11 +406,12 @@ object AutoDetectRepository {
 
     private suspend fun probeWireGuard(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
-            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
+            updateState(_state.value.copy(currentStep = "WireGuard: TCP latency..."))
+            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 3)
             val tcpMedian = medianLatency(tcpSamples)
-            val httpsSamples = measureHttpsLatency(SAMPLES)
+            updateState(_state.value.copy(currentStep = "WireGuard: HTTPS probe..."))
+            val httpsSamples = measureHttpsLatency(3)
             val httpsMedian = medianLatency(httpsSamples)
-
             when {
                 httpsMedian > 0 -> ProtocolProbeResult(AetherProtocol.WG, ProbeStatus.SUCCESS, httpsMedian)
                 tcpMedian > 0 -> ProtocolProbeResult(
@@ -411,11 +425,12 @@ object AutoDetectRepository {
 
     private suspend fun probeGool(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
-            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, SAMPLES)
+            updateState(_state.value.copy(currentStep = "Gool: TCP latency..."))
+            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 3)
             val tcpMedian = medianLatency(tcpSamples)
-            val httpsSamples = measureHttpsLatency(SAMPLES)
+            updateState(_state.value.copy(currentStep = "Gool: HTTPS probe..."))
+            val httpsSamples = measureHttpsLatency(3)
             val httpsMedian = medianLatency(httpsSamples)
-
             when {
                 httpsMedian > 0 -> ProtocolProbeResult(
                     AetherProtocol.GOOL, ProbeStatus.SUCCESS, (httpsMedian * 1.12).toLong()
@@ -456,16 +471,20 @@ object AutoDetectRepository {
                 var low = 1200
                 var high = localMtu.coerceAtMost(1500)
                 var bestPathMtu = 1200
-
+                var probeStep = 0
+                val totalSteps = 9
                 while (low <= high) {
                     val mid = (low + high) / 2
-                    if (testMtu(mid)) {
+                    probeStep++
+                    updateState(_state.value.copy(currentStep = "Probing MTU $mid bytes... best $bestPathMtu", progressPercent = 55 + (probeStep * 10 / totalSteps).coerceIn(0, 10)))
+                    val ok = try { withTimeout(1500L) { testMtu(mid) } } catch (_: Exception) { false }
+                    if (ok) {
                         bestPathMtu = mid
                         low = mid + 1
                     } else {
                         high = mid - 1
                     }
-                    delay(50)
+                    delay(80)
                 }
 
                 val optimalMtu = (bestPathMtu - overhead).coerceIn(1100, 1460)
@@ -485,33 +504,21 @@ object AutoDetectRepository {
 
 
     private suspend fun probeNoiseModes(protocolResults: List<ProtocolProbeResult>): List<NoiseProbeResult> {
-        val bestProtocol = protocolResults
-            .filter { it.status == ProbeStatus.SUCCESS }
-            .minByOrNull { it.latencyMs }
-            ?.protocol ?: AetherProtocol.MASQUE
-
+        val bestProtocol = protocolResults.filter { it.status == ProbeStatus.SUCCESS }.minByOrNull { it.latencyMs }?.protocol ?: AetherProtocol.MASQUE
         val noiseModes = when (bestProtocol) {
             AetherProtocol.MASQUE -> listOf(AetherNoise.FIREWALL, AetherNoise.GFW, AetherNoise.OFF)
             else -> listOf(AetherNoise.BALANCED, AetherNoise.AGGRESSIVE, AetherNoise.LIGHT, AetherNoise.OFF)
         }
-
-        return noiseModes.map { noise ->
-            updateState(_state.value.copy(
-                currentStep = "Testing ${noise.displayName} obfuscation...",
-                progressPercent = _state.value.progressPercent + 3
-            ))
-
+        return noiseModes.mapIndexed { idx, noise ->
+            updateState(_state.value.copy(currentStep = "Testing ${noise.displayName} obfuscation ${idx + 1}/${noiseModes.size}...", progressPercent = 70 + (idx * 12 / noiseModes.size)))
             val effective = withContext(Dispatchers.Default) {
                 try {
-                    val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 3)
+                    val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 2)
                     val median = medianLatency(samples)
                     median in 1..3000
-                } catch (_: Exception) {
-                    false
-                }
+                } catch (_: Exception) { false }
             }
-
-            delay(150)
+            delay(120)
             NoiseProbeResult(noise, ProbeStatus.SUCCESS, effective)
         }
     }
@@ -519,23 +526,16 @@ object AutoDetectRepository {
 
     private suspend fun probeScanModes(): List<ScanModeProbeResult> {
         val modes = listOf(AetherScanMode.TURBO, AetherScanMode.BALANCED, AetherScanMode.THOROUGH)
-        return modes.map { mode ->
-            updateState(_state.value.copy(
-                currentStep = "Testing ${mode.name.lowercase()} scan strategy...",
-                progressPercent = _state.value.progressPercent + 4
-            ))
-
+        return modes.mapIndexed { idx, mode ->
+            updateState(_state.value.copy(currentStep = "Testing ${mode.name.lowercase()} scan ${idx + 1}/${modes.size}...", progressPercent = 85 + (idx * 7 / modes.size)))
             val success = withContext(Dispatchers.Default) {
                 try {
-                    val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 3)
+                    val samples = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 2)
                     val median = medianLatency(samples)
                     median in 1..5000
-                } catch (_: Exception) {
-                    false
-                }
+                } catch (_: Exception) { false }
             }
-
-            delay(150)
+            delay(120)
             ScanModeProbeResult(mode, ProbeStatus.SUCCESS, success)
         }
     }

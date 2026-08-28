@@ -59,7 +59,8 @@ fun SplitTunnelingScreen(
     onUpdateMode: (String, Int) -> Unit,
     onBack: () -> Unit,
     scaleFactor: Float = 1f,
-    tunneledPackages: Set<String> = emptySet()
+    tunneledPackages: Set<String> = emptySet(),
+    onBulkUpdateMode: (List<String>, Int) -> Unit = { _, _ -> }
 ) {
     val effectiveTunneled = if (tunneledPackages.isNotEmpty() || excludedPackages.isEmpty()) tunneledPackages else emptySet()
     val focusManager = LocalFocusManager.current
@@ -167,8 +168,14 @@ fun SplitTunnelingScreen(
 
         if (!tunnelAllApps) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (2 * scaleFactor).dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { filteredApps.forEach { if (effectiveTunneled.contains(it.packageName) || blockedPackages.contains(it.packageName)) onUpdateMode(it.packageName, 0) } }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Bypass All", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp) }
-                TextButton(onClick = { filteredApps.forEach { if (!effectiveTunneled.contains(it.packageName)) onUpdateMode(it.packageName, 1) } }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Tunnel All", color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = {
+                    val pkgs = filteredApps.filter { effectiveTunneled.contains(it.packageName) || blockedPackages.contains(it.packageName) }.map { it.packageName }
+                    if (pkgs.isNotEmpty()) onBulkUpdateMode(pkgs, 0)
+                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Bypass All", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp) }
+                TextButton(onClick = {
+                    val pkgs = filteredApps.filter { !effectiveTunneled.contains(it.packageName) }.map { it.packageName }
+                    if (pkgs.isNotEmpty()) onBulkUpdateMode(pkgs, 1)
+                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Tunnel All", color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Bold) }
             }
         }
 

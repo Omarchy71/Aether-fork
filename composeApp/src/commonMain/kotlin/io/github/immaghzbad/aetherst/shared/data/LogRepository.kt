@@ -26,6 +26,7 @@ object LogRepository {
     private val scope = CoroutineScope(Dispatchers.Default)
     private var settings: Settings? = null
     private var logIdCounter = 1L
+    var fileLogWriter: ((LogLevel, String, String) -> Unit)? = null
 
     private val sensitivePatterns = listOf(
         "access_token", "cert_pem", "key_pem", "private_key",
@@ -48,6 +49,9 @@ object LogRepository {
     }
 
     fun log(level: LogLevel, message: String, tag: String = "AetherSystem") {
+        val sanitizedMessage = sanitize(message)
+        runCatching { fileLogWriter?.invoke(level, tag, sanitizedMessage) }
+
         val isCore = tag == "AetherCore" || tag == "AetherRegistration"
         val configLevel = if (isCore) currentCoreLogLevel else currentAppLogLevel
 
@@ -61,7 +65,6 @@ object LogRepository {
 
         if (!shouldLog) return
 
-        val sanitizedMessage = sanitize(message)
         val timestamp = getCurrentTimestamp()
 
         val entry = LogEntry(
@@ -71,7 +74,7 @@ object LogRepository {
             tag = tag,
             message = sanitizedMessage
         )
-        
+
         synchronized(this) {
             val current = _logs.value.toMutableList()
             if (current.size >= 1000) {

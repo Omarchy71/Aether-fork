@@ -149,7 +149,7 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     override fun getFilesDir(): String = context.filesDir.absolutePath
     override fun getCacheDir(): String = context.cacheDir.absolutePath
     override fun getPackageName(): String = context.packageName
-    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.0" } catch (_: Exception) { "1.6.0" }
+    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.3" } catch (_: Exception) { "1.6.3" }
     override fun exitApp() { Process.killProcess(Process.myPid()) }
 
     override fun readLastCrashLog(): String? {
@@ -262,6 +262,8 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
 
     override fun setSystemProxy(host: String, port: Int) {}
     override fun clearSystemProxy() {}
+    override fun setSystemDns(dnsList: String) {}
+    override fun clearSystemDns() {}
     override fun isAdministrator(): Boolean = true
     override fun relaunchAsAdmin() {}
 

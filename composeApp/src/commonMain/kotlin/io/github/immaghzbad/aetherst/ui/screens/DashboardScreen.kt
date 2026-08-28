@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -144,7 +145,8 @@ fun DashboardScreen(
     onCopy: (String) -> Unit = {},
     onOpenSettingsToZeroTrust: () -> Unit = {},
     bottomContentPadding: Dp = 0.dp,
-    platformContext: PlatformContext? = null
+    platformContext: PlatformContext? = null,
+    onSwipeDragging: (Boolean) -> Unit = {}
 ) {
     var showProxyOverlay by remember { mutableStateOf(true) }
     var showAdminRequiredDialog by remember { mutableStateOf(false) }
@@ -174,10 +176,15 @@ fun DashboardScreen(
     ) {
         val screenWidth = this.maxWidth
         val screenHeight = this.maxHeight
-        val scaleFactor = (screenWidth.value / 411f).coerceIn(0.7f, 1.1f)
+        val baseScale = screenWidth.value / 411f
+        val scaleFactor = if (isDesktop) (baseScale * 0.82f).coerceIn(0.65f, 0.90f) else baseScale.coerceIn(0.7f, 1.1f)
         val isCompactHeight = screenHeight < 640.dp
         val isVeryCompactHeight = screenHeight < 580.dp
-        val horizontalPadding = if (screenWidth < 360.dp) 12.dp else 16.dp
+        val horizontalPadding = when {
+            isDesktop -> 12.dp
+            screenWidth < 360.dp -> 12.dp
+            else -> 16.dp
+        }
 
         Column(
             modifier = Modifier
@@ -185,13 +192,13 @@ fun DashboardScreen(
                 .padding(
                     start = horizontalPadding,
                     end = horizontalPadding,
-                    bottom = bottomContentPadding + 12.dp
+                    bottom = bottomContentPadding + 10.dp
                 ),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(
-                modifier = Modifier.padding(top = if (isDesktop) 12.dp else 36.dp),
-                verticalArrangement = Arrangement.spacedBy((14 * scaleFactor).dp)
+                modifier = Modifier.padding(top = if (isDesktop) 8.dp else 36.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isDesktop) (10 * scaleFactor).dp else (14 * scaleFactor).dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -282,23 +289,42 @@ fun DashboardScreen(
                     scaleFactor = scaleFactor
                 )
 
-                if (!isVeryCompactHeight && connectionStatus == ConnectionStatus.ERROR) {
+                if (isWindows && (connectionStatus == ConnectionStatus.RUNNING || connectionStatus == ConnectionStatus.TUN_ACTIVE)) {
+                    WindowsProxyPortsCard(
+                        config = config,
+                        onCopy = onCopy,
+                        scaleFactor = scaleFactor
+                    )
+                }
+
+                if (!isVeryCompactHeight && (connectionStatus == ConnectionStatus.ERROR || connectionStatus == ConnectionStatus.RECONNECTING)) {
+                    val isReconnecting = connectionStatus == ConnectionStatus.RECONNECTING
+                    val bg = if (isReconnecting) IosScanningAmber.copy(alpha = 0.12f) else IosErrorRed.copy(alpha = 0.1f)
+                    val tint = if (isReconnecting) IosScanningAmber else IosErrorRed
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 4.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = IosErrorRed.copy(alpha = 0.1f))
+                        colors = CardDefaults.cardColors(containerColor = bg)
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Refresh, null, tint = IosErrorRed, modifier = Modifier.size(16.dp))
+                            if (isReconnecting) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = tint, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Refresh, null, tint = tint, modifier = Modifier.size(16.dp))
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                "Connection failed. Please try reconnecting.",
-                                color = IosErrorRed,
+                                text = if (isReconnecting) {
+                                    if (config.smartReconnect) "Reconnecting automatically... (${config.reconnectRetryLimit} retries • ${config.reconnectSecs}s)" else "Reconnecting..."
+                                } else {
+                                    if (config.smartReconnect) "Connection failed. Retrying automatically..." else "Connection failed. Please try reconnecting."
+                                },
+                                color = tint,
                                 fontSize = (11 * scaleFactor).sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -356,7 +382,8 @@ fun DashboardScreen(
                             onRecover = onForceStop,
                             onAdminCancelResetKey = if (showAdminRequiredDialog) 1 else 0,
                             modifier = Modifier.fillMaxWidth(),
-                            scaleFactor = scaleFactor
+                            scaleFactor = scaleFactor,
+                            onDraggingChanged = onSwipeDragging
                         )
                     } else {
                         val minDim = if (screenWidth < screenHeight) screenWidth else screenHeight
@@ -372,13 +399,13 @@ fun DashboardScreen(
 
                 if (!isVeryCompactHeight) {
                     if (!isDesktop) {
+                        val psiphonAllowed = config.protocol != AetherProtocol.ZERO_TRUST
+                        val psiphonOn = config.psiphonEnabled && psiphonAllowed
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
+                            shape = if (psiphonOn) RoundedCornerShape(20.dp) else RoundedCornerShape(50.dp),
                             colors = CardDefaults.cardColors(containerColor = IosCardBg)
                         ) {
-                            val psiphonAllowed = config.protocol == AetherProtocol.MASQUE
-                            val psiphonOn = config.psiphonEnabled && psiphonAllowed
                             Column {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -392,7 +419,7 @@ fun DashboardScreen(
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text("Psiphon Chain", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (13 * scaleFactor).sp)
-                                        Text(if (psiphonAllowed) "Route via Psiphon for non-Iran IP" else "Only available with MASQUE", color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp)
+                                        Text(if (!psiphonAllowed) "Not available with Zero Trust" else if (config.psiphonEnabled) when (config.protocol) { AetherProtocol.MASQUE -> "Psiphon over MASQUE" ; AetherProtocol.WG -> "Psiphon over WireGuard" ; AetherProtocol.GOOL -> "Psiphon over Gool" ; AetherProtocol.ZERO_TRUST -> "Route via Psiphon for non-Iran IP" } else "Route via Psiphon for non-Iran IP", color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp)
                                     }
                                 }
                                 Switch(
@@ -404,22 +431,39 @@ fun DashboardScreen(
                             }
                                 if (psiphonOn) {
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp, modifier = Modifier.padding(start = 50.dp))
-                                    val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
-                                    val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
-                                    val regionCodes = buildList {
-                                        add("")
-                                        addAll(availableRegions)
-                                        if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                                    if (config.psiphonViaAether) {
+                                        val defaultViaRegions = listOf("AT", "AU", "BE", "BR", "CA", "CH", "CZ", "DE", "DK", "ES", "FI", "FR", "GB", "ID", "IE", "IN", "IT", "JP", "NL", "NO", "PL", "RO", "RS", "SE", "SG", "US")
+                                        val availableRegionsVia by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                                        val mergedVia = (defaultViaRegions + availableRegionsVia).distinct().sorted()
+                                        val selectedVia = config.psiphonEgressRegion.trim().uppercase()
+                                        val viaCodes = buildList { add(""); addAll(mergedVia); if (selectedVia.isNotEmpty() && selectedVia !in mergedVia) add(selectedVia) }
+                                        val viaOptions = viaCodes.map { CountryNames.label(it) }
+                                        IosPickerRow(
+                                            icon = Icons.Default.Public,
+                                            iconBg = Color(0xFF30B0C7),
+                                            title = "Exit Location",
+                                            value = CountryNames.label(selectedVia),
+                                            options = viaOptions,
+                                            onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = viaCodes[idx])) }
+                                        )
+                                    } else {
+                                        val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                                        val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
+                                        val regionCodes = buildList {
+                                            add("")
+                                            addAll(availableRegions)
+                                            if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                                        }
+                                        val regionOptions = regionCodes.map { CountryNames.label(it) }
+                                        IosPickerRow(
+                                            icon = Icons.Default.Public,
+                                            iconBg = Color(0xFF30B0C7),
+                                            title = "Exit Location",
+                                            value = CountryNames.label(selectedRegion),
+                                            options = regionOptions,
+                                            onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) }
+                                        )
                                     }
-                                    val regionOptions = regionCodes.map { CountryNames.label(it) }
-                                    IosPickerRow(
-                                        icon = Icons.Default.Public,
-                                        iconBg = Color(0xFF30B0C7),
-                                        title = "Exit Location",
-                                        value = CountryNames.label(selectedRegion),
-                                        options = regionOptions,
-                                        onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) }
-                                    )
                                 }
                             }
                         }
@@ -436,7 +480,7 @@ fun DashboardScreen(
                         selectedProtocol = config.protocol,
                         onProtocolSelected = onUpdateProtocol,
                         enabled = connectionStatus == ConnectionStatus.STOPPED || connectionStatus == ConnectionStatus.ERROR,
-                        allowedProtocols = if (config.psiphonEnabled) setOf(AetherProtocol.MASQUE) else null,
+                        allowedProtocols = if (config.psiphonEnabled) setOf(AetherProtocol.MASQUE, AetherProtocol.WG, AetherProtocol.GOOL) else null,
                         scaleFactor = scaleFactor
                     )
                 }
@@ -453,7 +497,7 @@ fun DashboardScreen(
         }
 
         AnimatedVisibility(
-            visible = config.connectionMode == ConnectionMode.PROXY_ONLY && connectionStatus == ConnectionStatus.RUNNING && showProxyOverlay,
+            visible = (config.connectionMode == ConnectionMode.PROXY_ONLY || config.connectionMode == ConnectionMode.SYSTEM_PROXY) && connectionStatus == ConnectionStatus.RUNNING && showProxyOverlay && !isWindows,
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
             modifier = Modifier
@@ -485,7 +529,9 @@ fun DashboardScreen(
                 httpPort = config.httpPort,
                 onHide = { showProxyOverlay = false },
                 onCopy = onCopy,
-                scaleFactor = scaleFactor
+                scaleFactor = scaleFactor,
+                psiphonEnabled = config.psiphonEnabled,
+                psiphonPort = config.psiphonSocksPort
             )
         }
 
@@ -726,10 +772,13 @@ fun ProxyOverlayPill(
     httpPort: String,
     onHide: () -> Unit,
     onCopy: (String) -> Unit,
-    scaleFactor: Float
+    scaleFactor: Float,
+    psiphonEnabled: Boolean = false,
+    psiphonPort: String = "3080"
 ) {
     val socksAddress = "$host:$socksPort"
     val httpAddress = "$host:$httpPort"
+    val psiphonAddress = "$host:$psiphonPort"
 
     Surface(
         modifier = Modifier
@@ -772,6 +821,16 @@ fun ProxyOverlayPill(
                     },
                     scaleFactor = scaleFactor
                 )
+                if (psiphonEnabled) {
+                    ProxyCopyRow(
+                        label = "Psiphon",
+                        address = psiphonAddress,
+                        onCopy = {
+                            onCopy(psiphonAddress)
+                        },
+                        scaleFactor = scaleFactor
+                    )
+                }
             }
 
             VerticalDivider(modifier = Modifier.height(36.dp), thickness = 1.dp, color = Color.White.copy(alpha = 0.1f))
@@ -826,6 +885,46 @@ private fun ProxyCopyRow(
             tint = Color.White.copy(alpha = 0.6f),
             modifier = Modifier.size((14 * scaleFactor).dp)
         )
+    }
+}
+
+@Composable
+fun WindowsProxyPortsCard(
+    config: AetherConfig,
+    onCopy: (String) -> Unit,
+    scaleFactor: Float
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = IosCardBg)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = (12 * scaleFactor).dp, vertical = (10 * scaleFactor).dp),
+            verticalArrangement = Arrangement.spacedBy((6 * scaleFactor).dp)
+        ) {
+            Text(
+                text = "PROXY PORTS",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                color = IosSecondaryLabel,
+                fontSize = (8.5 * scaleFactor).sp
+            )
+            ProxyCopyRow(
+                label = "Counted",
+                address = "127.0.0.1:10808 / 127.0.0.1:10809",
+                onCopy = { onCopy("127.0.0.1:10808") },
+                scaleFactor = scaleFactor
+            )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            ProxyCopyRow(
+                label = "Core",
+                address = "${config.socksHost}:${config.socksPort} / ${config.socksHost}:${config.httpPort}",
+                onCopy = { onCopy("${config.socksHost}:${config.socksPort}") },
+                scaleFactor = scaleFactor
+            )
+        }
     }
 }
 
@@ -1133,30 +1232,33 @@ fun IosStatusHeroCard(
 
 @Composable
 private fun TrafficValue(label: String, value: String, color: Color, alignment: Alignment.Horizontal, modifier: Modifier = Modifier, speed: Double = 0.0, scaleFactor: Float = 1f) {
-    Column(modifier = modifier, horizontalAlignment = alignment) {
+    Column(modifier = modifier.heightIn(min = 38.dp), horizontalAlignment = alignment) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = IosSecondaryLabel,
-            fontSize = (8 * scaleFactor).sp
+            fontSize = (8 * scaleFactor).sp,
+            maxLines = 1
         )
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = color,
-            fontSize = (12 * scaleFactor).sp
+            fontSize = (12 * scaleFactor).sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
-        if (speed > 0) {
-            Text(
-                text = formatSpeedValue(speed),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = color.copy(alpha = 0.7f),
-                fontSize = (8 * scaleFactor).sp
-            )
-        }
+        Text(
+            text = if (speed > 0) formatSpeedValue(speed) else "0 B/s",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (speed > 0) color.copy(alpha = 0.7f) else IosSecondaryLabel.copy(alpha = 0.55f),
+            fontSize = (8 * scaleFactor).sp,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1383,7 +1485,8 @@ fun WindowsSwipeSwitch(
     modifier: Modifier = Modifier,
     scaleFactor: Float = 1f,
     onAdminCancelResetKey: Int = 0,
-    onRecover: () -> Unit = {}
+    onRecover: () -> Unit = {},
+    onDraggingChanged: (Boolean) -> Unit = {}
 ) {
     val isConnected = connectionStatus == ConnectionStatus.RUNNING
     val isWorking = connectionStatus == ConnectionStatus.STARTING ||
@@ -1506,9 +1609,10 @@ fun WindowsSwipeSwitch(
                 .pointerInput(isConnected, isWorking, canSwipe, maxDrag) {
                         if (!canSwipe) return@pointerInput
                         detectHorizontalDragGestures(
-                            onDragStart = { isDragging = true },
+                            onDragStart = { isDragging = true; onDraggingChanged(true) },
                             onDragEnd = {
                                 isDragging = false
+                                onDraggingChanged(false)
                                 scope.launch {
                                     val threshold = if (isWorking) maxDrag * 0.25f else maxDrag * 0.5f
                                     val shouldTrigger = if (isWorking) {
@@ -1546,6 +1650,7 @@ fun WindowsSwipeSwitch(
                             },
                             onDragCancel = {
                                 isDragging = false
+                                onDraggingChanged(false)
                                 scope.launch {
                                     offsetX.animateTo(
                                         if (isConnected) maxDrag else 0f,
@@ -1789,7 +1894,7 @@ private fun formatTime(seconds: Long): String {
 }
 
 private fun formatTrafficBytes(bytes: Long): String {
-    val safeBytes = bytes.coerceAtLeast(0)
+    val safeBytes = bytes.coerceAtLeast(0).coerceAtMost(9_000_000_000_000_000L)
     val units = arrayOf("B", "KB", "MB", "GB", "TB", "PB")
     var value = safeBytes.toDouble()
     var unitIndex = 0
@@ -1797,13 +1902,12 @@ private fun formatTrafficBytes(bytes: Long): String {
         value /= 1024.0
         unitIndex += 1
     }
-    
-    
     val roundedValue = (value * 100).toLong() / 100.0
     return if (unitIndex == 0) {
         "$safeBytes ${units[unitIndex]}"
     } else {
-        "$roundedValue ${units[unitIndex]}"
+        val formatted = if (roundedValue >= 100) "${roundedValue.toLong()}" else "$roundedValue"
+        "$formatted ${units[unitIndex]}"
     }
 }
 

@@ -190,6 +190,7 @@ fun MainScreen(viewModel: AetherViewModel, onboardingViewModel: OnboardingViewMo
 private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, platformContext: PlatformContext) {
     var showTrayAdminDialog by remember { mutableStateOf(false) }
     var zeroTrustOpen by remember { mutableStateOf(false) }
+    var isSwipeDragging by remember { mutableStateOf(false) }
 
     val config by viewModel.config.collectAsStateWithLifecycle()
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
@@ -267,6 +268,7 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                     tunnelAllApps = config.tunnelAllApps,
                     tunneledPackages = config.tunneledPackages,
                     onUpdateMode = { pkg, mode -> viewModel.updateAppSplitTunnelingMode(pkg, mode) },
+                    onBulkUpdateMode = { pkgs, mode -> viewModel.bulkUpdateAppSplitTunnelingMode(pkgs, mode) },
                     onBack = { navController.popBackStack() },
                     scaleFactor = scaleFactor
                 )
@@ -317,7 +319,8 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
         if (showNavBar) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = !isSwipeDragging
             ) { page ->
                 when (topLevelRoutes[page]) {
                     Screen.Dashboard -> DashboardScreen(
@@ -331,7 +334,14 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                         onForceStop = { viewModel.forceStop() },
                         onUpdateConfig = { viewModel.updateConfig(it) },
                         onUpdateProtocol = { proto ->
-                            viewModel.updateConfig(config.copy(protocol = proto, psiphonEnabled = if (proto != AetherProtocol.MASQUE) false else config.psiphonEnabled))
+                            if (proto == AetherProtocol.ZERO_TRUST) {
+                                viewModel.updateConfig(config.copy(protocol = proto, psiphonEnabled = false))
+                            } else if (config.psiphonEnabled) {
+                                val outer = when (proto) { AetherProtocol.WG -> "wg" ; AetherProtocol.GOOL -> "gool" ; else -> "masque" }
+                                viewModel.updateConfig(config.copy(protocol = proto, psiphonChainOuter = outer))
+                            } else {
+                                viewModel.updateConfig(config.copy(protocol = proto))
+                            }
                         },
                         onTogglePsiphon = { enabled -> viewModel.updateConfig(config.copy(psiphonEnabled = enabled)) },
                         onRefreshIpInfo = { viewModel.refreshIpInfo() },
@@ -343,7 +353,8 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                         },
                         appVersion = viewModel.appVersion,
                         bottomContentPadding = totalNavBarHeight,
-                        platformContext = platformContext
+                        platformContext = platformContext,
+                        onSwipeDragging = { isSwipeDragging = it }
                     )
                     Screen.Settings -> SettingsScreen(
                         config = config,

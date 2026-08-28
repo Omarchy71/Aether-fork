@@ -47,6 +47,7 @@ class LocalHttpProxyServer(
         mainThread?.start()
     }
 
+    @Suppress("UNUSED_VARIABLE", "REDUNDANT_ELVIS_OPERATOR", "UNUSED_VALUE", "unused")
     private fun handleRelay(clientSocket: Socket) {
         var targetSocket: Socket? = null
         try {
@@ -76,18 +77,25 @@ class LocalHttpProxyServer(
                 targetDomain = hostPort[0]
                 remotePort = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
             } else {
-                val url = java.net.URI(target)
-                targetDomain = url.host
-                remotePort = if (url.port != -1) url.port else if (url.scheme == "https") 443 else 80
+                val url = try { java.net.URI(target) } catch (_: Exception) { null }
+                targetDomain = url?.host
+                remotePort = if (url != null && url.port != -1) url.port else if (url?.scheme == "https") 443 else 80
+                if (targetDomain == null) {
+                    val hostHeader = requestText.lines().firstOrNull { it.startsWith("Host:", true) }?.substringAfter(":")?.trim()?.substringBefore(":")?.trim()
+                    if (!hostHeader.isNullOrEmpty()) targetDomain = hostHeader
+                    if (targetDomain == null) return
+                }
             }
 
-            val cachedDomain = DnsMap.get(targetDomain ?: "")
+            @Suppress("USELESS_ELVIS")
+            val domain = targetDomain ?: return
+            val cachedDomain = DnsMap.get(domain)
             val decision = routingEngine.resolve(
-                targetDomain ?: "",
+                domain,
                 remotePort,
-                cachedDomain ?: targetDomain,
-                if (isConnect) targetDomain else null,
-                if (!isConnect) targetDomain else null
+                cachedDomain ?: domain,
+                if (isConnect) domain else null,
+                if (!isConnect) domain else null
             )
 
             if (decision.mode == RoutingMode.BLOCK) {
@@ -106,19 +114,23 @@ class LocalHttpProxyServer(
                     if (isConnect) {
                         clientOut.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
                         clientOut.flush()
+                        runCatching { clientSocket.soTimeout = 0 }
+                        val dIn = directSocket.getInputStream()
+                        val dOut = directSocket.getOutputStream()
+                        val t1 = Thread { pipe(dIn, clientOut, rxBytes) }
+                        val t2 = Thread { pipe(clientIn, dOut, txBytes) }
+                        t1.start()
+                        t2.start()
+                        t1.join(300000)
+                        t2.join(300000)
                     } else {
-                        directSocket.getOutputStream().write(requestBytes)
+                        val originBytes = toOriginForm(requestBytes)
+                        directSocket.getOutputStream().write(originBytes)
                         directSocket.getOutputStream().flush()
+                        txBytes.addAndGet(originBytes.size.toLong())
+                        runCatching { clientSocket.soTimeout = 0 }
+                        pipe(directSocket.getInputStream(), clientOut, rxBytes)
                     }
-
-                    val dIn = directSocket.getInputStream()
-                    val dOut = directSocket.getOutputStream()
-                    val t1 = Thread { pipe(dIn, clientOut, rxBytes) }
-                    val t2 = Thread { pipe(clientIn, dOut, txBytes) }
-                    t1.start()
-                    t2.start()
-                    t1.join(300000)
-                    t2.join(300000)
                     runCatching { directSocket.close() }
                 } catch (_: Exception) {}
                 return
@@ -137,55 +149,38 @@ class LocalHttpProxyServer(
             val authResponse = ByteArray(2)
             readExact(targetIn, authResponse)
 
-            val db = targetDomain?.toByteArray()
-            val connectRequest: ByteArray
-            if (db != null) {
-                connectRequest = ByteArray(7 + db.size)
-                connectRequest[0] = 0x05
-                connectRequest[1] = 0x01
-                connectRequest[2] = 0x00
-                connectRequest[3] = 0x03
-                connectRequest[4] = db.size.toByte()
-                System.arraycopy(db, 0, connectRequest, 5, db.size)
-                connectRequest[5 + db.size] = (remotePort shr 8).toByte()
-                connectRequest[6 + db.size] = (remotePort and 0xFF).toByte()
-            } else {
-                val ipBytes = java.net.InetAddress.getByName(targetDomain).address
-                connectRequest = ByteArray(6 + ipBytes.size)
-                connectRequest[0] = 0x05
-                connectRequest[1] = 0x01
-                connectRequest[2] = 0x00
-                connectRequest[3] = if (ipBytes.size == 4) 0x01.toByte() else 0x04.toByte()
-                System.arraycopy(ipBytes, 0, connectRequest, 4, ipBytes.size)
-                connectRequest[4 + ipBytes.size] = (remotePort shr 8).toByte()
-                connectRequest[5 + ipBytes.size] = (remotePort and 0xFF).toByte()
-            }
+            val db = domain.toByteArray()
+            val connectRequest = ByteArray(7 + db.size)
+            connectRequest[0] = 0x05
+            connectRequest[1] = 0x01
+            connectRequest[2] = 0x00
+            connectRequest[3] = 0x03
+            connectRequest[4] = db.size.toByte()
+            System.arraycopy(db, 0, connectRequest, 5, db.size)
+            connectRequest[5 + db.size] = (remotePort shr 8).toByte()
+            connectRequest[6 + db.size] = (remotePort and 0xFF).toByte()
             targetOut.write(connectRequest)
             targetOut.flush()
 
             val targetReplyHeader = ByteArray(4)
             if (readExact(targetIn, targetReplyHeader) < 4) return
-            val bndAddr: ByteArray = when (targetReplyHeader[3]) {
+            when (targetReplyHeader[3]) {
                 0x01.toByte() -> {
                     val b = ByteArray(6)
                     readExact(targetIn, b)
-                    b
                 }
                 0x04.toByte() -> {
                     val b = ByteArray(18)
                     readExact(targetIn, b)
-                    b
                 }
                 0x03.toByte() -> {
                     val len = targetIn.read()
-                    val b = ByteArray(len + 2)
-                    readExact(targetIn, b)
-                    val full = ByteArray(1 + b.size)
-                    full[0] = len.toByte()
-                    System.arraycopy(b, 0, full, 1, b.size)
-                    full
+                    if (len >= 0) {
+                        val b = ByteArray(len + 2)
+                        readExact(targetIn, b)
+                    }
                 }
-                else -> ByteArray(0)
+                else -> {}
             }
 
             if (targetReplyHeader[1] != 0x00.toByte()) {
@@ -198,6 +193,8 @@ class LocalHttpProxyServer(
             if (isConnect) {
                 clientOut.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
                 clientOut.flush()
+                runCatching { clientSocket.soTimeout = 0 }
+                runCatching { targetSocket.soTimeout = 0 }
                 val t1 = Thread { pipe(targetIn, clientOut, rxBytes) }
                 val t2 = Thread { pipe(clientIn, targetOut, txBytes) }
                 t1.start()
@@ -205,27 +202,76 @@ class LocalHttpProxyServer(
                 t1.join(300000)
                 t2.join(300000)
             } else {
-                clientOut.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
-                clientOut.flush()
-                val relayToTarget = Thread {
-                    try {
-                        targetOut.write(requestBytes)
-                        targetOut.flush()
-                        txBytes.addAndGet(requestBytes.size.toLong())
-                        pipe(clientIn, targetOut, txBytes)
-                    } catch (_: Exception) {}
-                }
-                val relayToClient = Thread { pipe(targetIn, clientOut, rxBytes) }
-                relayToTarget.start()
-                relayToClient.start()
-                relayToTarget.join(300000)
-                relayToClient.join(300000)
+                runCatching { clientSocket.soTimeout = 0 }
+                runCatching { targetSocket.soTimeout = 0 }
+                val originBytes = toOriginForm(requestBytes)
+                targetOut.write(originBytes)
+                targetOut.flush()
+                txBytes.addAndGet(originBytes.size.toLong())
+                pipe(targetIn, clientOut, rxBytes)
             }
         } catch (e: Exception) {
-            LogRepository.e("[HttpProxy] Relay error: ${e.localizedMessage}")
+            val msg = e.localizedMessage ?: ""
+            if (!msg.contains("timed out", true) && !msg.contains("Socket closed", true) && e !is java.net.SocketTimeoutException) {
+                LogRepository.e("[HttpProxy] Relay error: $msg")
+            }
         } finally {
             runCatching { targetSocket?.close() }
             runCatching { clientSocket.close() }
+        }
+    }
+
+    private fun toOriginForm(requestBytes: ByteArray): ByteArray {
+        try {
+            val text = String(requestBytes, Charsets.ISO_8859_1)
+            val headerEnd = text.indexOf("\r\n\r\n")
+            if (headerEnd < 0) return requestBytes
+            val header = text.substring(0, headerEnd)
+            val lines = header.split("\r\n")
+            if (lines.isEmpty()) return requestBytes
+            val requestLine = lines[0]
+            val lp = requestLine.split(" ")
+            if (lp.size < 3) return requestBytes
+            val method = lp[0]
+            val target = lp[1]
+            val version = lp[2]
+            if (method.equals("CONNECT", true)) return requestBytes
+            var newTarget = target
+            try {
+                val uri = java.net.URI(target)
+                if (uri.scheme != null) {
+                    var path = uri.rawPath
+                    if (path.isNullOrEmpty()) path = "/"
+                    val q = uri.rawQuery
+                    newTarget = if (q != null) "$path?$q" else path
+                }
+            } catch (_: Exception) {}
+            val sb = StringBuilder()
+            sb.append(method).append(' ').append(newTarget).append(' ').append(version).append("\r\n")
+            var hasConnection = false
+            for (i in 1 until lines.size) {
+                val line = lines[i]
+                if (line.startsWith("Proxy-Connection", true) || line.startsWith("Proxy-Authorization", true)) continue
+                if (line.startsWith("Connection:", true)) {
+                    sb.append("Connection: close\r\n")
+                    hasConnection = true
+                } else {
+                    sb.append(line).append("\r\n")
+                }
+            }
+            if (!hasConnection) sb.append("Connection: close\r\n")
+            sb.append("\r\n")
+            val headerBytes = sb.toString().toByteArray(Charsets.ISO_8859_1)
+            val bodyStart = headerEnd + 4
+            return if (requestBytes.size > bodyStart) {
+                val body = requestBytes.copyOfRange(bodyStart, requestBytes.size)
+                val out = ByteArray(headerBytes.size + body.size)
+                System.arraycopy(headerBytes, 0, out, 0, headerBytes.size)
+                System.arraycopy(body, 0, out, headerBytes.size, body.size)
+                out
+            } else headerBytes
+        } catch (_: Exception) {
+            return requestBytes
         }
     }
 
@@ -233,17 +279,17 @@ class LocalHttpProxyServer(
         val buffer = java.io.ByteArrayOutputStream()
         var prev = -1
         var crlfCount = 0
-        val maxBytes = 8192
+        val maxBytes = 16384
         var total = 0
         while (total < maxBytes) {
-            val b = ins.read()
+            val b = try { ins.read() } catch (_: java.net.SocketTimeoutException) { break } catch (_: Exception) { break }
             if (b < 0) break
             buffer.write(b)
             total++
             if (prev == 13 && b == 10) {
                 crlfCount++
                 if (crlfCount == 2) break
-            } else {
+            } else if (b != 10 && b != 13) {
                 crlfCount = 0
             }
             prev = b
@@ -254,7 +300,7 @@ class LocalHttpProxyServer(
     private fun readExact(ins: InputStream, b: ByteArray): Int {
         var o = 0
         while (o < b.size) {
-            val c = ins.read(b, o, b.size - o)
+            val c = try { ins.read(b, o, b.size - o) } catch (_: java.net.SocketTimeoutException) { return o } catch (_: Exception) { return o }
             if (c < 0) return o
             o += c
         }

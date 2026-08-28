@@ -41,7 +41,7 @@ fun AboutUsScreen(
 ) {
     val uriHandler = LocalUriHandler.current
     val colors = appColors()
-    Box(modifier = Modifier.fillMaxSize().background(colors.surfaceSunken)) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (isDesktop) 16.dp else 12.dp
         LazyColumn(
             modifier = Modifier

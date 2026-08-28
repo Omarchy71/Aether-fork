@@ -45,6 +45,7 @@ kotlin {
             implementation(libs.androidx.navigation.compose)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.okhttp)
+            implementation(libs.okio)
             implementation(libs.moshi.kotlin)
             implementation(libs.kotlinx.serialization.json)
         }
@@ -78,13 +79,40 @@ if (!isAndroidDisabled) {
     }
 }
 
+val buildCloakWindows by tasks.registering(Exec::class) {
+    group = "cloak"
+    description = "Compile cloak_windows.c to cloak.exe for Windows package"
+    val src = project.file("src/desktopMain/native/cloak_windows.c")
+    val outDir = project.file("src/desktopMain/resources/bin")
+    val outFile = File(outDir, "cloak.exe")
+    val buildDir = project.file("build/cloak")
+    outputs.file(outFile)
+    inputs.file(src)
+    isIgnoreExitValue = true
+    doFirst {
+        outDir.mkdirs()
+        buildDir.mkdirs()
+        if (!src.exists()) throw GradleException("cloak source missing: $src")
+    }
+    commandLine("cmd", "/c", "where gcc >nul 2>&1 && gcc -O2 -o \"${outFile.absolutePath}\" \"${src.absolutePath}\" -lws2_32 || where clang >nul 2>&1 && clang -O2 -o \"${outFile.absolutePath}\" \"${src.absolutePath}\" -lws2_32 || echo cloak compiler not found, using embedded Kotlin fallback")
+    doLast {
+        if (outFile.exists() && outFile.length() > 0) {
+            project.copy { from(outFile); into(buildDir) }
+            println("cloak.exe built: ${outFile.length()} bytes")
+        } else {
+            println("cloak.exe not built, embedded Kotlin relay will be used")
+        }
+    }
+}
+tasks.named("desktopProcessResources") { dependsOn(buildCloakWindows) }
+
 compose.desktop {
     application {
         mainClass = "io.github.immaghzbad.aetherst.MainKt"
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
             packageName = "AetherST-Tunnel"
-            packageVersion = "1.1.0"
+            packageVersion = "1.1.1"
             vendor = "ImMaghzBad"
             description = "AetherST High-Performance Proxy Tunnel"
 
@@ -100,10 +128,12 @@ compose.desktop {
 
             buildTypes.release.proguard {
                 isEnabled.set(true)
-                optimize.set(true)
+                optimize.set(false)
                 obfuscate.set(true)
                 configurationFiles.from(project.file("proguard-rules.pro"))
             }
         }
     }
 }
+
+
