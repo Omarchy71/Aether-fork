@@ -89,6 +89,7 @@ val buildCloakWindows by tasks.registering(Exec::class) {
     outputs.file(outFile)
     inputs.file(src)
     isIgnoreExitValue = true
+    notCompatibleWithConfigurationCache("Uses Exec with file copy at execution")
     doFirst {
         outDir.mkdirs()
         buildDir.mkdirs()
@@ -97,7 +98,7 @@ val buildCloakWindows by tasks.registering(Exec::class) {
     commandLine("cmd", "/c", "where gcc >nul 2>&1 && gcc -O2 -o \"${outFile.absolutePath}\" \"${src.absolutePath}\" -lws2_32 || where clang >nul 2>&1 && clang -O2 -o \"${outFile.absolutePath}\" \"${src.absolutePath}\" -lws2_32 || echo cloak compiler not found, using embedded Kotlin fallback")
     doLast {
         if (outFile.exists() && outFile.length() > 0) {
-            project.copy { from(outFile); into(buildDir) }
+            outFile.copyTo(File(buildDir, outFile.name), overwrite = true)
             println("cloak.exe built: ${outFile.length()} bytes")
         } else {
             println("cloak.exe not built, embedded Kotlin relay will be used")
