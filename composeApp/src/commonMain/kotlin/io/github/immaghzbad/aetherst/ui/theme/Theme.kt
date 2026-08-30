@@ -44,13 +44,14 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = true,
+    isRtl: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val appColors = if (darkTheme) darkAppColors else lightAppColors
 
     CompositionLocalProvider(
-        LocalLayoutDirection provides LayoutDirection.Ltr,
+        LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
         LocalAppColors provides appColors,
     ) {
         BoxWithConstraints {
@@ -58,7 +59,7 @@ fun MyApplicationTheme(
             CompositionLocalProvider(LocalScaleFactor provides scale) {
                 MaterialTheme(
                     colorScheme = colorScheme,
-                    typography = Typography,
+                    typography = appTypography(isRtl = isRtl),
                     content = content,
                 )
             }

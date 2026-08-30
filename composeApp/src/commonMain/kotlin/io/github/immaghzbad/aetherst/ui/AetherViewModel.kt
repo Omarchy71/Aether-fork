@@ -16,6 +16,7 @@ import io.github.immaghzbad.aetherst.shared.data.ActiveProxyProvider
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.data.PingRepository
 import io.github.immaghzbad.aetherst.shared.data.PingState
+import io.github.immaghzbad.aetherst.shared.i18n.getEffectiveStrings
 import io.github.immaghzbad.aetherst.shared.model.AetherConfig
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
 import io.github.immaghzbad.aetherst.shared.model.AppInfo
@@ -100,7 +101,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         checkBatteryOptimizationStatus()
         checkLastCrash()
         loadInstalledApps()
-        if (isDesktop) checkForUpdates()
+        checkForUpdates()
     }
 
     private fun checkLastCrash() {
@@ -112,13 +113,18 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         }
     }
 
+    private fun localizedToast(selector: io.github.immaghzbad.aetherst.shared.i18n.AppStrings.() -> String): String {
+        return getEffectiveStrings(config.value.appLanguage).selector()
+    }
+
     fun toggleVpn(onPermissionRequired: () -> Unit) {
         val currentState = connectionStatus.value
         if (currentState == ConnectionStatus.STOPPING) return
 
         val cfg = config.value
         if (cfg.protocol == AetherProtocol.ZERO_TRUST) {
-            val ztError = cfg.zeroTrustError()
+            val strings = getEffectiveStrings(cfg.appLanguage)
+            val ztError = cfg.zeroTrustErrorLocalized(strings)
             if (ztError != null) {
                 showToast(ztError, true)
                 _scrollToZeroTrust.value = true
@@ -170,6 +176,11 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
 
     fun updateConfig(newConfig: AetherConfig) {
         val oldConfig = config.value
+        val isUiOnly = oldConfig.copy(connectButtonStyle = newConfig.connectButtonStyle, appLanguage = newConfig.appLanguage) == newConfig
+        if (!isUiOnly && !requireDisconnected()) return
+        if (oldConfig.protocol == AetherProtocol.ZERO_TRUST && newConfig.protocol != AetherProtocol.ZERO_TRUST) {
+            _scrollToZeroTrust.value = false
+        }
         repository.updateConfig(newConfig)
         val needsRestart = oldConfig.connectionMode != newConfig.connectionMode ||
                 oldConfig.tunnelAllApps != newConfig.tunnelAllApps ||
@@ -185,7 +196,8 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 oldConfig.psiphonViaAether != newConfig.psiphonViaAether ||
                 oldConfig.psiphonEgressRegion != newConfig.psiphonEgressRegion ||
                 oldConfig.psiphonSocksPort != newConfig.psiphonSocksPort ||
-                oldConfig.psiphonChainOuter != newConfig.psiphonChainOuter
+                oldConfig.psiphonChainOuter != newConfig.psiphonChainOuter ||
+                oldConfig.psiphonMasqueOrder != newConfig.psiphonMasqueOrder
         if (needsRestart) {
             restartConnection()
         }
@@ -300,16 +312,18 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     }
 
     fun resetAllSettings() {
+        if (!requireDisconnected()) return
         repository.resetToDefaults()
         restartConnection()
     }
 
     fun optimizeMtu() {
+        if (!requireDisconnected()) return
         if (_isOptimizingMtu.value) return
         _isOptimizingMtu.value = true
         
         viewModelScope.launch {
-            showToast("Starting precision MTU discovery...")
+            showToast(localizedToast { TOAST_MTU_DISCOVERY_START })
             
             var probeResult: Int? = null
             var dfIgnored = false
@@ -374,14 +388,14 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             probeResult?.let { finalResult ->
                 val current = config.value
                 val message = when {
-                    dfIgnored -> "DF bit ignored by ISP. Used safe MTU: $finalResult"
-                    finalResult >= 1420 -> "High-speed path detected. Applied MTU: $finalResult"
-                    else -> "Optimal MTU for your path: $finalResult"
+                    dfIgnored -> localizedToast { TOAST_MTU_DF_IGNORED.format(finalResult) }
+                    finalResult >= 1420 -> localizedToast { TOAST_MTU_HIGH_SPEED.format(finalResult) }
+                    else -> localizedToast { TOAST_MTU_OPTIMAL.format(finalResult) }
                 }
                 showToast(message)
                 updateConfig(current.copy(mtu = finalResult))
             } ?: run {
-                showToast("MTU probe failed, using safe default", true)
+                showToast(localizedToast { TOAST_MTU_FAILED }, true)
                 updateConfig(config.value.copy(mtu = 1280))
             }
         }
@@ -390,11 +404,13 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     private fun checkForUpdates() {
         viewModelScope.launch {
             try {
+                val updateUrl = if (isDesktop) {
+                    "https://raw.githubusercontent.com/immaghzbad/AetherST/refs/heads/main/updatewin.json"
+                } else {
+                    "https://raw.githubusercontent.com/immaghzbad/AetherST/refs/heads/main/update.json"
+                }
                 val info = withContext(Dispatchers.Default) {
-                    val request = Request.Builder()
-                        .url("https://raw.githubusercontent.com/immaghzbad/AetherST/refs/heads/main/updatewin.json")
-                        .build()
-
+                    val request = Request.Builder().url(updateUrl).build()
                     io.github.immaghzbad.aetherst.shared.core.NetworkClient.instance.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             val jsonStr = response.body?.string() ?: return@withContext null
@@ -409,7 +425,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                         } else null
                     }
                 }
-                if (info != null && info.version != appVersion) {
+                if (info != null && isNewerVersion(info.version, appVersion, info.versionCode, systemUtils.getAppVersionCode())) {
                     _updateInfo.value = info
                 }
             } catch (e: Throwable) {
@@ -417,6 +433,20 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 LogRepository.w("Update check failed: $msg")
             }
         }
+    }
+
+    private fun isNewerVersion(remoteVersion: String, localVersion: String, remoteCode: Int, localCode: Int): Boolean {
+        if (remoteVersion.isBlank() || localVersion.isBlank()) return remoteCode > localCode
+        fun parse(v: String): List<Int> = v.trim().removePrefix("v").removePrefix("V").split(".", "-", "_").mapNotNull { it.filter { c -> c.isDigit() }.toIntOrNull() }
+        val r = parse(remoteVersion)
+        val l = parse(localVersion)
+        val maxLen = maxOf(r.size, l.size)
+        for (i in 0 until maxLen) {
+            val rv = r.getOrElse(i) { 0 }
+            val lv = l.getOrElse(i) { 0 }
+            if (rv != lv) return rv > lv
+        }
+        return remoteCode > localCode
     }
 
     fun clearCrashLog() {
@@ -429,9 +459,13 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     fun onZeroTrustScrolled() { _scrollToZeroTrust.value = false }
     fun dismissUpdate() { _updateInfo.value = null }
     fun cancelImport() { _importConflictRules.value = null }
-    fun applyPreset(presetId: String) { repository.applyPreset(presetId) }
+    fun applyPreset(presetId: String) {
+        if (!requireDisconnected()) return
+        repository.applyPreset(presetId)
+    }
 
     fun applyAutoDetectResult(result: io.github.immaghzbad.aetherst.shared.model.AutoDetectResult) {
+        if (!requireDisconnected()) return
         val oldConfig = config.value
         val newConfig = oldConfig.copy(
             presetId = "custom",
@@ -464,7 +498,16 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         if (needsRestart) {
             restartConnection()
         }
-        showToast("Auto-Detect configuration applied!")
+        showToast(localizedToast { TOAST_AUTODETECT_APPLIED })
+    }
+
+    private fun requireDisconnected(): Boolean {
+        val s = connectionStatus.value
+        if (s != ConnectionStatus.STOPPED && s != ConnectionStatus.ERROR) {
+            showToast(localizedToast { TOAST_DISCONNECT_FIRST }, true)
+            return false
+        }
+        return true
     }
 
     private var toastJob: Job? = null
@@ -512,7 +555,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             val state = connectionStatus.value
             if (state == ConnectionStatus.RUNNING) {
                 val cfg = config.value
-                PingRepository.runPing(cfg.socksHost, cfg.socksPort.toIntOrNull() ?: 1819, useProxy = true)
+                PingRepository.runPing(cfg.socksHost, cfg.socksPort.toIntOrNull() ?: 1819, useProxy = true, pingUrl = cfg.pingUrl)
             } else {
                 PingRepository.reset()
             }
@@ -555,8 +598,9 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                         val cfg = config.value
                         val host = cfg.socksHost
                         val port = cfg.socksPort.toIntOrNull() ?: 1819
+                        val pingUrl = cfg.pingUrl
                         viewModelScope.launch {
-                            PingRepository.runPing(host, port, useProxy = true)
+                            PingRepository.runPing(host, port, useProxy = true, pingUrl = pingUrl)
                             delay(600.milliseconds)
                             fetchPublicIp()
                         }
@@ -595,7 +639,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     
     fun copyToClipboard(text: String) {
         systemUtils.copyToClipboard(text)
-        showToast("Copied to clipboard")
+        showToast(localizedToast { TOAST_COPIED })
     }
 
     fun copyLogs() {
@@ -646,9 +690,9 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         val json = repository.getFullConfigJson()
         systemUtils.exportFile("AetherST_Backup.astf", json) { success ->
             if (success) {
-                showToast("Backup exported successfully", false)
+                showToast(localizedToast { TOAST_BACKUP_EXPORTED }, false)
             } else {
-                showToast("Failed to export backup", true)
+                showToast(localizedToast { TOAST_BACKUP_EXPORT_FAILED }, true)
             }
         }
     }
@@ -657,10 +701,10 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         systemUtils.importFile { content ->
             if (content != null) {
                 if (repository.restoreFullConfig(content)) {
-                    showToast("Configuration restored", false)
+                    showToast(localizedToast { TOAST_CONFIG_RESTORED }, false)
                     restartConnection()
                 } else {
-                    showToast("Invalid backup file", true)
+                    showToast(localizedToast { TOAST_INVALID_BACKUP }, true)
                 }
             }
         }
@@ -671,13 +715,13 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             val json = Json.encodeToString(config.value.routingRules)
             systemUtils.exportFile("AetherST_Rules.astf", json) { success ->
                 if (success) {
-                    showToast("Routing rules exported", false)
+                    showToast(localizedToast { TOAST_RULES_EXPORTED }, false)
                 } else {
-                    showToast("Failed to export rules", true)
+                    showToast(localizedToast { TOAST_RULES_EXPORT_FAILED }, true)
                 }
             }
         } catch (e: Exception) {
-            showToast("Export error: ${e.message}", true)
+            showToast(localizedToast { TOAST_EXPORT_ERROR.format(e.message ?: "") }, true)
         }
     }
 
@@ -687,12 +731,12 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
                 try {
                     val rules = Json.decodeFromString<List<RoutingRule>>(content)
                     if (rules.isEmpty()) {
-                        showToast("No rules found in file", true)
+                        showToast(localizedToast { TOAST_NO_RULES_IN_FILE }, true)
                         return@importFile
                     }
                     _importConflictRules.value = rules
                 } catch (_: Exception) {
-                    showToast("Invalid rules file", true)
+                    showToast(localizedToast { TOAST_INVALID_RULES_FILE }, true)
                 }
             }
         }
@@ -701,7 +745,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     fun importInternalRoutingRules(assetName: String) {
         val content = systemUtils.readInternalAsset(assetName)
         if (content == null) {
-            showToast("Failed to load internal rules", true)
+            showToast(localizedToast { TOAST_FAILED_LOAD_INTERNAL }, true)
             return
         }
 
@@ -727,12 +771,12 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             }
 
             if (rules.isEmpty()) {
-                showToast("No rules found in asset", true)
+                showToast(localizedToast { TOAST_NO_RULES_IN_ASSET }, true)
                 return
             }
             _importConflictRules.value = rules
         } catch (e: Exception) {
-            showToast("Failed to parse internal rules", true)
+            showToast(localizedToast { TOAST_FAILED_PARSE_INTERNAL }, true)
             LogRepository.e("Internal import error: ${e.message}")
         }
     }

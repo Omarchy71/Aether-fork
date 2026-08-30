@@ -11,9 +11,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class LocalDnsResolver(
     private val vpnService: VpnService,
-    private val socksHost: String,
-    private val socksPort: Int
+    @Volatile private var socksHost: String,
+    @Volatile private var socksPort: Int
 ) {
+    fun updateUpstream(host: String, port: Int) {
+        socksHost = host
+        socksPort = port
+    }
     private val closed = AtomicBoolean(false)
 
     fun resolve(query: ByteArray, serverIp: String): ByteArray? {

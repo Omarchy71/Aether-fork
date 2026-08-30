@@ -5,9 +5,13 @@ import androidx.compose.foundation.defaultScrollbarStyle
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.asAwtTransferable
 import androidx.compose.ui.unit.dp
+import java.awt.datatransfer.DataFlavor
 
 @Composable
 actual fun LogsVerticalScrollbar(
@@ -31,3 +35,9 @@ actual fun PlatformBackHandler(
     onBack: () -> Unit
 ) {
 }
+
+@OptIn(ExperimentalComposeUiApi::class)
+actual fun ClipEntry.textOrNull(): String? = runCatching {
+    val transferable = asAwtTransferable ?: return@runCatching null
+    transferable.getTransferData(DataFlavor.stringFlavor) as? String
+}.getOrNull()

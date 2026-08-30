@@ -80,7 +80,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         val protocolStr = settings.getString("${prefix}protocol", AetherProtocol.MASQUE.name)
         val noiseStr = settings.getString("${prefix}noise", AetherNoise.FIREWALL.name)
         val scanModeStr = settings.getString("${prefix}scan_mode", AetherScanMode.BALANCED.name)
-        val ipModeStr = settings.getString("${prefix}ip_mode", AetherIpMode.IPV4.name)
+        val ipModeStr = settings.getString("${prefix}ip_mode", AetherIpMode.AUTO.name)
         val appLogLevelStr = settings.getString("${prefix}app_log_level", AetherLogLevel.INFO.name)
         val coreLogLevelStr = settings.getString("${prefix}core_log_level", AetherLogLevel.INFO.name)
         val perfProfileStr = settings.getString("${prefix}perf_profile", AetherPerfProfile.MEDIUM.name)
@@ -105,7 +105,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             protocol = protocol,
             noise = runCatching { AetherNoise.valueOf(noiseStr) }.getOrDefault(AetherNoise.FIREWALL),
             scanMode = runCatching { AetherScanMode.valueOf(scanModeStr) }.getOrDefault(AetherScanMode.BALANCED),
-            ipMode = runCatching { AetherIpMode.valueOf(ipModeStr) }.getOrDefault(AetherIpMode.IPV4),
+            ipMode = runCatching { AetherIpMode.valueOf(ipModeStr) }.getOrDefault(AetherIpMode.AUTO),
             echEnabled = settings.getBoolean("${prefix}ech_enabled", false),
             httpProxyEnabled = settings.getBoolean("${prefix}http_proxy_enabled", false),
             perfProfile = runCatching { AetherPerfProfile.valueOf(perfProfileStr) }.getOrDefault(AetherPerfProfile.MEDIUM),
@@ -140,7 +140,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             useGateway = settings.getBoolean("${prefix}use_gateway", false),
             smartReconnect = settings.getBoolean("${prefix}smart_reconnect", true),
             reconnectRetryLimit = settings.getInt("${prefix}reconnect_retry_limit", 10),
-            dnsList = settings.getString("${prefix}dns_list", "1.1.1.1,1.0.0.1"),
+            dnsList = settings.getString("${prefix}dns_list", "1.1.1.1,2606:4700:4700::1111"),
             shareHotspot = settings.getBoolean("${prefix}share_hotspot", false),
             upstreamProxy = settings.getString("${prefix}upstream_proxy", ""),
             upstreamProxyEnabled = settings.getBoolean("${prefix}upstream_proxy_enabled", false),
@@ -168,15 +168,18 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             psiphonSocksPort = settings.getString("${prefix}psiphon_socks_port", "3080"),
             psiphonEgressRegion = sanitizePsiphonEgressRegion(settings.getString("${prefix}psiphon_egress_region", "")),
             psiphonChainMode = sanitizePsiphonChainMode(settings.getString("${prefix}psiphon_chain_mode", "AUTO")),
+            psiphonMasqueOrder = settings.getString("${prefix}psiphon_masque_order", "auto"),
             psiphonViaAether = settings.getBoolean("${prefix}psiphon_via_aether", true),
+            pingUrl = sanitizePingUrl(settings.getString("${prefix}ping_url", "https://www.gstatic.com/generate_204")),
             ztStaySignedIn = settings.getBoolean("${prefix}zt_stay_signed_in", true),
             ztTokenExpiry = settings.getString("${prefix}zt_token_expiry", "0").toLongOrNull() ?: 0,
             connectButtonStyle = sanitizeConnectButtonStyle(settings.getString("${prefix}connect_button_style", "swipe")),
+            appLanguage = sanitizeAppLanguage(settings.getString("${prefix}app_language", "auto")),
             tunnelAllApps = settings.getBoolean("${prefix}tunnel_all_apps", true),
             excludedPackages = settings.getStringSet("${prefix}excluded_packages", emptySet()),
             blockedPackages = settings.getStringSet("${prefix}blocked_packages", emptySet()),
             tunneledPackages = settings.getStringSet("${prefix}tunneled_packages", emptySet()),
-        )
+        ).let { enforceWireGuardConstraints(it) }
     }
 
     private fun sanitizeHevLogLevel(value: String): String {
@@ -186,6 +189,32 @@ class AetherConfigRepository private constructor(private val settings: Settings)
     private fun sanitizeHevUdpMode(value: String): String {
         val v = value.lowercase().trim()
         return if (v in setOf("udp", "icmp", "off", "false")) v else "udp"
+    }
+
+    private fun enforceWireGuardConstraints(cfg: AetherConfig): AetherConfig {
+        var out = cfg
+        val isWgFamily = out.protocol == AetherProtocol.WG || out.protocol == AetherProtocol.GOOL || out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool"
+        if (isWgFamily && !out.httpProxyEnabled) {
+            out = out.copy(httpProxyEnabled = true)
+        }
+        if (isWgFamily && !out.psiphonViaAether) {
+            out = out.copy(psiphonViaAether = true, psiphonEgressRegion = "")
+        }
+        if ((out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool") && out.psiphonChainMode == PsiphonChainMode.FALLBACK) {
+            out = out.copy(psiphonChainMode = PsiphonChainMode.AUTO)
+        }
+        return out
+    }
+
+    private fun sanitizePingUrl(value: String): String {
+        val v = value.trim()
+        if (v.isEmpty()) return "https://www.gstatic.com/generate_204"
+        val lower = v.lowercase()
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) return "https://www.gstatic.com/generate_204"
+        val withoutScheme = v.substringAfter("://")
+        val hostPart = withoutScheme.substringBefore("/").substringBefore(":")
+        if (hostPart.isBlank() || !hostPart.contains(".")) return "https://www.gstatic.com/generate_204"
+        return v
     }
 
     private fun sanitizePsiphonEgressRegion(value: String): String {
@@ -198,6 +227,11 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         return if (v == "capsule" || v == "swipe") v else "swipe"
     }
 
+    private fun sanitizeAppLanguage(value: String): String {
+        val v = value.trim().lowercase()
+        return if (v == "auto" || v == "fa" || v == "en") v else "auto"
+    }
+
     private fun sanitizePsiphonChainMode(value: String): PsiphonChainMode {
         return try { PsiphonChainMode.valueOf(value.uppercase()) } catch (_: Exception) { PsiphonChainMode.AUTO }
     }
@@ -205,7 +239,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
     fun updateConfig(newConfig: AetherConfig) {
         val oldConfig = _config.value
         val sanitized = newConfig
-        val manualConfig = sanitized.copy(presetId = "custom")
+        var manualConfig = enforceWireGuardConstraints(sanitized.copy(presetId = "custom"))
         
         val finalConfig = if (oldConfig.protocol != manualConfig.protocol) {
             saveProtocolSettings(oldConfig)
@@ -224,7 +258,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
 
     fun applyDetectedConfig(newConfig: AetherConfig) {
         val oldConfig = _config.value
-        val manualConfig = newConfig.copy(presetId = "custom")
+        var manualConfig = enforceWireGuardConstraints(newConfig.copy(presetId = "custom"))
 
         if (oldConfig.protocol != manualConfig.protocol) {
             saveProtocolSettings(oldConfig)
@@ -318,10 +352,13 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}psiphon_socks_port", cfg.psiphonSocksPort)
         settings.putString("${prefix}psiphon_egress_region", sanitizePsiphonEgressRegion(cfg.psiphonEgressRegion))
         settings.putString("${prefix}psiphon_chain_mode", cfg.psiphonChainMode.name)
+        settings.putString("${prefix}psiphon_masque_order", cfg.psiphonMasqueOrder)
         settings.putBoolean("${prefix}psiphon_via_aether", cfg.psiphonViaAether)
+        settings.putString("${prefix}ping_url", sanitizePingUrl(cfg.pingUrl))
         settings.putBoolean("${prefix}zt_stay_signed_in", cfg.ztStaySignedIn)
         settings.putString("${prefix}zt_token_expiry", cfg.ztTokenExpiry.toString())
         settings.putString("${prefix}connect_button_style", sanitizeConnectButtonStyle(cfg.connectButtonStyle))
+        settings.putString("${prefix}app_language", sanitizeAppLanguage(cfg.appLanguage))
         settings.putBoolean("${prefix}tunnel_all_apps", cfg.tunnelAllApps)
         settings.putStringSet("${prefix}excluded_packages", cfg.excludedPackages)
         settings.putStringSet("${prefix}blocked_packages", cfg.blockedPackages)
@@ -394,6 +431,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             )
             else -> current
         }
+        updated = enforceWireGuardConstraints(updated)
         LogRepository.i("Configuration profile applied: $presetId")
         saveToSettings("", updated)
         saveProtocolSettings(updated)

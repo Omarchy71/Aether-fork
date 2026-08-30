@@ -243,6 +243,16 @@ class DesktopSystemUtils : SystemUtils {
             } else "1.1.1"
         } catch (_: Exception) { "1.1.1" }
     }
+    override fun getAppVersionCode(): Int {
+        return try {
+            val props = java.util.Properties()
+            val stream = this::class.java.classLoader.getResourceAsStream("app.properties")
+            if (stream != null) {
+                stream.use { props.load(it) }
+                props.getProperty("app.version_code", props.getProperty("app.versionCode", "1")).toIntOrNull() ?: 1
+            } else 1
+        } catch (_: Exception) { 1 }
+    }
     override fun exitApp() {
         try {
             val tempDir = File(System.getProperty("java.io.tmpdir"), "AetherST")
@@ -296,12 +306,18 @@ class DesktopSystemUtils : SystemUtils {
 
     override fun importFile(onResult: (String?) -> Unit) {
         try {
-            val fd = java.awt.FileDialog(null as java.awt.Frame?, "Select Backup File", java.awt.FileDialog.LOAD)
-            fd.isVisible = true
-            val dir = fd.directory
-            val file = fd.file
-            if (dir != null && file != null) {
-                val content = File(dir, file).readText()
+            val fc = javax.swing.JFileChooser()
+            fc.dialogTitle = "Select Backup File"
+            fc.fileSelectionMode = javax.swing.JFileChooser.FILES_ONLY
+            fc.isAcceptAllFileFilterUsed = true
+            fc.addChoosableFileFilter(object : javax.swing.filechooser.FileNameExtensionFilter("AetherST files (*.astf)", "astf") {
+                override fun accept(f: File): Boolean = f.isDirectory || f.name.endsWith(".astf")
+                override fun getDescription(): String = "AetherST files (*.astf)"
+            })
+            fc.fileFilter = fc.choosableFileFilters.last()
+            val result = fc.showOpenDialog(null)
+            if (result == javax.swing.JFileChooser.APPROVE_OPTION) {
+                val content = fc.selectedFile.readText()
                 onResult(content)
             } else {
                 onResult(null)

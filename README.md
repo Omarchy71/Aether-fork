@@ -30,7 +30,7 @@
 
 ## 📱 Versions & Platforms
 
-- **Android Client:** `v1.6.3` (Latest Stable)
+- **Android Client:** `v1.6.4` (Latest Stable)
 - **Windows Client:** `v1.1.1` (First Public Release)
 
 ## ✨ Features
@@ -62,7 +62,7 @@ Enterprise-grade security for individuals and organizations. It allows you to ro
 
 ## 🏗️ Technical Architecture
 
-### [Aether Core (v1.7.0)](https://github.com/CluvexStudio/Aether)
+### [Aether Core (v1.8.0)](https://github.com/CluvexStudio/Aether)
 The orchestration layer responsible for:
 - Encrypted tunnel management.
 - Dynamic gateway health checks.
@@ -112,6 +112,8 @@ Stay updated and get support through our official channels:
 This project uses the following open-source resources:
 
 - [flag-icons](https://github.com/lipis/flag-icons) — Country flag icons for multi-language and region UI elements.
+- [Vazirmatn](https://github.com/rastikerdar/vazirmatn) — Open-source Persian (Farsi) typeface used for RTL language support.
+- [Inter](https://github.com/rsms/inter) — Open-source English typeface used for the interface typeface.
 
 ---
 <p align="center">

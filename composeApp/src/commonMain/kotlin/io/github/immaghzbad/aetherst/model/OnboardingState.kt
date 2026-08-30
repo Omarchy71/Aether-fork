@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class OnboardingStep {
+    LANGUAGE_SELECT,
     WELCOME,
     PROTOCOL_TEST,
     VPN_PERMISSION,

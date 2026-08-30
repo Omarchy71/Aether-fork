@@ -30,7 +30,7 @@ class OnboardingViewModel(platformContext: PlatformContext) : ViewModel() {
 
     private val _state = MutableStateFlow(
         OnboardingState(
-            currentStep = normalizeStep(repository.getOnboardingStep()),
+            currentStep = normalizeStep(repository.getOnboardingStep().let { if (it == OnboardingStep.WELCOME) OnboardingStep.LANGUAGE_SELECT else it }),
             protocolResults = listOf(
                 ProtocolAttemptResult(AetherProtocol.MASQUE),
                 ProtocolAttemptResult(AetherProtocol.WG),
@@ -51,6 +51,11 @@ class OnboardingViewModel(platformContext: PlatformContext) : ViewModel() {
         }
     }
 
+    fun updateLanguage(langCode: String) {
+        val current = repository.config.value
+        repository.updateConfig(current.copy(appLanguage = langCode))
+    }
+
     fun updateScanMode(mode: AetherScanMode) {
         if (_state.value.isProcessing) return
         _state.update { it.copy(selectedScanMode = mode) }
@@ -59,6 +64,7 @@ class OnboardingViewModel(platformContext: PlatformContext) : ViewModel() {
     fun moveToNextStep() {
         val current = _state.value.currentStep
         val nextStep = when (current) {
+            OnboardingStep.LANGUAGE_SELECT -> OnboardingStep.WELCOME
             OnboardingStep.WELCOME -> OnboardingStep.PROTOCOL_TEST
             OnboardingStep.PROTOCOL_TEST -> if (isDesktop) OnboardingStep.SUCCESS else OnboardingStep.VPN_PERMISSION
             OnboardingStep.VPN_PERMISSION -> OnboardingStep.NOTIFICATION_PERMISSION

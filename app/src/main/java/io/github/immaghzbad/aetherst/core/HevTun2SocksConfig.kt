@@ -41,6 +41,7 @@ object HevTun2SocksConfig {
         sb.append("  network: 100.64.0.0\n")
         sb.append("  netmask: 255.192.0.0\n")
         sb.append("  cache-size: ${settings.mapdnsCacheSize.coerceIn(100, 1000000)}\n")
+        sb.append("  nat64-prefix: 64:ff9b::/96\n")
 
         val logLevel = if (settings.logLevel in setOf("error", "warn", "info", "debug")) settings.logLevel else "warn"
         val connectTimeout = settings.connectTimeoutMs.coerceIn(500, 120000)

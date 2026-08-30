@@ -119,11 +119,12 @@ class AetherProcessRunner(private val context: Context) {
                 commandList.add(routingFile.absolutePath)
             }
 
+            val effectiveIp = config.effectiveIpMode()
             commandList.add(
-                when (config.ipMode) {
+                when (effectiveIp) {
                     AetherIpMode.IPV4 -> "-4"
                     AetherIpMode.IPV6 -> "-6"
-                    AetherIpMode.DUAL -> "--dual"
+                    else -> "--dual"
                 },
             )
 
@@ -214,7 +215,7 @@ class AetherProcessRunner(private val context: Context) {
             env["AETHER_PROTOCOL"] = config.protocol.rawValue
             env["AETHER_NOIZE"] = config.noise.rawValue
             env["AETHER_SCAN"] = config.scanMode.rawValue
-            env["AETHER_IP"] = config.ipMode.rawValue
+            env["AETHER_IP"] = config.effectiveIpMode().rawValue
             env["AETHER_SOCKS"] = bindAddress
 
             routingFile?.let { env["AETHER_ROUTES_FILE"] = it.absolutePath }
@@ -413,27 +414,28 @@ class AetherProcessRunner(private val context: Context) {
                 dataPlaneOk = true
                 updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
             }
+            protocol == AetherProtocol.GOOL && lower.contains("tunnel validated") -> {
+                if (lower.contains("outer") && lower.contains("tunnel validated")) {
+                    goolOuterValidated = true
+                    updateState(ConnectionStatus.VALIDATING, attemptId)
+                } else if (lower.contains("inner") && lower.contains("tunnel validated") && goolOuterValidated) {
+                    quickRetryPending.set(false)
+                    dataPlaneOk = true
+                    updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
+                }
+            }
             lower.contains("tunnel validated") || lower.contains("data-plane verification passed") || lower.contains("data plane verification passed") -> {
-                quickRetryPending.set(false)
-                dataPlaneOk = true
-                updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
+                if (protocol != AetherProtocol.GOOL) {
+                    quickRetryPending.set(false)
+                    dataPlaneOk = true
+                    updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
+                }
             }
             lower.contains("socks") && lower.contains("listening") -> {
                 if (dataPlaneOk) {
                     updateState(ConnectionStatus.SOCKS_READY, attemptId)
                 } else {
                     LogRepository.i("[AetherCore] socks listening before data-plane validation; deferring SOCKS_READY", "AetherCore")
-                }
-            }
-            protocol == AetherProtocol.GOOL -> {
-                if (lower.contains("outer") && lower.contains("tunnel validated")) {
-                    goolOuterValidated = true
-                    updateState(ConnectionStatus.VALIDATING, attemptId)
-                }
-                if (lower.contains("inner") && lower.contains("tunnel validated") && goolOuterValidated) {
-                    quickRetryPending.set(false)
-                    dataPlaneOk = true
-                    updateState(ConnectionStatus.DATAPLANE_VALIDATED, attemptId)
                 }
             }
 

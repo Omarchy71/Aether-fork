@@ -11,6 +11,7 @@ import android.os.SystemClock
 import android.system.OsConstants
 import io.github.immaghzbad.aetherst.shared.data.LogRepository
 import io.github.immaghzbad.aetherst.shared.model.RoutingMode
+import io.github.immaghzbad.aetherst.shared.model.SocksReadiness
 import java.io.BufferedOutputStream
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -72,8 +73,8 @@ data class FlowKey6(
 class SocksTunBridge(
     private val vpnService: VpnService,
     private val tunDescriptor: ParcelFileDescriptor,
-    private val socksHost: String = "127.0.0.1",
-    private val socksPort: Int = 1819,
+    @Volatile private var socksHost: String = "127.0.0.1",
+    @Volatile private var socksPort: Int = 1819,
     private val mtu: Int = 1280,
     private val blockedPackagesProvider: () -> Set<String>,
     private val routingEngine: RoutingEngine
@@ -98,7 +99,7 @@ class SocksTunBridge(
     private val udpSessions = ConcurrentHashMap<FlowKey, UdpSession>()
     private val connectivityManager by lazy { vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
     private val connectionOwnerResolver by lazy { ConnectionOwnerResolver(connectivityManager) }
-    private val dnsResolver by lazy { LocalDnsResolver(vpnService, socksHost, socksPort) }
+    private val dnsResolver = LocalDnsResolver(vpnService, socksHost, socksPort)
     private val packageManager by lazy { vpnService.packageManager }
     private val txBytes = AtomicLong(0)
     private val rxBytes = AtomicLong(0)
@@ -124,7 +125,7 @@ class SocksTunBridge(
     fun start() {
         if (isRunning.getAndSet(true)) return
 
-        LogRepository.i("Initializing tunnel bridge (MTU=$mtu)...")
+        LogRepository.i("Initializing tunnel bridge (MTU=$mtu socks=$socksHost:$socksPort gate=${SocksGate.readiness.value})...")
 
         writeThread = Thread({
             val fos = FileOutputStream(tunDescriptor.fileDescriptor)
@@ -178,6 +179,13 @@ class SocksTunBridge(
     }
 
     fun getStats(): Stats = Stats(txBytes.get(), rxBytes.get())
+
+    fun updateUpstream(host: String, port: Int) {
+        socksHost = host
+        socksPort = port
+        runCatching { dnsResolver.updateUpstream(host, port) }
+        LogRepository.i("[TunBridge] Upstream switched to $host:$port mtu=$mtu gate=${SocksGate.readiness.value} activeTcp=${tcpSessions.size} activeUdp=${udpSessions.size}")
+    }
 
     private fun enqueueTun(data: ByteArray, critical: Boolean = false) {
         if (critical) {
@@ -532,6 +540,12 @@ class SocksTunBridge(
         } == true
     }
 
+    private fun supportsIpv4(network: Network): Boolean {
+        return connectivityManager.getLinkProperties(network)?.routes?.any { route ->
+            route.isDefaultRoute && route.destination.address is java.net.Inet4Address
+        } == true
+    }
+
     private fun networkLabel(network: Network): String {
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return "physical"
         return when {
@@ -671,7 +685,10 @@ class SocksTunBridge(
 
                 val requestedDirect = decision.mode == RoutingMode.DIRECT
                 val directNetwork = if (requestedDirect) underlyingNetwork() else null
-                val useDirect = requestedDirect && directNetwork != null && (version == 4 || supportsIpv6(directNetwork))
+                val useDirect = requestedDirect && directNetwork != null && (
+                    (version == 4 && supportsIpv4(directNetwork)) ||
+                    (version == 6 && supportsIpv6(directNetwork))
+                )
 
                 val synAck = if (version == 4) {
                     buildTcp4(bytesToInt(serverIp), bytesToInt(clientIp), serverPort, clientPort, null, mySeq.get(), myAck.get(), 0x12)
@@ -753,25 +770,27 @@ class SocksTunBridge(
                     try {
                         s.connect(InetSocketAddress(socksHost, socksPort), 5000)
                     } catch (e: Exception) {
-                        LogRepository.e("[TunBridge] Failed to connect to SOCKS5 $socksHost:$socksPort for target=$targetIpStr:$serverPort: ${e.message}")
+                        val gate = SocksGate.readiness.value
+                        val detail = if (gate != SocksReadiness.PROBED_OK) " gate=$gate mtu=$mtu socks not ready" else " gate=$gate mtu=$mtu"
+                        LogRepository.e("[TunBridge] Failed to connect to SOCKS5 $socksHost:$socksPort for target=$targetIpStr:$serverPort:$serverPort domain=${sniffedDomain ?: cachedDomain ?: "-"}:$detail err=${e.message}")
                         close()
                         return
                     }
                     ins = s.getInputStream()
                     out = BufferedOutputStream(s.getOutputStream(), 131072)
                     if (!socksHandshake(ins, out)) {
-                        LogRepository.w("[TunBridge] SOCKS5 handshake failed for target=$targetIpStr:$serverPort")
+                        LogRepository.w("[TunBridge] SOCKS5 handshake failed for target=$targetIpStr:$serverPort mtu=$mtu gate=${SocksGate.readiness.value}")
                         close()
                         return
                     }
                     out.write(socksRequest(1, sniffedDomain ?: cachedDomain, serverIp, serverPort))
                     out.flush()
                     if (readSocksReply(ins) == null) {
-                        LogRepository.w("[TunBridge] SOCKS5 CONNECT reply failed for target=$targetIpStr:$serverPort")
+                        LogRepository.w("[TunBridge] SOCKS5 CONNECT reply failed for target=$targetIpStr:$serverPort mtu=$mtu gate=${SocksGate.readiness.value}")
                         close()
                         return
                     }
-                    LogRepository.i("[TunBridge] SOCKS5 tunnel established to $targetIpStr:$serverPort")
+                    LogRepository.i("[TunBridge] SOCKS5 tunnel established to $targetIpStr:$serverPort via $socksHost:$socksPort mtu=$mtu gate=${SocksGate.readiness.value} domain=${sniffedDomain ?: cachedDomain ?: "-"}")
                 }
 
                 connected.set(true)
@@ -909,7 +928,10 @@ class SocksTunBridge(
                 val decision = routingEngine.resolve(targetIpStr, serverPort, targetDomain, null, null)
                 val requestedDirect = decision.mode == RoutingMode.DIRECT
                 val directNetwork = if (requestedDirect) underlyingNetwork() else null
-                val isDirect = requestedDirect && directNetwork != null && (version == 4 || supportsIpv6(directNetwork))
+                val isDirect = requestedDirect && directNetwork != null && (
+                    (version == 4 && supportsIpv4(directNetwork)) ||
+                    (version == 6 && supportsIpv6(directNetwork))
+                )
 
                 if (serverPort == 443 && targetDomain == null && routingEngine.hasDomainRules()) {
                     close()
@@ -951,14 +973,14 @@ class SocksTunBridge(
                     try {
                         ctrl.connect(InetSocketAddress(socksHost, socksPort), 5000)
                     } catch (e: Exception) {
-                        LogRepository.e("[TunBridge] UDP: Failed to connect to SOCKS5 $socksHost:$socksPort: ${e.message}")
+                        LogRepository.e("[TunBridge] UDP: Failed to connect to SOCKS5 $socksHost:$socksPort for target=$targetIpStr:$serverPort mtu=$mtu gate=${SocksGate.readiness.value} err=${e.message}")
                         close()
                         return
                     }
                     val ins = ctrl.getInputStream()
                     val out = ctrl.getOutputStream()
                     if (!socksHandshake(ins, out)) {
-                        LogRepository.w("[TunBridge] UDP: SOCKS5 handshake failed for target=$targetIpStr:$serverPort")
+                        LogRepository.w("[TunBridge] UDP: SOCKS5 handshake failed for target=$targetIpStr:$serverPort mtu=$mtu gate=${SocksGate.readiness.value}")
                         close()
                         return
                     }
@@ -966,14 +988,14 @@ class SocksTunBridge(
                     out.write(socksRequest(3, null, associateAddress, 0))
                     out.flush()
                     val relay = readSocksReply(ins) ?: run {
-                        LogRepository.w("[TunBridge] UDP: SOCKS5 ASSOCIATE reply failed for target=$targetIpStr:$serverPort")
+                        LogRepository.w("[TunBridge] UDP: SOCKS5 ASSOCIATE reply failed for target=$targetIpStr:$serverPort mtu=$mtu gate=${SocksGate.readiness.value}")
                         close()
                         return
                     }
                     relayHost = if (relay.address.isAnyLocalAddress) InetAddress.getByName(socksHost) else relay.address
                     relayPort = relay.port
                     header = socksUdpHeader(targetDomain, serverIp, serverPort)
-                    LogRepository.i("[TunBridge] UDP: SOCKS5 ASSOCIATE established, relay=$relayHost:$relayPort for target=$targetIpStr:$serverPort")
+                    LogRepository.i("[TunBridge] UDP: SOCKS5 ASSOCIATE established, relay=$relayHost:$relayPort for target=$targetIpStr:$serverPort mtu=$mtu via $socksHost:$socksPort gate=${SocksGate.readiness.value}")
                 }
 
                 val relaySocket = DatagramSocket()

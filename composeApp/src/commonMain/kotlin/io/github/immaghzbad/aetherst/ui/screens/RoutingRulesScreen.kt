@@ -32,7 +32,10 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,7 +44,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalFocusManager
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -51,6 +56,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
+import io.github.immaghzbad.aetherst.shared.ui.components.textOrNull
 import io.github.immaghzbad.aetherst.shared.model.*
 
 private val IosCardBg = AppPalette.surfaceRaised
@@ -98,6 +108,8 @@ fun RoutingRulesScreen(
     var showInternalRulesDialog by remember { mutableStateOf(false) }
     var modeFilter by remember { mutableStateOf<RoutingMode?>(null) }
 
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     var ruleToDelete by remember { mutableStateOf<String?>(null) }
     var showClearAllConfirmation by remember { mutableStateOf(false) }
 
@@ -158,10 +170,11 @@ fun RoutingRulesScreen(
     }
 
     if (ruleToDelete != null) {
+        CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
         DeleteConfirmationDialog(
-            title = "Delete Rule",
-            message = "Are you sure you want to remove the routing rule for '${ruleToDelete}'?",
-            confirmText = "Delete",
+            title = strings.ROUTING_EDIT_TITLE_EDIT,
+            message = strings.ROUTING_DIALOG_DELETE_MSG.format(ruleToDelete ?: ""),
+            confirmText = strings.DELETE,
             onConfirm = {
                 onRemoveRule(ruleToDelete!!)
                 ruleToDelete = null
@@ -169,13 +182,15 @@ fun RoutingRulesScreen(
             onDismiss = { ruleToDelete = null },
             scaleFactor = scaleFactor
         )
+        }
     }
 
     if (showClearAllConfirmation) {
+        CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
         DeleteConfirmationDialog(
-            title = "Clear All Rules",
-            message = "This will remove all custom domain and IP routing rules. This action cannot be undone.",
-            confirmText = "Clear All",
+            title = strings.ROUTING_MENU_DELETE_ALL,
+            message = strings.ROUTING_DIALOG_CLEAR_MSG,
+            confirmText = strings.DELETE,
             onConfirm = {
                 onClearAllRules()
                 showClearAllConfirmation = false
@@ -183,6 +198,7 @@ fun RoutingRulesScreen(
             onDismiss = { showClearAllConfirmation = false },
             scaleFactor = scaleFactor
         )
+        }
     }
 
     val filteredRules = remember(rules, searchQuery, modeFilter) {
@@ -218,7 +234,7 @@ fun RoutingRulesScreen(
             }
             Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
             Text(
-                text = "Routing Rules",
+                text = strings.ROUTING_RULES_TITLE,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -246,16 +262,16 @@ fun RoutingRulesScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.FileUpload, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Export Backup (.astb)", color = Color.White, fontSize = 14.sp)
+                                Text(strings.ROUTING_MENU_EXPORT, color = Color.White, fontSize = 14.sp)
                             }
                         },
                         onClick = {
                             showMenu = false
                             if (rules.isEmpty()) {
-                                onShowToast("No rules to export", true)
+                                onShowToast(strings.ROUTING_NO_RULES_TO_EXPORT, true)
                             } else {
                                 onExportRules()
-                                onShowToast("Routing rules exported successfully", false)
+                                onShowToast(strings.ROUTING_EXPORT_SUCCESS, false)
                             }
                         }
                     )
@@ -265,12 +281,12 @@ fun RoutingRulesScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.FileDownload, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Import Backup (.astb)", color = Color.White, fontSize = 14.sp)
+                                Text(strings.ROUTING_MENU_IMPORT, color = Color.White, fontSize = 14.sp)
                             }
                         },
                         onClick = {
                             showMenu = false
-                            onShowToast("File picker currently platform-specific", true)
+                            onImportRules("")
                         }
                     )
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 0.5.dp)
@@ -279,7 +295,7 @@ fun RoutingRulesScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Bookmark, null, tint = IosPurple, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Prebuilt Rule Sets", color = Color.White, fontSize = 14.sp)
+                                Text(strings.ROUTING_MENU_PREBUILT, color = Color.White, fontSize = 14.sp)
                             }
                         },
                         onClick = {
@@ -293,7 +309,7 @@ fun RoutingRulesScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Help & Instructions", color = Color.White, fontSize = 14.sp)
+                                Text(strings.ROUTING_MENU_HELP, color = Color.White, fontSize = 14.sp)
                             }
                         },
                         onClick = {
@@ -307,7 +323,7 @@ fun RoutingRulesScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Delete, null, tint = IosErrorRed, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Delete All Rules", color = IosErrorRed, fontSize = 14.sp)
+                                Text(strings.ROUTING_MENU_DELETE_ALL, color = IosErrorRed, fontSize = 14.sp)
                             }
                         },
                         onClick = {
@@ -315,7 +331,7 @@ fun RoutingRulesScreen(
                             if (rules.isNotEmpty()) {
                                 showClearAllConfirmation = true
                             } else {
-                                onShowToast("List is already empty", true)
+                                onShowToast(strings.ROUTING_LIST_ALREADY_EMPTY, true)
                             }
                         }
                     )
@@ -345,7 +361,7 @@ fun RoutingRulesScreen(
                         Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
                         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
-                                Text("Search rules...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
+                                Text(strings.ROUTING_SEARCH_HINT, color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
                             }
                             innerTextField()
                         }
@@ -426,6 +442,7 @@ private fun EmptyState(
     onImportRules: () -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -450,7 +467,7 @@ private fun EmptyState(
         Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
 
         Text(
-            "No Routing Rules",
+            strings.ROUTING_EMPTY_TITLE,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = Color.White,
@@ -460,7 +477,7 @@ private fun EmptyState(
         Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
 
         Text(
-            "Add rules to control how Aether handles\nspecific domains, IPs, and traffic.",
+            strings.ROUTING_EMPTY_DESC,
             color = IosSecondaryLabel,
             fontSize = (14 * scaleFactor).sp,
             textAlign = TextAlign.Center,
@@ -479,7 +496,7 @@ private fun EmptyState(
         ) {
             Icon(Icons.Default.Add, null, modifier = Modifier.size((20 * scaleFactor).dp))
             Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-            Text("Add Rule", fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+            Text(strings.ROUTING_ADD_RULE, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
         }
 
         Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
@@ -495,7 +512,7 @@ private fun EmptyState(
         ) {
             Icon(Icons.Default.Bookmark, null, modifier = Modifier.size((20 * scaleFactor).dp))
             Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-            Text("Import Prebuilt Sets", fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+            Text(strings.ROUTING_IMPORT_PREBUILT, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
         }
     }
 }
@@ -510,6 +527,7 @@ private fun StatsBar(
     isFiltered: Boolean,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -527,17 +545,17 @@ private fun StatsBar(
                 fontWeight = FontWeight.Medium
             )
         } else {
-            Text(
-                text = "$totalCount",
-                color = Color.White,
-                fontSize = (13 * scaleFactor).sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = " rules",
-                color = IosSecondaryLabel,
-                fontSize = (12 * scaleFactor).sp
-            )
+                Text(
+                    text = "$totalCount",
+                    color = Color.White,
+                    fontSize = (13 * scaleFactor).sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = strings.STATS_RULES,
+                    color = IosSecondaryLabel,
+                    fontSize = (12 * scaleFactor).sp
+                )
         }
 
         if (tunnelCount > 0) {
@@ -571,6 +589,7 @@ private fun ModeFilterChips(
     onModeSelected: (RoutingMode?) -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -578,7 +597,7 @@ private fun ModeFilterChips(
         horizontalArrangement = Arrangement.spacedBy((6 * scaleFactor).dp)
     ) {
         FilterChipItem(
-            label = "All",
+            label = strings.ALL,
             count = totalCount,
             color = IosSecondaryLabel,
             isSelected = selectedMode == null,
@@ -587,7 +606,7 @@ private fun ModeFilterChips(
             modifier = Modifier.weight(1f)
         )
         FilterChipItem(
-            label = "Tunnel",
+            label = strings.ROUTING_FILTER_TUNNEL,
             count = tunnelCount,
             color = IosActiveBlue,
             isSelected = selectedMode == RoutingMode.TUNNEL,
@@ -596,7 +615,7 @@ private fun ModeFilterChips(
             modifier = Modifier.weight(1f)
         )
         FilterChipItem(
-            label = "Direct",
+            label = strings.ROUTING_FILTER_DIRECT,
             count = directCount,
             color = IosActiveGreen,
             isSelected = selectedMode == RoutingMode.DIRECT,
@@ -605,7 +624,7 @@ private fun ModeFilterChips(
             modifier = Modifier.weight(1f)
         )
         FilterChipItem(
-            label = "Block",
+            label = strings.ROUTING_FILTER_BLOCK,
             count = blockCount,
             color = IosErrorRed,
             isSelected = selectedMode == RoutingMode.BLOCK,
@@ -788,11 +807,88 @@ private fun RuleEditDialog(
     onShowToast: (String, Boolean) -> Unit,
     scaleFactor: Float
 ) {
-    var rawPattern by remember { mutableStateOf(initialRule?.pattern ?: "") }
-    var selectedMode by remember {
-        mutableStateOf(initialRule?.mode ?: RoutingMode.TUNNEL)
-    }
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val isEditing = initialRule != null
+    var selectedMode by remember { mutableStateOf(initialRule?.mode ?: RoutingMode.TUNNEL) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    var inputTab by remember { mutableStateOf(if (isEditing) 1 else 0) }
+    var singlePattern by remember { mutableStateOf(initialRule?.pattern ?: "") }
+    var bulkText by remember { mutableStateOf("") }
+    var parsedLines by remember { mutableStateOf<List<String>>(emptyList()) }
+    var duplicateLines by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    val clipboard = LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
+
+    fun parseBulkLines(text: String): List<String> {
+        return text.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith("//") }
+            .distinct()
+    }
+
+    fun extractPatternsFromText(raw: String): List<String> {
+        val results = mutableListOf<String>()
+        val lineRegex = Regex("""[a-zA-Z0-9.\-:/@_~?#=&%+!*\[\]]+""")
+        val ipRegex = Regex("""\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?\b""")
+        val domainRegex = Regex("""(?:https?://)?([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+)""")
+        val cidrRegex = Regex("""\b[a-fA-F0-9:]+(/\d{1,3})\b""")
+        val keywordRegex = Regex("""keyword:(\S+)""")
+
+        val text = raw.trim()
+
+        for (line in text.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            val ipMatch = ipRegex.findAll(trimmed).toList()
+            if (ipMatch.isNotEmpty()) {
+                for (m in ipMatch) {
+                    val value = m.value.lowercase().trimEnd('.')
+                    if (results.none { it.equals(value, ignoreCase = true) }) results.add(value)
+                }
+                continue
+            }
+
+            val domainMatch = domainRegex.findAll(trimmed).toList()
+            if (domainMatch.isNotEmpty()) {
+                for (m in domainMatch) {
+                    val host = m.groupValues[1]
+                    val value = host.lowercase().trimEnd('.')
+                    if (results.none { it.equals(value, ignoreCase = true) }) results.add(value)
+                }
+                continue
+            }
+
+            val cidrMatch = cidrRegex.findAll(trimmed).toList()
+            if (cidrMatch.isNotEmpty()) {
+                for (m in cidrMatch) {
+                    val value = m.value.lowercase()
+                    if (results.none { it.equals(value, ignoreCase = true) }) results.add(value)
+                }
+                continue
+            }
+
+            val kwMatch = keywordRegex.findAll(trimmed).toList()
+            if (kwMatch.isNotEmpty()) {
+                for (m in kwMatch) {
+                    val value = "keyword:${m.groupValues[1]}"
+                    if (results.none { it.equals(value, ignoreCase = true) }) results.add(value)
+                }
+                continue
+            }
+
+            val lineMatches = lineRegex.findAll(trimmed).toList()
+            for (m in lineMatches) {
+                val value = m.value.lowercase().trimEnd('.')
+                if (value.isNotBlank() && results.none { it.equals(value, ignoreCase = true) }) results.add(value)
+            }
+        }
+
+        return results
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -809,81 +905,275 @@ private fun RuleEditDialog(
                 .padding(horizontal = (20 * scaleFactor).dp),
             contentAlignment = Alignment.Center
         ) {
+            CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = (320 * scaleFactor).dp)
+                    .widthIn(max = (360 * scaleFactor).dp)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(AppPalette.surfaceRaised)
                     .clickable(enabled = false) { }
-                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding((20 * scaleFactor).dp),
+                verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
             ) {
                 Text(
-                    text = if (initialRule == null) "Add Routing Rule" else "Edit Routing Rule",
-                    style = MaterialTheme.typography.headlineSmall,
+                    text = if (isEditing) strings.ROUTING_EDIT_TITLE_EDIT else strings.ROUTING_EDIT_TITLE_ADD,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = (18 * scaleFactor).sp
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    "Define how Aether handles specific traffic. Rules match by domain, IP, or CIDR. Use prefixes like 'keyword:' for partial matches.",
-                    fontSize = (13 * scaleFactor).sp,
-                    color = IosSecondaryLabel,
-                    lineHeight = (18 * scaleFactor).sp
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                BasicTextField(
-                    value = rawPattern,
-                    onValueChange = {
-                        rawPattern = it
-                        error = null
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height((48 * scaleFactor).dp)
-                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = (15 * scaleFactor).sp),
-                    singleLine = true,
-                    cursorBrush = SolidColor(IosActiveBlue),
-                    decorationBox = { innerTextField ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (rawPattern.isEmpty()) {
-                                Text("google.com, 1.1.1.1, or keyword:ads", color = IosSecondaryLabel, fontSize = (14 * scaleFactor).sp)
+                if (!isEditing) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(2.dp)
+                    ) {
+                        listOf(strings.ROUTING_EDIT_TAB_SCAN, strings.ROUTING_EDIT_TAB_MANUAL).forEachIndexed { idx, label ->
+                            val isSelected = inputTab == idx
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) IosActiveBlue.copy(alpha = 0.2f) else Color.Transparent)
+                                    .clickable { inputTab = idx }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    label,
+                                    fontSize = (12 * scaleFactor).sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) IosActiveBlue else IosSecondaryLabel
+                                )
                             }
-                            innerTextField()
                         }
                     }
-                )
+                }
+
+                if (isEditing || inputTab == 1) {
+                    CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            strings.ROUTING_EDIT_LABEL_PATTERN,
+                            color = IosSecondaryLabel,
+                            fontSize = (12 * scaleFactor).sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Surface(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val clipEntry = clipboard.getClipEntry()
+                                    val clipText = clipEntry?.textOrNull()
+                                    if (!clipText.isNullOrBlank()) {
+                                        singlePattern = clipText.trim()
+                                        error = null
+                                        onShowToast(strings.ROUTING_PASTE, false)
+                                    } else {
+                                        onShowToast(strings.ROUTING_CLIPBOARD_EMPTY, true)
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = IosActiveBlue.copy(alpha = 0.15f),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.ContentPaste,
+                                    contentDescription = strings.ROUTING_PASTE,
+                                    tint = IosActiveBlue,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(strings.ROUTING_PASTE, color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                    }
+                    BasicTextField(
+                        value = singlePattern,
+                        onValueChange = { singlePattern = it; error = null },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height((44 * scaleFactor).dp)
+                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 14.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = (14 * scaleFactor).sp),
+                        singleLine = true,
+                        cursorBrush = SolidColor(IosActiveBlue),
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (singlePattern.isEmpty()) {
+                                    Text(strings.ROUTING_EDIT_HINT_MANUAL, color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            strings.ROUTING_SCAN_CLIPBOARD_LABEL,
+                            color = IosSecondaryLabel,
+                            fontSize = (12 * scaleFactor).sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (bulkText.isNotEmpty()) {
+                            Surface(
+                                onClick = {
+                                    bulkText = ""
+                                    parsedLines = emptyList()
+                                    duplicateLines = emptyList()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = IosErrorRed.copy(alpha = 0.15f),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = strings.ROUTING_CLEAR,
+                                        tint = IosErrorRed,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(strings.ROUTING_CLEAR, color = IosErrorRed, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Surface(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val clipEntry = clipboard.getClipEntry()
+                                    val clipText = clipEntry?.textOrNull()
+                                    if (!clipText.isNullOrBlank()) {
+                                        val extracted = extractPatternsFromText(clipText)
+                                        if (extracted.isNotEmpty()) {
+                                            val newBulk = extracted.joinToString("\n")
+                                            bulkText = newBulk
+                                            parsedLines = parseBulkLines(newBulk)
+                                            onShowToast(strings.ROUTING_SCANNED_FROM_CLIPBOARD.format(extracted.size, if (extracted.size == 1) "" else "s"), false)
+                                        } else {
+                                            onShowToast(strings.ROUTING_NO_PATTERNS_IN_CLIPBOARD, true)
+                                        }
+                                    } else {
+                                        onShowToast(strings.ROUTING_CLIPBOARD_EMPTY, true)
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = IosActiveBlue.copy(alpha = 0.15f),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.DocumentScanner,
+                                    contentDescription = strings.ROUTING_SCAN_CLIPBOARD_TITLE,
+                                    tint = IosActiveBlue,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(strings.ROUTING_SCAN_CLIPBOARD_TITLE, color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                    BasicTextField(
+                        value = bulkText,
+                        onValueChange = { text ->
+                            bulkText = text
+                            val lines = parseBulkLines(text)
+                            parsedLines = lines
+                            duplicateLines = emptyList()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height((120 * scaleFactor).dp)
+                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(14.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontSize = (13 * scaleFactor).sp, lineHeight = (18 * scaleFactor).sp),
+                        cursorBrush = SolidColor(IosActiveBlue),
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.TopStart) {
+                                if (bulkText.isEmpty()) {
+                                    Text(
+                                        strings.ROUTING_EDIT_HINT_BULK,
+                                        color = IosSecondaryLabel.copy(alpha = 0.5f),
+                                        fontSize = (13 * scaleFactor).sp,
+                                        lineHeight = (18 * scaleFactor).sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                    if (parsedLines.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = IosActiveGreen.copy(alpha = 0.1f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    strings.ROUTING_RULES_DETECTED.format(parsedLines.size, if (parsedLines.size == 1) "" else "s"),
+                                    color = IosActiveGreen,
+                                    fontSize = (12 * scaleFactor).sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    parsedLines.take(5).joinToString(", "),
+                                    color = IosSecondaryLabel,
+                                    fontSize = (11 * scaleFactor).sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (parsedLines.size > 5) {
+                                    Text(
+                                        strings.ROUTING_AND_MORE.format(parsedLines.size - 5),
+                                        color = IosSecondaryLabel,
+                                        fontSize = (11 * scaleFactor).sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
                 AnimatedVisibility(visible = error != null) {
                     Text(
                         text = error ?: "",
                         color = IosErrorRed,
                         fontSize = (11 * scaleFactor).sp,
-                        modifier = Modifier.padding(top = 6.dp, start = 4.dp)
+                        modifier = Modifier.padding(top = 2.dp, start = 4.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
-
-                Text(
-                    "Routing Mode",
-                    color = IosSecondaryLabel,
-                    fontSize = (12 * scaleFactor).sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = (8 * scaleFactor).dp)
-                )
-
+                Text(strings.ROUTING_EDIT_MODE, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, fontWeight = FontWeight.Medium)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                         .padding(2.dp)
                 ) {
                     RoutingMode.entries.forEach { mode ->
@@ -892,23 +1182,21 @@ private fun RuleEditDialog(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(if (isSelected) modeCol.copy(alpha = 0.2f) else Color.Transparent)
                                 .clickable { selectedMode = mode }
-                                .padding(vertical = (10 * scaleFactor).dp),
+                                .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .background(if (isSelected) modeCol else IosSecondaryLabel, CircleShape)
+                                    modifier = Modifier.size(6.dp).background(if (isSelected) modeCol else IosSecondaryLabel, CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                                    fontSize = (13 * scaleFactor).sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                    fontSize = (12 * scaleFactor).sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                     color = if (isSelected) modeCol else IosSecondaryLabel
                                 )
                             }
@@ -916,37 +1204,66 @@ private fun RuleEditDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     TextButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.textButtonColors(contentColor = IosSecondaryLabel)
                     ) {
-                        Text("Cancel", fontWeight = FontWeight.Medium)
+                        Text(strings.CANCEL, fontWeight = FontWeight.Medium)
                     }
                     Button(
                         onClick = {
-                            val cleaned = onCleanPattern(rawPattern)
-                            if (onValidatePattern(cleaned)) {
-                                onConfirm(cleaned, selectedMode)
+                            val isBulk = !isEditing && inputTab == 0
+                            if (isBulk) {
+                                val lines = parseBulkLines(bulkText)
+                                if (lines.isEmpty()) {
+                                    error = strings.ROUTING_NO_VALID_RULES
+                                    return@Button
+                                }
+                                var added = 0
+                                var failed = 0
+                                lines.forEach { line ->
+                                    val cleaned = onCleanPattern(line)
+                                    if (onValidatePattern(cleaned)) {
+                                        onConfirm(cleaned, selectedMode)
+                                        added++
+                                    } else {
+                                        failed++
+                                    }
+                                }
+                                if (failed > 0) {
+                                    onShowToast(strings.ROUTING_ADDED_RULES_SKIPPED.format(added, failed), false)
+                                } else {
+                                    onShowToast(strings.ROUTING_ADDED_RULES.format(added), false)
+                                }
+                                onDismiss()
                             } else {
-                                error = "Invalid format or characters detected"
-                                onShowToast("Please enter valid English pattern", true)
+                                val cleaned = onCleanPattern(singlePattern)
+                                if (onValidatePattern(cleaned)) {
+                                    onConfirm(cleaned, selectedMode)
+                                } else {
+                                    error = strings.ROUTING_INVALID_PATTERN
+                                }
                             }
                         },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
                     ) {
-                        Text(if (initialRule == null) "Add" else "Save", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isEditing) strings.SAVE else if (inputTab == 0 && bulkText.isNotEmpty()) strings.APPLY else strings.ADD,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
+            }
             }
         }
     }
@@ -959,6 +1276,7 @@ private fun RoutingImportConflictDialog(
     onCancel: () -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     Dialog(
         onDismissRequest = onCancel,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -992,7 +1310,7 @@ private fun RoutingImportConflictDialog(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    "Import Conflict",
+                    strings.ROUTING_IMPORT_CONFLICT_TITLE,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -1000,7 +1318,7 @@ private fun RoutingImportConflictDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Some imported rules already exist in your list. How would you like to proceed?",
+                    strings.ROUTING_IMPORT_CONFLICT_DESC,
                     color = IosSecondaryLabel,
                     fontSize = (14 * scaleFactor).sp,
                     textAlign = TextAlign.Center,
@@ -1014,7 +1332,7 @@ private fun RoutingImportConflictDialog(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = IosErrorRed, contentColor = Color.White)
                 ) {
-                    Text("Replace Conflicting", fontWeight = FontWeight.Bold)
+                    Text(strings.ROUTING_IMPORT_CONFLICT_REPLACE, fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1025,7 +1343,7 @@ private fun RoutingImportConflictDialog(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
                 ) {
-                    Text("Merge (Keep Both)", fontWeight = FontWeight.Bold)
+                    Text(strings.ROUTING_IMPORT_CONFLICT_MERGE, fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1034,7 +1352,7 @@ private fun RoutingImportConflictDialog(
                     onClick = onCancel,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {
-                    Text("Cancel Import", color = IosSecondaryLabel)
+                    Text(strings.ROUTING_IMPORT_CONFLICT_CANCEL, color = IosSecondaryLabel)
                 }
             }
         }
@@ -1047,6 +1365,8 @@ private fun RoutingRulesHelpDialog(
     scaleFactor: Float
 ) {
     val scrollState = rememberScrollState()
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1062,6 +1382,7 @@ private fun RoutingRulesHelpDialog(
                 .padding(horizontal = (20 * scaleFactor).dp),
             contentAlignment = Alignment.Center
         ) {
+            CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
             Column(
                 modifier = Modifier
                     .widthIn(max = (350 * scaleFactor).dp)
@@ -1085,11 +1406,12 @@ private fun RoutingRulesHelpDialog(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        "Routing Instructions",
+                        strings.ROUTING_INSTRUCTIONS,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
-                        fontSize = (18 * scaleFactor).sp
+                        fontSize = (18 * scaleFactor).sp,
+                        textAlign = TextAlign.Center
                     )
                 }
 
@@ -1102,32 +1424,32 @@ private fun RoutingRulesHelpDialog(
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     HelpSection(
-                        title = "What is Domain & IP Routing?",
-                        desc = "Control internet destinations globally. Unlike app-based Split Tunneling, these rules apply to all traffic regardless of which app sends it.",
+                        title = strings.ROUTING_HELP_DOMAIN_IP,
+                        desc = strings.ROUTING_HELP_DOMAIN_IP_DESC,
                         icon = Icons.Default.Info,
                         color = IosActiveBlue,
                         scaleFactor = scaleFactor
                     )
 
                     HelpSection(
-                        title = "Routing Modes",
-                        desc = "Tunnel: Route through Aether (Default).\nDirect: Bypass Aether and use the device network.\nBlock: Kill the connection (Ad-blocking).",
+                        title = strings.ROUTING_HELP_MODES,
+                        desc = strings.ROUTING_HELP_MODES_DESC,
                         icon = Icons.Default.Security,
                         color = IosActiveGreen,
                         scaleFactor = scaleFactor
                     )
 
                     HelpSection(
-                        title = "Smart Prefixes",
-                        desc = "domain: Matches exact domain or subdomains.\nip: Matches specific IP or CIDR ranges.\nkeyword: Matches if the URL contains this text.\nregexp: Advanced Regular Expression matching.",
+                        title = strings.ROUTING_HELP_PREFIXES,
+                        desc = strings.ROUTING_HELP_PREFIXES_DESC,
                         icon = Icons.Default.Public,
                         color = IosPurple,
                         scaleFactor = scaleFactor
                     )
 
                     HelpSection(
-                        title = "Formatting Tips",
-                        desc = "Do not include http:// or https://\nUse only English characters and symbols\nPort matching is supported: example.com:443",
+                        title = strings.ROUTING_HELP_FORMATTING,
+                        desc = strings.ROUTING_HELP_FORMATTING_DESC,
                         icon = Icons.Default.Block,
                         color = IosErrorRed,
                         scaleFactor = scaleFactor
@@ -1140,11 +1462,12 @@ private fun RoutingRulesHelpDialog(
                             .padding(16.dp)
                     ) {
                         Text(
-                            "Note: Protocols (http:// or https://) are automatically removed upon saving. The engine routes based on the core domain or IP identity.",
+                            strings.ROUTING_HELP_NOTE,
                             style = MaterialTheme.typography.bodySmall,
                             color = IosSecondaryLabel,
                             lineHeight = 16.sp,
-                            fontSize = (11 * scaleFactor).sp
+                            fontSize = (11 * scaleFactor).sp,
+                            textAlign = TextAlign.Start
                         )
                     }
                 }
@@ -1157,8 +1480,9 @@ private fun RoutingRulesHelpDialog(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
                 ) {
-                    Text("Got it", fontWeight = FontWeight.Bold)
+                    Text(strings.ROUTING_HELP_GOT_IT, fontWeight = FontWeight.Bold)
                 }
+            }
             }
         }
     }
@@ -1183,9 +1507,9 @@ private fun HelpSection(
         }
         Spacer(modifier = Modifier.width(16.dp))
         Column {
-            Text(title, color = color, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+            Text(title, color = color, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp, textAlign = TextAlign.Start)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(desc, color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp, lineHeight = 18.sp)
+            Text(desc, color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp, lineHeight = 18.sp, textAlign = TextAlign.Start)
         }
     }
 }
@@ -1199,6 +1523,7 @@ private fun DeleteConfirmationDialog(
     onDismiss: () -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1263,7 +1588,7 @@ private fun DeleteConfirmationDialog(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {
-                    Text("Cancel", color = IosSecondaryLabel)
+                    Text(strings.CANCEL, color = IosSecondaryLabel)
                 }
             }
         }
@@ -1276,6 +1601,8 @@ private fun InternalRulesDialog(
     onImport: (String) -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1283,15 +1610,22 @@ private fun InternalRulesDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
                 .padding((12 * scaleFactor).dp),
             contentAlignment = Alignment.Center
         ) {
+            CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
             Column(
                 modifier = Modifier
                     .widthIn(max = (350 * scaleFactor).dp)
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
                     .background(AppPalette.surfaceRaised)
+                    .clickable(enabled = false) { }
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -1303,15 +1637,16 @@ private fun InternalRulesDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Prebuilt Rule Sets",
+                    strings.ROUTING_PREBUILT_SETS,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
-                    fontSize = (18 * scaleFactor).sp
+                    fontSize = (18 * scaleFactor).sp,
+                    textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    "Quickly import commonly used routing rule collections.",
+                    strings.ROUTING_PREBUILT_DESC,
                     color = IosSecondaryLabel,
                     fontSize = (13 * scaleFactor).sp,
                     textAlign = TextAlign.Center
@@ -1319,8 +1654,8 @@ private fun InternalRulesDialog(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 InternalRuleButton(
-                    title = "Iran Direct Rules",
-                    desc = "Bypass tunnel for Iranian domains and IP ranges to improve speed and local access.",
+                    title = strings.ROUTING_IRAN_DIRECT,
+                    desc = strings.ROUTING_IRAN_DIRECT_DESC,
                     icon = Icons.Default.Public,
                     color = IosActiveGreen,
                     onClick = { onImport("iran-direct-domains-ipv4-ipv6.astb") },
@@ -1330,8 +1665,8 @@ private fun InternalRulesDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 InternalRuleButton(
-                    title = "Adult Content Block",
-                    desc = "Restrict access to adult-oriented domains for a safer browsing experience.",
+                    title = strings.ROUTING_ADULT_BLOCK,
+                    desc = strings.ROUTING_ADULT_BLOCK_DESC,
                     icon = Icons.Default.Block,
                     color = IosErrorRed,
                     onClick = { onImport("adult-content-block.astb") },
@@ -1341,8 +1676,8 @@ private fun InternalRulesDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 InternalRuleButton(
-                    title = "Ads & DNS Block",
-                    desc = "Block common advertisement domains and public DNS trackers for better privacy.",
+                    title = strings.ROUTING_ADS_DNS_BLOCK,
+                    desc = strings.ROUTING_ADS_DNS_BLOCK_DESC,
                     icon = Icons.Default.Security,
                     color = IosPurple,
                     onClick = { onImport("ads-and-public-dns-block.astb") },
@@ -1355,8 +1690,9 @@ private fun InternalRulesDialog(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {
-                    Text("Close", color = IosActiveBlue, fontWeight = FontWeight.Bold)
+                    Text(strings.ROUTING_CLOSE, color = IosActiveBlue, fontWeight = FontWeight.Bold)
                 }
+            }
             }
         }
     }
@@ -1390,9 +1726,9 @@ private fun InternalRuleButton(
         }
         Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp, textAlign = TextAlign.Start)
             Spacer(modifier = Modifier.height(3.dp))
-            Text(desc, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = 16.sp)
+            Text(desc, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = 16.sp, textAlign = TextAlign.Start)
         }
         Icon(
             Icons.Default.Add,

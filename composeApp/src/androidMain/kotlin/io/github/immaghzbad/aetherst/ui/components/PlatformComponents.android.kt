@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ClipEntry
 
 @Composable
 actual fun LogsVerticalScrollbar(
@@ -20,3 +21,7 @@ actual fun PlatformBackHandler(
 ) {
     BackHandler(enabled = enabled, onBack = onBack)
 }
+
+actual fun ClipEntry.textOrNull(): String? = runCatching {
+    clipData.getItemAt(0).text?.toString()
+}.getOrNull()

@@ -85,13 +85,16 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.data.SpeedTestRepository
 import io.github.immaghzbad.aetherst.shared.model.AetherConfig
 import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
@@ -121,6 +124,7 @@ fun SpeedTestScreen(
     connectionStatus: ConnectionStatus = ConnectionStatus.STOPPED,
     config: AetherConfig = AetherConfig()
 ) {
+    val strings = LocalAppStrings.current
     val state by SpeedTestRepository.state.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var showServerUnavailable by remember { mutableStateOf(false) }
@@ -163,7 +167,7 @@ fun SpeedTestScreen(
             Spacer(modifier = Modifier.width(4.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Speed Test",
+                    text = strings.SPEEDTEST_TITLE,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -171,7 +175,7 @@ fun SpeedTestScreen(
                     lineHeight = 30.sp
                 )
                 Text(
-                    text = "Measure your internet connection performance",
+                    text = strings.SPEEDTEST_SUBTITLE,
                     style = MaterialTheme.typography.bodySmall,
                     color = IosSecondaryLabel,
                     fontSize = 12.sp
@@ -233,10 +237,10 @@ fun SpeedTestScreen(
             ) {
                 Text(
                     text = when (state.phase) {
-                        SpeedTestPhase.COMPLETE -> "Done! Tap below to re-test."
-                        SpeedTestPhase.ERROR -> "Failed. Try again or change server."
-                        SpeedTestPhase.CANCELLED -> "Cancelled. Tap to restart."
-                        else -> "Test your internet — download, upload, ping & jitter."
+                        SpeedTestPhase.COMPLETE -> strings.SPEEDTEST_GUIDE_DONE
+                        SpeedTestPhase.ERROR -> strings.SPEEDTEST_GUIDE_FAILED
+                        SpeedTestPhase.CANCELLED -> strings.SPEEDTEST_GUIDE_CANCELLED
+                        else -> strings.SPEEDTEST_GUIDE_IDLE
                     },
                     color = IosSecondaryLabel,
                     fontSize = 11.sp,
@@ -307,9 +311,9 @@ fun SpeedTestScreen(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         when (state.phase) {
-                            SpeedTestPhase.COMPLETE -> "Re-Test"
-                            SpeedTestPhase.ERROR -> "Retry"
-                            else -> if (checkingServer) "Checking server..." else "Start Speed Test"
+                            SpeedTestPhase.COMPLETE -> strings.SPEEDTEST_BUTTON_RETEST
+                            SpeedTestPhase.ERROR -> strings.SPEEDTEST_BUTTON_RETRY
+                            else -> if (checkingServer) strings.SPEEDTEST_BUTTON_CHECKING else strings.SPEEDTEST_BUTTON_START
                         },
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
@@ -325,7 +329,7 @@ fun SpeedTestScreen(
                 ) {
                     Icon(Icons.Default.Close, null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("Cancel Test", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(strings.SPEEDTEST_BUTTON_CANCEL, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }
@@ -355,6 +359,8 @@ private fun ServerUnavailableDialog(
     onSwitchAndStart: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
@@ -365,6 +371,7 @@ private fun ServerUnavailableDialog(
                 .padding(horizontal = 12.dp)
         ) {
             val textScale = (maxWidth / 360.dp).coerceIn(0.75f, 1f)
+            androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -383,7 +390,7 @@ private fun ServerUnavailableDialog(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        "Server Unavailable",
+                        strings.SPEEDTEST_DIALOG_UNAVAILABLE_TITLE,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = (17 * textScale).sp,
@@ -392,7 +399,7 @@ private fun ServerUnavailableDialog(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        "The $serverName server is currently unreachable. Would you like to switch to Cloudflare and start the speed test?",
+                        strings.SPEEDTEST_DIALOG_UNAVAILABLE_DESC.format(serverName),
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = (13 * textScale).sp,
                         lineHeight = (18 * textScale).sp,
@@ -407,11 +414,12 @@ private fun ServerUnavailableDialog(
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
                         Text(
-                            "Switch to Cloudflare & Start",
+                            strings.SPEEDTEST_DIALOG_SWITCH_START,
                             fontWeight = FontWeight.Bold,
                             fontSize = (13 * textScale).sp,
                             maxLines = 1,
-                            softWrap = false
+                            softWrap = false,
+                            textAlign = TextAlign.Center
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -420,7 +428,7 @@ private fun ServerUnavailableDialog(
                         modifier = Modifier.fillMaxWidth().height(42.dp)
                     ) {
                         Text(
-                            "Cancel",
+                            strings.CANCEL,
                             color = IosSecondaryLabel,
                             fontWeight = FontWeight.Bold,
                             fontSize = (13 * textScale).sp,
@@ -430,6 +438,7 @@ private fun ServerUnavailableDialog(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -437,6 +446,7 @@ private fun ServerUnavailableDialog(
 
 @Composable
 private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -> Unit) {
+    val strings = LocalAppStrings.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -446,11 +456,11 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Settings, null, tint = IosActiveBlue, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Test Settings", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(strings.SPEEDTEST_SETTINGS_TITLE, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("SERVER", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Text(strings.SPEEDTEST_SETTINGS_SERVER, color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -533,12 +543,12 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                     }
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("Must support /__down?bytes=N and /__up endpoints", color = IosSecondaryLabel, fontSize = 9.sp)
+                Text(strings.SPEEDTEST_SETTINGS_SERVER_DESC, color = IosSecondaryLabel, fontSize = 9.sp)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("DISPLAY UNIT", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Text(strings.SPEEDTEST_SETTINGS_DISPLAY_UNIT, color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier
@@ -548,8 +558,8 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                     .padding(3.dp)
             ) {
                 listOf(
-                    "Bytes (MB/s)" to false,
-                    "Bits (Mb/s)" to true
+                    strings.SPEEDTEST_SETTINGS_BYTES to false,
+                    strings.SPEEDTEST_SETTINGS_BITS to true
                 ).forEach { (label, isBits) ->
                     val selected = config.showBits == isBits
                     Box(
@@ -573,14 +583,14 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("TEST SIZE", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Text(strings.SPEEDTEST_SETTINGS_TEST_SIZE, color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Download", color = IosSecondaryLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(strings.SPEEDTEST_SETTINGS_DOWNLOAD, color = IosSecondaryLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier
@@ -611,7 +621,7 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                     }
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Upload", color = IosSecondaryLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(strings.SPEEDTEST_SETTINGS_UPLOAD, color = IosSecondaryLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier
@@ -645,9 +655,9 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("PARALLEL DOWNLOAD STREAMS", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            Text(strings.SPEEDTEST_SETTINGS_PARALLEL_STREAMS, color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
             Spacer(modifier = Modifier.height(4.dp))
-            Text("More streams measure faster connections more accurately", color = IosSecondaryLabel.copy(alpha = 0.7f), fontSize = 9.sp)
+            Text(strings.SPEEDTEST_SETTINGS_PARALLEL_DESC, color = IosSecondaryLabel.copy(alpha = 0.7f), fontSize = 9.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier
@@ -685,8 +695,8 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("AUTO UNIT", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text("Scale unit automatically (KB/s → MB/s → GB/s)", color = IosSecondaryLabel, fontSize = 10.sp)
+                    Text(strings.SPEEDTEST_SETTINGS_AUTO_UNIT, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(strings.SPEEDTEST_SETTINGS_AUTO_UNIT_DESC, color = IosSecondaryLabel, fontSize = 10.sp)
                 }
                 Switch(
                     checked = config.autoUnit,
@@ -707,7 +717,7 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("WARM-UP PINGS DISCARDED", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                Text(strings.SPEEDTEST_SETTINGS_WARMUP_DISCARDED, color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = IosActiveBlue.copy(alpha = 0.15f)
@@ -722,7 +732,7 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
-            Text("First samples include connection warm-up — discarding them improves accuracy", color = IosSecondaryLabel.copy(alpha = 0.7f), fontSize = 9.sp)
+            Text(strings.SPEEDTEST_SETTINGS_WARMUP_DESC, color = IosSecondaryLabel.copy(alpha = 0.7f), fontSize = 9.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Slider(
                 value = config.pingWarmup.toFloat(),
@@ -743,7 +753,7 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("PING SAMPLES", color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                Text(strings.SPEEDTEST_SETTINGS_PING_SAMPLES, color = IosSecondaryLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = IosActiveBlue.copy(alpha = 0.15f)
@@ -776,6 +786,7 @@ private fun SettingsPanel(config: SpeedTestConfig, onUpdate: (SpeedTestConfig) -
 
 @Composable
 private fun ProgressCard(state: SpeedTestState) {
+    val strings = LocalAppStrings.current
     val phaseColor = when (state.phase) {
         SpeedTestPhase.PING -> IosAmber
         SpeedTestPhase.DOWNLOAD -> IosActiveGreen
@@ -783,10 +794,10 @@ private fun ProgressCard(state: SpeedTestState) {
         else -> IosActiveBlue
     }
     val phaseName = when (state.phase) {
-        SpeedTestPhase.PING -> "PING & JITTER"
-        SpeedTestPhase.DOWNLOAD -> "DOWNLOAD"
-        SpeedTestPhase.UPLOAD -> "UPLOAD"
-        else -> "TESTING"
+        SpeedTestPhase.PING -> strings.SPEEDTEST_PHASE_PING_JITTER
+        SpeedTestPhase.DOWNLOAD -> strings.SPEEDTEST_PHASE_DOWNLOAD
+        SpeedTestPhase.UPLOAD -> strings.SPEEDTEST_PHASE_UPLOAD
+        else -> strings.SPEEDTEST_PHASE_TESTING
     }
 
     Card(
@@ -845,6 +856,7 @@ private fun ProgressCard(state: SpeedTestState) {
 
 @Composable
 private fun LivePingStats(state: SpeedTestState) {
+    val strings = LocalAppStrings.current
     Column {
         Row(
             modifier = Modifier
@@ -856,7 +868,7 @@ private fun LivePingStats(state: SpeedTestState) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("CURRENT", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_LABEL_CURRENT, color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
                     if (state.livePingMs >= 0) "${state.livePingMs}" else "—",
                     color = when {
@@ -872,9 +884,9 @@ private fun LivePingStats(state: SpeedTestState) {
             }
             Box(modifier = Modifier.width(1.dp).height(40.dp).background(Color.White.copy(alpha = 0.08f)))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("SAMPLES", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_LABEL_SAMPLES, color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text("${state.livePingCount}", color = IosActiveBlue, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
-                Text("of ${state.config.pingSamples}", color = IosSecondaryLabel, fontSize = 10.sp)
+                Text("${strings.SPEEDTEST_LABEL_OF} ${state.config.pingSamples}", color = IosSecondaryLabel, fontSize = 10.sp)
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -882,15 +894,16 @@ private fun LivePingStats(state: SpeedTestState) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MiniStat("MIN", if (state.livePingMin >= 0) "${state.livePingMin}ms" else "—", IosActiveGreen, Modifier.weight(1f))
-            MiniStat("AVG", if (state.livePingAvg >= 0) "${"%.1f".format(state.livePingAvg)}ms" else "—", IosActiveBlue, Modifier.weight(1f))
-            MiniStat("MAX", if (state.livePingMax >= 0) "${state.livePingMax}ms" else "—", IosErrorRed, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_MIN, if (state.livePingMin >= 0) "${state.livePingMin}ms" else "—", IosActiveGreen, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_AVG, if (state.livePingAvg >= 0) "${"%.1f".format(state.livePingAvg)}ms" else "—", IosActiveBlue, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_MAX, if (state.livePingMax >= 0) "${state.livePingMax}ms" else "—", IosErrorRed, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
 private fun LiveDownloadStats(state: SpeedTestState, config: SpeedTestConfig) {
+    val strings = LocalAppStrings.current
     val formatSpeed = if (config.showBits) SpeedTestRepository::formatBitsPerSecond else SpeedTestRepository::formatBytesPerSecond
     Column {
         Row(
@@ -903,7 +916,7 @@ private fun LiveDownloadStats(state: SpeedTestState, config: SpeedTestConfig) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("SPEED", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_LABEL_SPEED, color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
                     formatSpeed(state.liveDownloadBps),
                     color = IosActiveGreen,
@@ -913,7 +926,7 @@ private fun LiveDownloadStats(state: SpeedTestState, config: SpeedTestConfig) {
             }
             Box(modifier = Modifier.width(1.dp).height(40.dp).background(Color.White.copy(alpha = 0.08f)))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("DOWNLOADED", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_LABEL_DOWNLOADED, color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
                     SpeedTestRepository.formatBytes(state.liveDownloadTotal),
                     color = Color.White,
@@ -927,15 +940,16 @@ private fun LiveDownloadStats(state: SpeedTestState, config: SpeedTestConfig) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MiniStat("ELAPSED", "${state.livePhaseElapsed}s", IosActiveGreen, Modifier.weight(1f))
-            MiniStat("SPEED", formatSpeed(state.liveDownloadBps), IosActiveBlue, Modifier.weight(1f))
-            MiniStat("TOTAL", SpeedTestRepository.formatBytes(state.liveDownloadTotal), IosAmber, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_ELAPSED, "${state.livePhaseElapsed}s", IosActiveGreen, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_SPEED, formatSpeed(state.liveDownloadBps), IosActiveBlue, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_TOTAL, SpeedTestRepository.formatBytes(state.liveDownloadTotal), IosAmber, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
 private fun LiveUploadStats(state: SpeedTestState, config: SpeedTestConfig) {
+    val strings = LocalAppStrings.current
     val formatSpeed = if (config.showBits) SpeedTestRepository::formatBitsPerSecond else SpeedTestRepository::formatBytesPerSecond
     Column {
         Row(
@@ -948,7 +962,7 @@ private fun LiveUploadStats(state: SpeedTestState, config: SpeedTestConfig) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("SPEED", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_LABEL_SPEED, color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
                     formatSpeed(state.liveUploadBps),
                     color = IosPurple,
@@ -958,7 +972,7 @@ private fun LiveUploadStats(state: SpeedTestState, config: SpeedTestConfig) {
             }
             Box(modifier = Modifier.width(1.dp).height(40.dp).background(Color.White.copy(alpha = 0.08f)))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("UPLOADED", color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_LABEL_UPLOADED, color = IosSecondaryLabel, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Text(
                     SpeedTestRepository.formatBytes(state.liveUploadTotal),
                     color = Color.White,
@@ -972,9 +986,9 @@ private fun LiveUploadStats(state: SpeedTestState, config: SpeedTestConfig) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MiniStat("ELAPSED", "${state.livePhaseElapsed}s", IosPurple, Modifier.weight(1f))
-            MiniStat("SPEED", formatSpeed(state.liveUploadBps), IosActiveBlue, Modifier.weight(1f))
-            MiniStat("TOTAL", SpeedTestRepository.formatBytes(state.liveUploadTotal), IosAmber, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_ELAPSED, "${state.livePhaseElapsed}s", IosPurple, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_SPEED, formatSpeed(state.liveUploadBps), IosActiveBlue, Modifier.weight(1f))
+            MiniStat(strings.SPEEDTEST_LABEL_TOTAL, SpeedTestRepository.formatBytes(state.liveUploadTotal), IosAmber, Modifier.weight(1f))
         }
     }
 }
@@ -1002,6 +1016,7 @@ private fun MiniStat(label: String, value: String, color: Color, modifier: Modif
 
 @Composable
 private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
+    val strings = LocalAppStrings.current
     val infiniteTransition = rememberInfiniteTransition(label = "resultGlow")
     val glowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.2f, targetValue = 0.5f,
@@ -1021,8 +1036,8 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
             modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Test Complete", color = IosActiveGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text("Server: ${result.serverName}", color = IosSecondaryLabel, fontSize = 12.sp)
+            Text(strings.SPEEDTEST_RESULTS_COMPLETE, color = IosActiveGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(strings.SPEEDTEST_RESULTS_SERVER.format(result.serverName), color = IosSecondaryLabel, fontSize = 12.sp)
             Spacer(modifier = Modifier.height(20.dp))
 
             Row(
@@ -1030,12 +1045,12 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 SpeedGauge(
-                    label = "DOWNLOAD",
+                    label = strings.SPEEDTEST_RESULTS_DOWNLOAD,
                     display = speedDisplay(result.downloadBps, config),
                     color = IosActiveGreen
                 )
                 SpeedGauge(
-                    label = "UPLOAD",
+                    label = strings.SPEEDTEST_RESULTS_UPLOAD,
                     display = speedDisplay(result.uploadBps, config),
                     color = IosPurple
                 )
@@ -1052,7 +1067,7 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("PING", color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    Text(strings.SPEEDTEST_LABEL_PING, color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "${"%.1f".format(result.pingMs)}",
@@ -1069,7 +1084,7 @@ private fun ResultsCard(result: SpeedTestResult, config: SpeedTestConfig) {
                         .background(Color.White.copy(alpha = 0.08f))
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("JITTER", color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    Text(strings.SPEEDTEST_LABEL_JITTER, color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "${"%.1f".format(result.jitterMs)}",
@@ -1093,31 +1108,34 @@ private data class SpeedVerdict(
     val useCases: List<String>
 )
 
+@Composable
 private fun connectionVerdict(result: SpeedTestResult): SpeedVerdict {
+    val strings = LocalAppStrings.current
     val mbps = result.downloadMbps
     val (grade, color) = when {
-        mbps >= 100 -> "Excellent" to IosActiveGreen
-        mbps >= 50 -> "Great" to IosActiveGreen
-        mbps >= 25 -> "Good" to IosActiveBlue
-        mbps >= 10 -> "Fair" to IosAmber
-        mbps >= 5 -> "Slow" to IosAmber
-        else -> "Very Slow" to IosErrorRed
+        mbps >= 100 -> strings.SPEEDTEST_VERDICT_EXCELLENT to IosActiveGreen
+        mbps >= 50 -> strings.SPEEDTEST_VERDICT_GREAT to IosActiveGreen
+        mbps >= 25 -> strings.SPEEDTEST_VERDICT_GOOD to IosActiveBlue
+        mbps >= 10 -> strings.SPEEDTEST_VERDICT_FAIR to IosAmber
+        mbps >= 5 -> strings.SPEEDTEST_VERDICT_SLOW to IosAmber
+        else -> strings.SPEEDTEST_VERDICT_VERY_SLOW to IosErrorRed
     }
     val useCases = buildList {
-        if (mbps >= 25) add("4K streaming")
-        else if (mbps >= 10) add("HD streaming")
-        else if (mbps >= 5) add("SD video")
-        if (result.pingMs < 60 && result.jitterMs < 10 && mbps >= 10) add("Online gaming")
-        else if (result.pingMs < 100 && result.jitterMs < 20) add("Casual gaming")
-        if (mbps >= 3) add("Video calls")
-        else add("Voice calls")
-        if (mbps < 5) add(0, "Basic browsing")
+        if (mbps >= 25) add(strings.SPEEDTEST_USECASE_4K)
+        else if (mbps >= 10) add(strings.SPEEDTEST_USECASE_HD)
+        else if (mbps >= 5) add(strings.SPEEDTEST_USECASE_SD)
+        if (result.pingMs < 60 && result.jitterMs < 10 && mbps >= 10) add(strings.SPEEDTEST_USECASE_ONLINE_GAMING)
+        else if (result.pingMs < 100 && result.jitterMs < 20) add(strings.SPEEDTEST_USECASE_CASUAL_GAMING)
+        if (mbps >= 3) add(strings.SPEEDTEST_USECASE_VIDEO_CALLS)
+        else add(strings.SPEEDTEST_USECASE_VOICE_CALLS)
+        if (mbps < 5) add(0, strings.SPEEDTEST_USECASE_BASIC_BROWSING)
     }.distinct()
     return SpeedVerdict(grade, color, useCases)
 }
 
 @Composable
 private fun ConnectionVerdict(result: SpeedTestResult) {
+    val strings = LocalAppStrings.current
     val verdict = connectionVerdict(result)
     Row(
         modifier = Modifier
@@ -1139,7 +1157,7 @@ private fun ConnectionVerdict(result: SpeedTestResult) {
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    "connection",
+                    strings.SPEEDTEST_VERDICT_CONNECTION,
                     color = IosSecondaryLabel,
                     fontWeight = FontWeight.Medium,
                     fontSize = 12.sp
@@ -1195,6 +1213,7 @@ private fun speedDisplay(bps: Double, config: SpeedTestConfig): Pair<String, Str
 
 @Composable
 private fun ResultDetailsCard(result: SpeedTestResult, config: SpeedTestConfig, onCopy: (String) -> Unit) {
+    val strings = LocalAppStrings.current
     val detailText = buildString {
         appendLine("Speed Test Results")
         appendLine("Server: ${result.serverName}")
@@ -1224,31 +1243,31 @@ private fun ResultDetailsCard(result: SpeedTestResult, config: SpeedTestConfig, 
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Detailed Results", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(strings.SPEEDTEST_DETAILS_TITLE, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 IconButton(
                     onClick = { onCopy(detailText) },
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.ContentCopy, "Copy results", tint = IosActiveBlue, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.ContentCopy, strings.SPEEDTEST_DETAILS_COPY_RESULTS, tint = IosActiveBlue, modifier = Modifier.size(18.dp))
                 }
             }
             Spacer(modifier = Modifier.height(14.dp))
 
-            DetailRow("Download Speed", speedDisplay(result.downloadBps, config).let { (v, u) -> if (u.isEmpty()) v else "$v $u" })
+            DetailRow(strings.SPEEDTEST_DETAILS_DOWNLOAD_SPEED, speedDisplay(result.downloadBps, config).let { (v, u) -> if (u.isEmpty()) v else "$v $u" })
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
-            DetailRow("Upload Speed", speedDisplay(result.uploadBps, config).let { (v, u) -> if (u.isEmpty()) v else "$v $u" })
+            DetailRow(strings.SPEEDTEST_DETAILS_UPLOAD_SPEED, speedDisplay(result.uploadBps, config).let { (v, u) -> if (u.isEmpty()) v else "$v $u" })
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
-            DetailRow("Ping (Median)", "${"%.1f".format(result.pingMs)} ms")
+            DetailRow(strings.SPEEDTEST_DETAILS_PING_MEDIAN, "${"%.1f".format(result.pingMs)} ms")
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
-            DetailRow("Jitter (StdDev)", "${"%.1f".format(result.jitterMs)} ms")
+            DetailRow(strings.SPEEDTEST_DETAILS_JITTER_STDDEV, "${"%.1f".format(result.jitterMs)} ms")
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
-            DetailRow("Ping Samples", "${result.pingSamples.size} measurements")
+            DetailRow(strings.SPEEDTEST_DETAILS_PING_SAMPLES, "${result.pingSamples.size} ${strings.SPEEDTEST_DETAILS_MEASUREMENTS}")
             HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 6.dp))
-            DetailRow("Server", result.serverName)
+            DetailRow(strings.SPEEDTEST_DETAILS_SERVER, result.serverName)
 
             if (result.pingSamples.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(14.dp))
-                Text("PING SAMPLES", color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                Text(strings.SPEEDTEST_DETAILS_PING_SAMPLES_HEADER, color = IosSecondaryLabel, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
@@ -1259,19 +1278,19 @@ private fun ResultDetailsCard(result: SpeedTestResult, config: SpeedTestConfig, 
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                        Text("MIN", color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.SPEEDTEST_LABEL_MIN, color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         Text("${result.pingSamples.minOrNull() ?: 0}ms", color = IosActiveGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                        Text("AVG", color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.SPEEDTEST_LABEL_AVG, color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         Text("${"%.0f".format(result.pingSamples.average())}ms", color = IosActiveBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                        Text("MAX", color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.SPEEDTEST_LABEL_MAX, color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         Text("${result.pingSamples.maxOrNull() ?: 0}ms", color = IosErrorRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                        Text("MED", color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.SPEEDTEST_LABEL_MED, color = IosSecondaryLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         Text("${result.pingSamples.sorted().let { it[it.size / 2] }}ms", color = IosAmber, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -1295,6 +1314,7 @@ private fun DetailRow(label: String, value: String) {
 
 @Composable
 private fun ErrorCard(error: String?) {
+    val strings = LocalAppStrings.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -1306,9 +1326,9 @@ private fun ErrorCard(error: String?) {
         ) {
             Icon(Icons.Default.Error, null, tint = IosErrorRed, modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Test Failed", color = IosErrorRed, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(strings.SPEEDTEST_ERROR_TITLE, color = IosErrorRed, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(6.dp))
-            Text(error ?: "Unknown error", color = IosSecondaryLabel, fontSize = 13.sp, textAlign = TextAlign.Center)
+            Text(error ?: strings.SPEEDTEST_ERROR_UNKNOWN, color = IosSecondaryLabel, fontSize = 13.sp, textAlign = TextAlign.Center)
         }
     }
 }

@@ -47,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +67,8 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.NavHost
@@ -119,6 +122,7 @@ private sealed class Screen(val route: String, val tabIndex: Int?) {
 fun MainScreen(viewModel: AetherViewModel, onboardingViewModel: OnboardingViewModel, platformContext: PlatformContext) {
     val isOnboardingComplete by viewModel.isOnboardingComplete.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
+    val config by viewModel.config.collectAsStateWithLifecycle()
     val updateInfo by viewModel.updateInfo.collectAsStateWithLifecycle()
     val crashLog by viewModel.crashLog.collectAsStateWithLifecycle()
     val toastState by viewModel.toastState.collectAsStateWithLifecycle()
@@ -150,7 +154,10 @@ fun MainScreen(viewModel: AetherViewModel, onboardingViewModel: OnboardingViewMo
                     viewModel.requestBatteryOptimization()
                     onboardingViewModel.onPermissionRequested()
                 },
-                onFinish = onboardingViewModel::moveToNextStep
+                onFinish = onboardingViewModel::moveToNextStep,
+                appLanguage = config.appLanguage,
+                onSelectLanguage = { onboardingViewModel.updateLanguage(it) },
+                onConfirmLanguage = { onboardingViewModel.moveToNextStep() }
             )
         } else if (crashLog != null) {
             CrashReportScreen(
@@ -563,6 +570,7 @@ private fun CurvedNavBar(
     scaleFactor: Float,
     modifier: Modifier = Modifier
 ) {
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val isAndroid = try { Class.forName("android.os.Build"); true } catch(_: Throwable) { false }
     val navBarPadding = if (isAndroid) WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
 
@@ -574,11 +582,12 @@ private fun CurvedNavBar(
         val scaledBarTopY = (BarTopY.value * scaleFactor).dp
         val scaledItemBottomPadding = (ItemBottomPadding.value * scaleFactor).dp + navBarPadding
 
+        val strings = io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings.current
         val tabs = listOf(
-            "Dashboard" to Icons.Default.Dashboard,
-            "Settings" to Icons.Default.Settings,
-            "Logs" to Icons.Default.Code,
-            "About" to Icons.Default.Info
+            strings.NAV_DASHBOARD to Icons.Default.Dashboard,
+            strings.NAV_SETTINGS to Icons.Default.Settings,
+            strings.NAV_LOGS to Icons.Default.Code,
+            strings.NAV_ABOUT to Icons.Default.Info
         )
         val tabCount = tabs.size
         var barWidthPx by remember { mutableIntStateOf(0) }
@@ -588,10 +597,11 @@ private fun CurvedNavBar(
             animationSpec = spring(Spring.DampingRatioLowBouncy, Spring.StiffnessLow),
             label = "indicatorOffset"
         )
+        val visualOffset = if (isRtl) (tabCount - 1 - indicatorOffset) else indicatorOffset
 
         var displayedNavIcon by remember { mutableIntStateOf(selectedTab) }
         SideEffect {
-            if (kotlin.math.abs(indicatorOffset - selectedTab) < 0.5f) displayedNavIcon = selectedTab
+            displayedNavIcon = selectedTab
         }
 
         Box(
@@ -609,7 +619,7 @@ private fun CurvedNavBar(
                     )
             ) {
                 val tabWidth = size.width / tabCount
-                val centerX = (indicatorOffset * tabWidth) + (tabWidth / 2)
+                val centerX = (visualOffset * tabWidth) + (tabWidth / 2)
                 val barTop = scaledBarTopY.toPx()
                 val notchBottom =
                     scaledButtonCenterY.toPx() + (scaledButtonSize.toPx() / 2f) + scaledCircleGap.toPx()
@@ -670,8 +680,10 @@ private fun CurvedNavBar(
                     .offset {
                         val tabWidth = barWidthPx.toFloat() / tabCount
                         val outerSize = scaledButtonSize.toPx() + scaledCircleGap.toPx() * 2f
+                        val offsetX = visualOffset * tabWidth + (tabWidth / 2) - (outerSize / 2f)
                         IntOffset(
-                            (indicatorOffset * tabWidth + (tabWidth / 2) - (outerSize / 2f)).roundToInt(),
+                            if (isRtl) (barWidthPx.toFloat() - offsetX - outerSize).roundToInt()
+                            else offsetX.roundToInt(),
                             (scaledButtonCenterY.toPx() - outerSize / 2f).roundToInt()
                         )
                     },

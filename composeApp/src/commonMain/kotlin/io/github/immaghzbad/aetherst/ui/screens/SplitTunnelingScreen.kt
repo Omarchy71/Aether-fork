@@ -38,10 +38,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.immaghzbad.aetherst.platform.AppIcon
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.model.AppInfo
 
 private val IosCardBg = AppPalette.surfaceRaised
@@ -62,6 +66,7 @@ fun SplitTunnelingScreen(
     tunneledPackages: Set<String> = emptySet(),
     onBulkUpdateMode: (List<String>, Int) -> Unit = { _, _ -> }
 ) {
+    val strings = LocalAppStrings.current
     val effectiveTunneled = if (tunneledPackages.isNotEmpty() || excludedPackages.isEmpty()) tunneledPackages else emptySet()
     val focusManager = LocalFocusManager.current
     var searchQuery by remember { mutableStateOf("") }
@@ -110,8 +115,8 @@ fun SplitTunnelingScreen(
             IconButton(onClick = onBack, modifier = Modifier.size((36 * scaleFactor).dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size((20 * scaleFactor).dp)) }
             Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("Split Tunneling", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (18 * scaleFactor).sp, lineHeight = (20 * scaleFactor).sp)
-                Text(if (tunnelAllApps) "Whole device tunneled" else "$tunneledCount Tunnel • $bypassCount Bypass • $blockedCount Blocked", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
+                Text(strings.SPLIT_TITLE, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (18 * scaleFactor).sp, lineHeight = (20 * scaleFactor).sp)
+                Text(if (tunnelAllApps) strings.SPLIT_WHOLE_DEVICE_TUNNELED else strings.SPLIT_STATS_TUNNEL_BYPASS_BLOCKED.format(tunneledCount, bypassCount, blockedCount), color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
             }
             IconButton(onClick = { showHelpDialog = true }, modifier = Modifier.size((36 * scaleFactor).dp)) { Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size((20 * scaleFactor).dp)) }
         }
@@ -121,15 +126,15 @@ fun SplitTunnelingScreen(
                 Icon(Icons.Default.Info, null, tint = Color(0xFFFFD60A), modifier = Modifier.size((16 * scaleFactor).dp))
                 Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
                 Column {
-                    Text("Tunnel Whole Device is ON", color = Color(0xFFFFD60A), fontWeight = FontWeight.Bold, fontSize = (12 * scaleFactor).sp)
-                    Text("Turn off \"Tunnel Whole Device\" in Settings to use per-app rules. Default is Bypass (Direct).", color = Color.White.copy(alpha = 0.6f), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp)
+                    Text(strings.SPLIT_WHOLE_DEVICE_ON, color = Color(0xFFFFD60A), fontWeight = FontWeight.Bold, fontSize = (12 * scaleFactor).sp, textAlign = TextAlign.Start)
+                    Text(strings.SPLIT_WHOLE_DEVICE_ON_DESC, color = Color.White.copy(alpha = 0.6f), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp, textAlign = TextAlign.Start)
                 }
             }
         } else {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp).background(IosActiveGreen.copy(alpha = 0.08f), RoundedCornerShape(10.dp)).padding((8 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Public, null, tint = IosActiveGreen, modifier = Modifier.size((14 * scaleFactor).dp))
                 Spacer(modifier = Modifier.width((6 * scaleFactor).dp))
-                Text("Default: Bypass (Direct). Turn on switch to tunnel, tap block icon to block.", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, lineHeight = (14 * scaleFactor).sp)
+                Text(strings.SPLIT_DEFAULT_HINT, color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, lineHeight = (14 * scaleFactor).sp, textAlign = TextAlign.Start)
             }
         }
 
@@ -139,7 +144,7 @@ fun SplitTunnelingScreen(
                     Icon(Icons.Default.Search, null, tint = IosSecondaryLabel, modifier = Modifier.size((18 * scaleFactor).dp))
                     Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                        if (searchQuery.isEmpty()) Text(if (isWindowsDesktop) "Search apps, e.g. Chrome..." else "Search apps...", color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp)
+                        if (searchQuery.isEmpty()) Text(if (isWindowsDesktop) strings.SPLIT_SEARCH_HINT_DESKTOP else strings.SPLIT_SEARCH_HINT, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp)
                         innerTextField()
                     }
                     if (searchQuery.isNotEmpty()) Icon(Icons.Default.Block, null, tint = IosSecondaryLabel, modifier = Modifier.size((16 * scaleFactor).dp).clickable { searchQuery = "" })
@@ -148,7 +153,7 @@ fun SplitTunnelingScreen(
         }
 
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp).background(IosCardBg, RoundedCornerShape(10.dp)).padding(2.dp)) {
-            listOf("User Apps", "System Apps").forEachIndexed { index, title ->
+            listOf(strings.SPLIT_TAB_USER_APPS, strings.SPLIT_TAB_SYSTEM_APPS).forEachIndexed { index, title ->
                 val isSelected = selectedTab == index
                 Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) IosActiveBlue else Color.Transparent).clickable { selectedTab = index }.padding(vertical = (7 * scaleFactor).dp), contentAlignment = Alignment.Center) {
                     Text(title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, color = if (isSelected) Color.White else IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
@@ -157,7 +162,7 @@ fun SplitTunnelingScreen(
         }
 
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (4 * scaleFactor).dp), horizontalArrangement = Arrangement.spacedBy((6 * scaleFactor).dp)) {
-            listOf("All", "Tunnel", "Bypass", "Blocked").forEachIndexed { index, label ->
+            listOf(strings.SPLIT_FILTER_ALL, strings.SPLIT_FILTER_TUNNEL, strings.SPLIT_FILTER_BYPASS, strings.SPLIT_FILTER_BLOCKED).forEachIndexed { index, label ->
                 val isSelected = modeFilter == index
                 val count = when (index) { 1 -> tunneledCount; 2 -> bypassCount; 3 -> blockedCount; else -> filteredApps.size }
                 Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) Color.White.copy(alpha = 0.12f) else IosCardBg).clickable { modeFilter = index }.padding(vertical = (6 * scaleFactor).dp), contentAlignment = Alignment.Center) {
@@ -171,18 +176,22 @@ fun SplitTunnelingScreen(
                 TextButton(onClick = {
                     val pkgs = filteredApps.filter { effectiveTunneled.contains(it.packageName) || blockedPackages.contains(it.packageName) }.map { it.packageName }
                     if (pkgs.isNotEmpty()) onBulkUpdateMode(pkgs, 0)
-                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Bypass All", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp) }
+                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text(strings.SPLIT_BYPASS_ALL, color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp) }
                 TextButton(onClick = {
                     val pkgs = filteredApps.filter { !effectiveTunneled.contains(it.packageName) }.map { it.packageName }
                     if (pkgs.isNotEmpty()) onBulkUpdateMode(pkgs, 1)
-                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text("Tunnel All", color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Bold) }
+                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text(strings.SPLIT_TUNNEL_ALL, color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = {
+                    val pkgs = filteredApps.filter { !blockedPackages.contains(it.packageName) }.map { it.packageName }
+                    if (pkgs.isNotEmpty()) onBulkUpdateMode(pkgs, 2)
+                }, contentPadding = PaddingValues(horizontal = (8 * scaleFactor).dp, vertical = (2 * scaleFactor).dp)) { Text(strings.SPLIT_BLOCK_ALL, color = AppPalette.statusError, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Bold) }
             }
         }
 
         if (isWindowsDesktop) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp, vertical = (2 * scaleFactor).dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("${filteredApps.size} apps • $tunneledCount tunneled", color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Medium)
-                if (searchQuery.isNotEmpty()) Text("for \"${searchQuery}\"", color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.SemiBold)
+                Text(strings.SPLIT_APPS_TUNNELED.format(filteredApps.size, tunneledCount), color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+                if (searchQuery.isNotEmpty()) Text(strings.SPLIT_FOR_QUERY.format(searchQuery), color = IosActiveBlue, fontSize = (11 * scaleFactor).sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -201,18 +210,20 @@ fun SplitTunnelingScreen(
 
 @Composable
 private fun AppLineItem(app: AppInfo, mode: Int, onUpdateMode: (Int) -> Unit, enabled: Boolean = true, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val bg = when (mode) {
         2 -> AppPalette.statusError.copy(alpha = 0.08f)
         1 -> IosActiveBlue.copy(alpha = 0.08f)
         else -> IosCardBg
     }
+    androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Row(modifier = Modifier.fillMaxWidth().background(bg, RoundedCornerShape((12 * scaleFactor).dp)).padding(horizontal = (10 * scaleFactor).dp, vertical = (8 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
         AppIcon(app = app, modifier = Modifier.size((36 * scaleFactor).dp).clip(RoundedCornerShape((8 * scaleFactor).dp)))
         Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(app.name, fontWeight = FontWeight.SemiBold, color = if (mode == 2) AppPalette.statusError else Color.White, fontSize = (13 * scaleFactor).sp, maxLines = 1)
-            Text(app.packageName, color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp, maxLines = 1)
-            if (mode != 0) Text(if (mode == 1) "Tunnel • VPN" else "Blocked • No internet", color = if (mode == 1) IosActiveBlue else AppPalette.statusError, fontSize = (10 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+            Text(app.name, fontWeight = FontWeight.SemiBold, color = if (mode == 2) AppPalette.statusError else Color.White, fontSize = (13 * scaleFactor).sp, maxLines = 1, textAlign = TextAlign.Left)
+            Text(app.packageName, color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp, maxLines = 1, textAlign = TextAlign.Left)
+            if (mode != 0) Text(if (mode == 1) strings.SPLIT_TUNNEL_VPN else strings.SPLIT_BLOCKED_NO_INTERNET, color = if (mode == 1) IosActiveBlue else AppPalette.statusError, fontSize = (10 * scaleFactor).sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Left)
         }
         Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
         IconButton(onClick = { if (!enabled) return@IconButton; onUpdateMode(if (mode == 2) 0 else 2) }, modifier = Modifier.size((32 * scaleFactor).dp), enabled = enabled) {
@@ -223,28 +234,33 @@ private fun AppLineItem(app: AppInfo, mode: Int, onUpdateMode: (Int) -> Unit, en
         Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
         Switch(checked = mode == 1, onCheckedChange = { checked -> if (!enabled || mode == 2) return@Switch; onUpdateMode(if (checked) 1 else 0) }, enabled = enabled && mode != 2, modifier = Modifier.graphicsLayer { scaleX = 0.75f; scaleY = 0.75f }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = IosActiveBlue, checkedBorderColor = Color.Transparent, uncheckedThumbColor = Color.White, uncheckedTrackColor = IosInactiveTrack, uncheckedBorderColor = Color.Transparent, disabledCheckedTrackColor = IosActiveBlue.copy(alpha = 0.4f), disabledUncheckedTrackColor = IosInactiveTrack.copy(alpha = 0.4f)))
     }
+    }
 }
 
 @Composable
 private fun SplitTunnelHelpDialog(visible: Boolean, onDismiss: () -> Unit, onTransitionEnd: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, dismissOnClickOutside = true)) {
         AnimatedVisibility(visible = visible, enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.9f), exit = fadeOut(tween(250)) + scaleOut(tween(250), targetScale = 0.9f)) {
             DisposableEffect(Unit) { onDispose { onTransitionEnd() } }
             Box(modifier = Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss), contentAlignment = Alignment.Center) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
                 Column(modifier = Modifier.fillMaxWidth().padding((12 * scaleFactor).dp).clip(RoundedCornerShape((20 * scaleFactor).dp)).background(AppPalette.surfaceRaised.copy(alpha = 0.98f)).clickable(enabled = false) {}.padding((20 * scaleFactor).dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Info, null, tint = IosActiveBlue, modifier = Modifier.size((20 * scaleFactor).dp))
                         Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
-                        Text("Split Tunnel Modes", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = (16 * scaleFactor).sp)
+                        Text(strings.SPLIT_HELP_TITLE, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = (16 * scaleFactor).sp, textAlign = TextAlign.Center)
                     }
                     Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
                     Column(verticalArrangement = Arrangement.spacedBy((14 * scaleFactor).dp)) {
-                        HelpItem(title = "Bypass (Default)", desc = "Direct connection. Default when Whole Device is OFF. Best for banking, local apps.", icon = Icons.Default.Public, color = IosActiveGreen, scaleFactor = scaleFactor)
-                        HelpItem(title = "Tunnel", desc = "Encrypted via Aether VPN. Turn on switch for apps you want protected.", icon = Icons.Default.Security, color = IosActiveBlue, scaleFactor = scaleFactor)
-                        HelpItem(title = "Blocked", desc = "No internet. Tap block icon to isolate app completely.", icon = Icons.Default.Block, color = AppPalette.statusError, scaleFactor = scaleFactor)
+                        HelpItem(title = strings.SPLIT_HELP_BYPASS_TITLE, desc = strings.SPLIT_HELP_BYPASS_DESC, icon = Icons.Default.Public, color = IosActiveGreen, scaleFactor = scaleFactor)
+                        HelpItem(title = strings.SPLIT_HELP_TUNNEL_TITLE, desc = strings.SPLIT_HELP_TUNNEL_DESC, icon = Icons.Default.Security, color = IosActiveBlue, scaleFactor = scaleFactor)
+                        HelpItem(title = strings.SPLIT_HELP_BLOCKED_TITLE, desc = strings.SPLIT_HELP_BLOCKED_DESC, icon = Icons.Default.Block, color = AppPalette.statusError, scaleFactor = scaleFactor)
                     }
                     Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
-                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height((44 * scaleFactor).dp), colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text("Got it", fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp) }
+                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height((44 * scaleFactor).dp), colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White), shape = RoundedCornerShape(12.dp)) { Text(strings.ROUTING_HELP_GOT_IT, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp) }
+                }
                 }
             }
         }
@@ -257,9 +273,9 @@ private fun HelpItem(title: String, desc: String, icon: ImageVector, color: Colo
         Box(modifier = Modifier.size((36 * scaleFactor).dp).background(color.copy(alpha = 0.15f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = color, modifier = Modifier.size((18 * scaleFactor).dp)) }
         Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = color, fontWeight = FontWeight.Bold, fontSize = (13 * scaleFactor).sp)
+            Text(title, color = color, fontWeight = FontWeight.Bold, fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Start)
             Spacer(modifier = Modifier.height((2 * scaleFactor).dp))
-            Text(desc, color = Color.White.copy(alpha = 0.6f), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp)
+            Text(desc, color = Color.White.copy(alpha = 0.6f), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp, textAlign = TextAlign.Start)
         }
     }
 }

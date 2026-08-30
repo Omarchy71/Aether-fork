@@ -137,10 +137,11 @@ class AetherProcessRunner(private val context: PlatformContext) {
                 }
                 if (config.useGateway) command.add("--gateway")
             }
-            command.add(when (config.ipMode) {
+            val effectiveIp = config.effectiveIpMode()
+            command.add(when (effectiveIp) {
                 AetherIpMode.IPV4 -> "-4"
                 AetherIpMode.IPV6 -> "-6"
-                AetherIpMode.DUAL -> "--dual"
+                else -> "--dual"
             })
             if (config.h2Mode) command.add("--h2")
             if (config.echEnabled) {
@@ -187,7 +188,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
             env["AETHER_PROTOCOL"] = config.protocol.rawValue
             env["AETHER_NOIZE"] = config.noise.rawValue
             env["AETHER_SCAN"] = config.scanMode.rawValue
-            env["AETHER_IP"] = config.ipMode.rawValue
+            env["AETHER_IP"] = config.effectiveIpMode().rawValue
             env["AETHER_SOCKS"] = bindAddress
             env["AETHER_LOG_LEVEL"] = config.coreLogLevel.rawValue
             env["AETHER_PERF_PROFILE"] = config.perfProfile.rawValue

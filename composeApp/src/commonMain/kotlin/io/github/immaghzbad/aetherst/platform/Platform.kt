@@ -9,8 +9,10 @@ expect class PlatformContext
 interface VpnController {
     fun startVpn()
     fun stopVpn()
+    fun restartVpn()
     fun startProxy()
     fun stopProxy()
+    fun restartProxy()
     fun prepareVpn(onPermissionRequired: () -> Unit): Boolean
     fun isVpnPrepared(): Boolean
     fun submitLoginCode(code: String)
@@ -31,6 +33,7 @@ interface SystemUtils {
     fun getCacheDir(): String
     fun getPackageName(): String
     fun getAppVersion(): String
+    fun getAppVersionCode(): Int
     fun exitApp()
     fun execPing(host: String, size: Int, timeoutMs: Int, dontFragment: Boolean = false): Boolean
     fun getInterfaceMtu(): Int

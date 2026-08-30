@@ -95,6 +95,22 @@ class AndroidVpnController(private val context: Context) : VpnController {
         context.startService(intent)
     }
 
+    override fun restartVpn() {
+        val intent = Intent().apply {
+            setClassName(context.packageName, "io.github.immaghzbad.aetherst.service.AetherVpnService")
+            action = "io.github.immaghzbad.aetherst.ACTION_RESTART"
+        }
+        context.startForegroundService(intent)
+    }
+
+    override fun restartProxy() {
+        val intent = Intent().apply {
+            setClassName(context.packageName, "io.github.immaghzbad.aetherst.service.AetherProxyService")
+            action = "PROXY_RESTART"
+        }
+        context.startForegroundService(intent)
+    }
+
     override fun submitLoginCode(code: String) {
         Bridge.submitLoginCode?.invoke(code)
     }
@@ -149,7 +165,15 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     override fun getFilesDir(): String = context.filesDir.absolutePath
     override fun getCacheDir(): String = context.cacheDir.absolutePath
     override fun getPackageName(): String = context.packageName
-    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.3" } catch (_: Exception) { "1.6.3" }
+    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.4" } catch (_: Exception) { "1.6.4" }
+    override fun getAppVersionCode(): Int = try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            info.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION") info.versionCode
+        }
+    } catch (_: Exception) { 3 }
     override fun exitApp() { Process.killProcess(Process.myPid()) }
 
     override fun readLastCrashLog(): String? {

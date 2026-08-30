@@ -11,6 +11,3 @@ app/build/
 *.jks
 *.keystore
 app/release/
-
-# Freebuff internal
-.freebuff/

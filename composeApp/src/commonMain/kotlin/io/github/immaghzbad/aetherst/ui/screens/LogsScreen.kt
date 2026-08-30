@@ -58,12 +58,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.immaghzbad.aetherst.shared.model.LogEntry
@@ -71,6 +75,7 @@ import io.github.immaghzbad.aetherst.shared.model.LogLevel
 import io.github.immaghzbad.aetherst.shared.model.AetherLogLevel
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.ui.AetherViewModel
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.ui.components.LogsVerticalScrollbar
 import kotlinx.coroutines.launch
 
@@ -88,6 +93,7 @@ fun LogsScreen(
     onShowToast: (String, Boolean) -> Unit = { _, _ -> },
     bottomContentPadding: Dp = 0.dp
 ) {
+    val strings = LocalAppStrings.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         val screenWidth = this.maxWidth
         val scaleFactor = (screenWidth.value / 411f).coerceIn(0.7f, 1.1f)
@@ -142,14 +148,14 @@ fun LogsScreen(
             ) {
                 Column {
                     Text(
-                        text = "AetherST Logs",
+                        text = strings.LOGS_TITLE,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         fontSize = (26 * scaleFactor).sp
                     )
                     Text(
-                        text = "App & Aether Core Logs",
+                        text = strings.LOGS_SUBTITLE,
                         style = MaterialTheme.typography.bodySmall,
                         color = IosSecondaryLabel,
                         fontSize = (11 * scaleFactor).sp
@@ -160,13 +166,13 @@ fun LogsScreen(
                     IconButton(
                         onClick = {
                             viewModel.copyLogs()
-                            onShowToast("Logs copied to clipboard", false)
+                            onShowToast(strings.LOGS_COPY, false)
                         },
                         modifier = Modifier.size((40 * scaleFactor).dp).testTag("copy_logs_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy Logs",
+                            contentDescription = strings.LOGS_COPY,
                             tint = IosActiveBlue,
                             modifier = Modifier.size((20 * scaleFactor).dp)
                         )
@@ -178,7 +184,7 @@ fun LogsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Share Logs",
+                            contentDescription = strings.LOGS_SHARE,
                             tint = IosActiveBlue,
                             modifier = Modifier.size((20 * scaleFactor).dp)
                         )
@@ -190,7 +196,7 @@ fun LogsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Clear Logs",
+                            contentDescription = strings.LOGS_CLEAR,
                             tint = IosErrorRed,
                             modifier = Modifier.size((20 * scaleFactor).dp)
                         )
@@ -219,7 +225,7 @@ fun LogsScreen(
                         )
                         Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
                         Text(
-                            text = "Core logging is OFF to eliminate RAM overhead. Set Log Level in Settings to record engine events.",
+                            text = strings.LOGS_CORE_OFF_WARNING,
                             style = MaterialTheme.typography.bodySmall,
                             color = IosSecondaryLabel,
                             fontSize = (10 * scaleFactor).sp,
@@ -261,7 +267,7 @@ fun LogsScreen(
                         Spacer(modifier = Modifier.width((8 * scaleFactor).dp))
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (searchQuery.isEmpty()) {
-                                Text("Search logs...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
+                                Text("${strings.SEARCH}...", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
                             }
                             innerTextField()
                         }
@@ -300,9 +306,9 @@ fun LogsScreen(
                     ) {
                         Text(
                             text = when (label) {
-                                "CORE" -> "AETHER CORE"
-                                "APP" -> "APP ONLY"
-                                else -> "ALL SOURCES"
+                                "CORE" -> strings.LOGS_FILTER_CORE
+                                "APP" -> strings.LOGS_FILTER_APP_ONLY
+                                else -> strings.LOGS_FILTER_ALL_SOURCES
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -324,11 +330,11 @@ fun LogsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 val filters = listOf(
-                    "ALL" to null,
-                    "INFO" to LogLevel.INFO,
-                    "WARN" to LogLevel.WARN,
-                    "ERROR" to LogLevel.ERROR,
-                    "DEBUG" to LogLevel.DEBUG
+                    strings.LOGS_LEVEL_ALL to null,
+                    strings.LOGS_LEVEL_INFO to LogLevel.INFO,
+                    strings.LOGS_LEVEL_WARN to LogLevel.WARN,
+                    strings.LOGS_LEVEL_ERROR to LogLevel.ERROR,
+                    strings.LOGS_LEVEL_DEBUG to LogLevel.DEBUG
                 )
 
                 filters.forEach { (label, level) ->
@@ -368,9 +374,9 @@ fun LogsScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         val msg = if (config.coreLogLevel == AetherLogLevel.OFF && config.appLogLevel == AetherLogLevel.OFF) {
-                            "Logging disabled in Config"
+                            strings.LOGS_EMPTY_DISABLED
                         } else {
-                            "No log records found"
+                            strings.LOGS_EMPTY_NO_RECORDS
                         }
                         Text(
                             text = msg,
@@ -470,6 +476,7 @@ fun IosLogLineItem(
         LogLevel.DEBUG -> IosDebugCyan
     }
 
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -503,7 +510,8 @@ fun IosLogLineItem(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFFF2F2F7),
-                fontSize = (12 * scaleFactor).sp
+                fontSize = (12 * scaleFactor).sp,
+                textAlign = TextAlign.Start
             )
 
             Spacer(modifier = Modifier.height((6 * scaleFactor).dp))
@@ -543,9 +551,11 @@ fun IosLogLineItem(
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     color = IosSecondaryLabel.copy(alpha = 0.7f),
-                    fontSize = (9 * scaleFactor).sp
+                    fontSize = (9 * scaleFactor).sp,
+                    textAlign = TextAlign.Start
                 )
             }
+        }
         }
     }
 }

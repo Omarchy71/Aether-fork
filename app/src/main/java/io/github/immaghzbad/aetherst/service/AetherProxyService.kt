@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import io.github.immaghzbad.aetherst.MainActivity
@@ -30,6 +32,7 @@ class AetherProxyService : Service() {
     companion object {
         const val ACTION_START = "io.github.immaghzbad.aetherst.PROXY_START"
         const val ACTION_STOP = "io.github.immaghzbad.aetherst.PROXY_STOP"
+        const val ACTION_RESTART = "io.github.immaghzbad.aetherst.PROXY_RESTART"
         const val CHANNEL_ID = "aether_proxy_status"
         const val NOTIFICATION_ID = 1002
 
@@ -48,6 +51,15 @@ class AetherProxyService : Service() {
             true
         }.getOrElse {
             LogRepository.e("[ProxyService] Stop failed: ${it.localizedMessage}")
+            false
+        }
+
+        fun restartProxy(context: Context): Boolean = runCatching {
+            val intent = Intent(context, AetherProxyService::class.java).apply { action = ACTION_RESTART }
+            context.startForegroundService(intent)
+            true
+        }.getOrElse {
+            LogRepository.e("[ProxyService] Restart failed: ${it.localizedMessage}")
             false
         }
 
@@ -70,8 +82,22 @@ class AetherProxyService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startAttempt(commandCounter.incrementAndGet())
-            ACTION_STOP -> stopProxyService(commandCounter.incrementAndGet())
+            ACTION_START -> {
+                showInitialNotification()
+                startAttempt(commandCounter.incrementAndGet())
+            }
+            ACTION_RESTART -> {
+                showInitialNotification()
+                restartProxyService(commandCounter.incrementAndGet())
+            }
+            ACTION_STOP -> {
+                showInitialNotification()
+                stopProxyService(commandCounter.incrementAndGet())
+            }
+            else -> {
+                showInitialNotification()
+                startAttempt(commandCounter.incrementAndGet())
+            }
         }
         return START_STICKY
     }
@@ -79,32 +105,56 @@ class AetherProxyService : Service() {
     private fun startAttempt(commandId: Long) {
         startupJob = scope.launch {
             if (commandCounter.get() != commandId) return@launch
-            
-            showInitialNotification()
+
             runCatching { wakeLock?.acquire(24 * 60 * 60 * 1000L) }
 
             getController().start()
         }
     }
 
+    private fun restartProxyService(commandId: Long) {
+        scope.launch {
+            startupJob?.cancelAndJoin()
+            if (commandCounter.get() != commandId) return@launch
+
+            runCatching { getController().stop() }.onFailure {
+                LogRepository.e("[ProxyService] Controller stop failed during restart: ${it.localizedMessage}")
+            }
+
+            if (commandCounter.get() != commandId) return@launch
+            startAttempt(commandCounter.incrementAndGet())
+        }
+    }
+
     private fun stopProxyService(commandId: Long) {
         scope.launch {
             startupJob?.cancelAndJoin()
+            if (commandCounter.get() != commandId) return@launch
+
             runCatching { getController().stop() }.onFailure {
                 LogRepository.e("[ProxyService] Controller stop failed: ${it.localizedMessage}")
             }
             runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
-            
-            if (commandCounter.get() == commandId) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+
+            if (commandCounter.get() != commandId) return@launch
+
+            Handler(Looper.getMainLooper()).post {
+                if (commandCounter.get() == commandId) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
     }
 
     private fun updateNotification() {
         val status = ConnectionController.status.value
-        if (status == ConnectionStatus.STOPPED) return
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (status == ConnectionStatus.STOPPED) {
+            manager.cancel(NOTIFICATION_ID)
+            Handler(Looper.getMainLooper()).post { stopForeground(STOP_FOREGROUND_REMOVE) }
+            return
+        }
         val text = when (status) {
             ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> "Proxy active"
             ConnectionStatus.STARTING, ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY -> "Starting proxy..."
@@ -112,16 +162,24 @@ class AetherProxyService : Service() {
             ConnectionStatus.STOPPING -> "Stopping proxy..."
             ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "Proxy error"
         }
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun showInitialNotification() {
-        val notification = buildNotification("Starting proxy...")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val text = when (ConnectionController.status.value) {
+            ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> "Proxy active"
+            ConnectionStatus.RECONNECTING -> "Reconnecting..."
+            ConnectionStatus.STOPPING -> "Stopping proxy..."
+            ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "Proxy error"
+            else -> "Starting proxy..."
+        }
+        runCatching {
+            val notification = buildNotification(text)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         }
     }
 
@@ -155,6 +213,9 @@ class AetherProxyService : Service() {
     }
 
     override fun onDestroy() {
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(NOTIFICATION_ID)
+        stopForeground(STOP_FOREGROUND_REMOVE)
         scope.cancel()
         super.onDestroy()
     }

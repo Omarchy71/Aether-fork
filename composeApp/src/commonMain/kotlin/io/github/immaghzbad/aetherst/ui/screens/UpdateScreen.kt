@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.immaghzbad.aetherst.shared.model.UpdateInfo
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 
 private val IosActiveBlue = AppPalette.accent
 private val IosCardBg = AppPalette.surfaceRaised
@@ -32,6 +33,7 @@ fun UpdateScreen(
     onDismiss: () -> Unit,
     scaleFactor: Float = 1f
 ) {
+    val strings = LocalAppStrings.current
     val uriHandler = LocalUriHandler.current
     val navBarPadding = if (isDesktop) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -70,7 +72,7 @@ fun UpdateScreen(
             Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
 
             Text(
-                text = "New Update Available",
+                text = strings.UPDATE_AVAILABLE,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -103,7 +105,7 @@ fun UpdateScreen(
             ) {
                 Column(modifier = Modifier.padding((18 * scaleFactor).dp)) {
                     Text(
-                        text = "What's New:",
+                        text = strings.WHATS_NEW,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -144,7 +146,7 @@ fun UpdateScreen(
                 shape = RoundedCornerShape((16 * scaleFactor).dp),
                 colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
             ) {
-                Text("Download Now", fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp, color = Color.White)
+                Text(strings.UPDATE_DOWNLOAD_NOW, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp, color = Color.White)
             }
 
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
@@ -153,7 +155,7 @@ fun UpdateScreen(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height((48 * scaleFactor).dp)
             ) {
-                Text("Remind Me Later", color = Color.White, fontSize = (14 * scaleFactor).sp)
+                Text(strings.UPDATE_REMIND_LATER, color = Color.White, fontSize = (14 * scaleFactor).sp)
             }
         }
     }

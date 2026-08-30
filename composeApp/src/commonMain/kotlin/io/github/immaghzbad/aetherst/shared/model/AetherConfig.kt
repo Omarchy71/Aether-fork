@@ -1,9 +1,11 @@
 package io.github.immaghzbad.aetherst.shared.model
 
 import io.github.immaghzbad.aetherst.platform.isWindows
+import io.github.immaghzbad.aetherst.shared.i18n.AppStrings
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.Serializable
+import java.util.Locale
 
 @Serializable
 enum class AetherProtocol(val rawValue: String, val displayName: String, val description: String) {
@@ -34,6 +36,7 @@ enum class AetherScanMode(val rawValue: String, val description: String) {
 
 @Serializable
 enum class AetherIpMode(val rawValue: String, val displayName: String) {
+    AUTO("Auto", "Auto (Smart)"),
     IPV4("IPv4", "IPv4 Only"),
     IPV6("IPv6", "IPv6 Only"),
     DUAL("Dual", "Dual Stack (4+6)")
@@ -116,7 +119,7 @@ data class AetherConfig(
     val protocol: AetherProtocol = AetherProtocol.MASQUE,
     val noise: AetherNoise = AetherNoise.FIREWALL,
     val scanMode: AetherScanMode = AetherScanMode.BALANCED,
-    val ipMode: AetherIpMode = AetherIpMode.IPV4,
+    val ipMode: AetherIpMode = AetherIpMode.AUTO,
     val echEnabled: Boolean = false,
     val httpProxyEnabled: Boolean = false,
     val perfProfile: AetherPerfProfile = AetherPerfProfile.MEDIUM,
@@ -158,7 +161,7 @@ data class AetherConfig(
     val smartReconnect: Boolean = true,
     val reconnectRetryLimit: Int = 10,
     val strictKillSwitch: Boolean = false,
-    val dnsList: String = "1.1.1.1,1.0.0.1",
+    val dnsList: String = "1.1.1.1,2606:4700:4700::1111",
     val shareHotspot: Boolean = false,
     val tunnelAllApps: Boolean = true,
     val upstreamProxy: String = "",
@@ -187,14 +190,12 @@ data class AetherConfig(
     val psiphonSocksPort: String = "3080",
     val psiphonEgressRegion: String = "",
     val psiphonChainMode: PsiphonChainMode = PsiphonChainMode.AUTO,
-    val psiphonMasqueOrder: String = "psiphon_first",
+    val psiphonMasqueOrder: String = "auto",
     val psiphonViaAether: Boolean = true,
-    val connectButtonStyle: String = "swipe"
+    val pingUrl: String = "https://www.gstatic.com/generate_204",
+    val connectButtonStyle: String = "swipe",
+    val appLanguage: String = "auto"
 ) {
-    /**
-     * Returns a user-facing error message if the Zero Trust configuration is incomplete
-     * or contradictory, or null when it is valid. Only relevant when [protocol] is [AetherProtocol.ZERO_TRUST].
-     */
     fun zeroTrustError(): String? {
         if (protocol != AetherProtocol.ZERO_TRUST) return null
         if (teamName.isBlank()) return "Organization Team Name is required for Zero Trust"
@@ -212,6 +213,23 @@ data class AetherConfig(
         val providedCount = listOf(hasEmail, hasServiceToken, hasToken).count { it }
         if (providedCount > 1) return "Use only one authentication method at a time"
 
+        return null
+    }
+
+    fun zeroTrustErrorLocalized(strings: AppStrings): String? {
+        if (protocol != AetherProtocol.ZERO_TRUST) return null
+        if (teamName.isBlank()) return strings.TOAST_ZT_TEAM_REQUIRED
+        val hasEmail = accessEmail.isNotBlank()
+        val hasServiceToken = accessId.isNotBlank() || accessSecret.isNotBlank()
+        val hasToken = accessToken.isNotBlank()
+        if (!hasEmail && !hasServiceToken && !hasToken) {
+            return strings.TOAST_ZT_PROVIDE_ONE_AUTH
+        }
+        if (hasServiceToken && (accessId.isBlank() || accessSecret.isBlank())) {
+            return strings.TOAST_ZT_SERVICE_TOKEN_REQUIRES
+        }
+        val providedCount = listOf(hasEmail, hasServiceToken, hasToken).count { it }
+        if (providedCount > 1) return strings.TOAST_ZT_ONLY_ONE_AUTH
         return null
     }
 
@@ -241,4 +259,14 @@ data class AetherConfig(
             0
         }
     }
+
+    fun resolvedLanguage(): String {
+        if (appLanguage != "auto") return appLanguage
+        return try {
+            val sys = Locale.getDefault().language.lowercase()
+            if (sys.startsWith("fa")) "fa" else "en"
+        } catch (_: Exception) { "en" }
+    }
+
+    fun effectiveIpMode(): AetherIpMode = if (ipMode == AetherIpMode.AUTO) AetherIpMode.DUAL else ipMode
 }

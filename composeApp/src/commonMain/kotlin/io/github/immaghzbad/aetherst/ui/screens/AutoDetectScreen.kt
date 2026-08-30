@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.AutoDetectRepository
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.model.*
 
 private val IosCardBg = AppPalette.surfaceRaised
@@ -49,6 +51,7 @@ fun AutoDetectScreen(
     platformContext: PlatformContext,
     bottomContentPadding: Dp = 0.dp
 ) {
+    val strings = LocalAppStrings.current
     val state by AutoDetectRepository.state.collectAsStateWithLifecycle()
 
     val retest: () -> Unit = {
@@ -96,7 +99,7 @@ fun AutoDetectScreen(
             Spacer(modifier = Modifier.width((4 * scaleFactor).dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Smart Auto-Detect",
+                    text = strings.AUTODETECT_TITLE,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -104,7 +107,7 @@ fun AutoDetectScreen(
                     lineHeight = (30 * scaleFactor).sp
                 )
                 Text(
-                    text = "Scan network & find optimal configuration",
+                    text = strings.AUTODETECT_SUBTITLE,
                     style = MaterialTheme.typography.bodySmall,
                     color = IosSecondaryLabel,
                     fontSize = (12 * scaleFactor).sp
@@ -146,7 +149,7 @@ fun AutoDetectScreen(
                             )
                             Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
                             Text(
-                                text = state.currentStep,
+                                text = localizedAutoDetectStep(state.currentStep, strings),
                                 color = IosActiveBlue,
                                 fontSize = (13 * scaleFactor).sp,
                                 fontWeight = FontWeight.Medium
@@ -158,14 +161,14 @@ fun AutoDetectScreen(
 
             if (state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.ERROR) {
                 item {
-                    SectionHeader("NETWORK ENVIRONMENT", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_NETWORK_ENV, scaleFactor)
                     NetworkFingerprintCard(state, scaleFactor)
                 }
             }
 
             if (state.protocolResults.isNotEmpty()) {
                 item {
-                    SectionHeader("PROTOCOL LATENCY TEST", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_PROTOCOL_LATENCY, scaleFactor)
                 }
                 items(state.protocolResults) { result ->
                     ProtocolProbeRow(result, scaleFactor)
@@ -174,9 +177,9 @@ fun AutoDetectScreen(
 
             if (state.phase == AutoDetectPhase.COMPLETE && state.finalResult != null && state.protocolResults.any { it.status == ProbeStatus.SUCCESS }) {
                 item {
-                    SectionHeader("PROTOCOL RESULTS", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_PROTOCOL_RESULTS, scaleFactor)
                     Text(
-                        text = "Ranked by quality — tap one to apply its tested configuration",
+                        text = strings.AUTODETECT_RANKED_BY_QUALITY,
                         color = IosSecondaryLabel,
                         fontSize = (11 * scaleFactor).sp,
                         modifier = Modifier.padding(start = 4.dp, bottom = (8 * scaleFactor).dp)
@@ -202,14 +205,14 @@ fun AutoDetectScreen(
 
             if (state.mtuResult.status != ProbeStatus.IDLE) {
                 item {
-                    SectionHeader("MTU DISCOVERY", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_MTU, scaleFactor)
                     MtuProbeRow(state.mtuResult, scaleFactor)
                 }
             }
 
             if (state.noiseResults.isNotEmpty()) {
                 item {
-                    SectionHeader("OBFUSCATION MODES", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_OBFUSCATION, scaleFactor)
                 }
                 items(state.noiseResults) { result ->
                     NoiseProbeRow(result, scaleFactor)
@@ -218,7 +221,7 @@ fun AutoDetectScreen(
 
             if (state.scanModeResults.isNotEmpty()) {
                 item {
-                    SectionHeader("SCAN STRATEGIES", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_SCAN_STRATEGIES, scaleFactor)
                 }
                 items(state.scanModeResults) { result ->
                     ScanModeProbeRow(result, scaleFactor)
@@ -227,7 +230,7 @@ fun AutoDetectScreen(
 
             if (state.phase == AutoDetectPhase.COMPLETE && state.finalResult != null) {
                 item {
-                    SectionHeader("RECOMMENDED CONFIGURATION", scaleFactor)
+                    SectionHeader(strings.AUTODETECT_SECTION_RECOMMENDED, scaleFactor)
                     AutoDetectFinalResult(state.finalResult!!, onApplyResult, retest, scaleFactor)
                 }
             }
@@ -260,6 +263,7 @@ private fun SectionHeader(title: String, scaleFactor: Float) {
 
 @Composable
 private fun AutoDetectProgressCard(state: AutoDetectState, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -271,7 +275,7 @@ private fun AutoDetectProgressCard(state: AutoDetectState, scaleFactor: Float) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Scanning...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
+                Text(strings.AUTODETECT_SCANNING, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
                 Text("${state.progressPercent}%", color = IosActiveBlue, fontWeight = FontWeight.ExtraBold, fontSize = (14 * scaleFactor).sp)
             }
             Spacer(modifier = Modifier.height((10 * scaleFactor).dp))
@@ -290,6 +294,7 @@ private fun AutoDetectProgressCard(state: AutoDetectState, scaleFactor: Float) {
 
 @Composable
 private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val fingerprint = state.finalResult?.networkFingerprint ?: state.liveFingerprint
     val isComplete = fingerprint != null
 
@@ -304,15 +309,15 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
                 horizontalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
             ) {
                 InfoPill(
-                    label = "NETWORK",
+                    label = strings.AUTODETECT_PILL_NETWORK,
                     value = if (isComplete) fingerprint.networkType.uppercase() else "—",
                     color = if (isComplete && fingerprint.supportsDPI) IosAmber else IosActiveGreen,
                     modifier = Modifier.weight(1f),
                     scaleFactor = scaleFactor
                 )
                 InfoPill(
-                    label = "DPI DETECTED",
-                    value = if (isComplete) if (fingerprint.supportsDPI) "YES" else "NO" else "—",
+                    label = strings.AUTODETECT_PILL_DPI_DETECTED,
+                    value = if (isComplete) if (fingerprint.supportsDPI) strings.AUTODETECT_YES else strings.AUTODETECT_NO else "—",
                     color = if (isComplete && fingerprint.supportsDPI) IosErrorRed else IosActiveGreen,
                     modifier = Modifier.weight(1f),
                     scaleFactor = scaleFactor
@@ -324,14 +329,14 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
                 horizontalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
             ) {
                 InfoPill(
-                    label = "IPv6",
-                    value = if (isComplete) if (fingerprint.supportsIPv6) "YES" else "NO" else "—",
+                    label = strings.AUTODETECT_PILL_IPV6,
+                    value = if (isComplete) if (fingerprint.supportsIPv6) strings.AUTODETECT_YES else strings.AUTODETECT_NO else "—",
                     color = if (isComplete && fingerprint.supportsIPv6) IosActiveGreen else IosSecondaryLabel,
                     modifier = Modifier.weight(1f),
                     scaleFactor = scaleFactor
                 )
                 InfoPill(
-                    label = "ISP / IP",
+                    label = strings.AUTODETECT_PILL_ISP_IP,
                     value = if (isComplete) {
                         val isp = fingerprint.carrierOrIsp
                         if (isp.length > 16) isp.take(16) + "…" else isp
@@ -375,6 +380,7 @@ private fun InfoPill(label: String, value: String, color: Color, modifier: Modif
 
 @Composable
 private fun ProtocolProbeRow(result: ProtocolProbeResult, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val statusColor = when (result.status) {
         ProbeStatus.SUCCESS -> IosActiveGreen
         ProbeStatus.FAILED -> IosErrorRed
@@ -412,22 +418,22 @@ private fun ProtocolProbeRow(result: ProtocolProbeResult, scaleFactor: Float) {
                     )
                     when (result.status) {
                         ProbeStatus.SUCCESS -> Text(
-                            text = "RTT: ${result.latencyMs}ms median (${result.latencyMs}ms avg)",
+                            text = strings.AUTODETECT_RTT.format(result.latencyMs, result.latencyMs),
                             color = IosActiveGreen,
                             fontSize = (11 * scaleFactor).sp
                         )
                         ProbeStatus.FAILED -> Text(
-                            text = result.error ?: "Connection failed",
+                            text = result.error ?: strings.AUTODETECT_CONNECTION_FAILED,
                             color = IosErrorRed,
                             fontSize = (11 * scaleFactor).sp
                         )
                         ProbeStatus.RUNNING -> Text(
-                            text = "Measuring latency...",
+                            text = strings.AUTODETECT_MEASURING_LATENCY,
                             color = IosAmber,
                             fontSize = (11 * scaleFactor).sp
                         )
                         ProbeStatus.SKIPPED -> Text(
-                            text = result.error ?: "Skipped",
+                            text = result.error ?: strings.AUTODETECT_SKIPPED,
                             color = IosSecondaryLabel,
                             fontSize = (11 * scaleFactor).sp
                         )
@@ -452,7 +458,7 @@ private fun ProtocolProbeRow(result: ProtocolProbeResult, scaleFactor: Float) {
                     strokeWidth = 2.dp, color = IosAmber
                 )
                 ProbeStatus.SKIPPED -> Text(
-                    "SKIP", color = IosSecondaryLabel,
+                    strings.AUTODETECT_SKIP, color = IosSecondaryLabel,
                     fontSize = (10 * scaleFactor).sp, fontWeight = FontWeight.Bold
                 )
                 ProbeStatus.IDLE -> {}
@@ -463,6 +469,7 @@ private fun ProtocolProbeRow(result: ProtocolProbeResult, scaleFactor: Float) {
 
 @Composable
 private fun MtuProbeRow(result: MtuProbeResult, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val statusColor = when (result.status) {
         ProbeStatus.SUCCESS -> IosActiveGreen
         ProbeStatus.FAILED -> IosErrorRed
@@ -490,14 +497,14 @@ private fun MtuProbeRow(result: MtuProbeResult, scaleFactor: Float) {
                 )
                 Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
                 Column {
-                    Text("Path MTU Discovery", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (14 * scaleFactor).sp)
+                    Text(strings.AUTODETECT_PATH_MTU, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (14 * scaleFactor).sp)
                     if (result.status == ProbeStatus.SUCCESS) {
                         Text(
-                            text = "Optimal: ${result.discoveredMtu} bytes (Path: ${result.rawPathMtu})",
+                            text = strings.AUTODETECT_OPTIMAL.format(result.discoveredMtu, result.rawPathMtu),
                             color = IosActiveGreen, fontSize = (11 * scaleFactor).sp
                         )
                     } else if (result.status == ProbeStatus.FAILED) {
-                        Text("Using safe default: 1280", color = IosErrorRed, fontSize = (11 * scaleFactor).sp)
+                        Text(strings.AUTODETECT_SAFE_DEFAULT, color = IosErrorRed, fontSize = (11 * scaleFactor).sp)
                     }
                 }
             }
@@ -512,6 +519,7 @@ private fun MtuProbeRow(result: MtuProbeResult, scaleFactor: Float) {
 
 @Composable
 private fun NoiseProbeRow(result: NoiseProbeResult, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val statusColor = if (result.status == ProbeStatus.SUCCESS && result.effective) IosActiveGreen
     else if (result.status == ProbeStatus.FAILED) IosErrorRed
     else IosSecondaryLabel
@@ -531,15 +539,16 @@ private fun NoiseProbeRow(result: NoiseProbeResult, scaleFactor: Float) {
             Text(result.noise.displayName, color = Color.White, fontWeight = FontWeight.Medium, fontSize = (13 * scaleFactor).sp)
         }
         if (result.effective) {
-            Text("EFFECTIVE", color = IosActiveGreen, fontWeight = FontWeight.ExtraBold, fontSize = (9 * scaleFactor).sp, letterSpacing = 0.5.sp)
+            Text(strings.AUTODETECT_EFFECTIVE, color = IosActiveGreen, fontWeight = FontWeight.ExtraBold, fontSize = (9 * scaleFactor).sp, letterSpacing = 0.5.sp)
         } else if (result.status == ProbeStatus.SUCCESS) {
-            Text("WEAK", color = IosSecondaryLabel, fontWeight = FontWeight.Medium, fontSize = (9 * scaleFactor).sp)
+            Text(strings.AUTODETECT_WEAK, color = IosSecondaryLabel, fontWeight = FontWeight.Medium, fontSize = (9 * scaleFactor).sp)
         }
     }
 }
 
 @Composable
 private fun ScanModeProbeRow(result: ScanModeProbeResult, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val statusColor = if (result.status == ProbeStatus.SUCCESS && result.gatewayFound) IosActiveGreen else IosSecondaryLabel
 
     Row(
@@ -557,7 +566,7 @@ private fun ScanModeProbeRow(result: ScanModeProbeResult, scaleFactor: Float) {
             Text(result.scanMode.name.lowercase().replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.Medium, fontSize = (13 * scaleFactor).sp)
         }
         if (result.gatewayFound) {
-            Text("VERIFIED", color = IosActiveGreen, fontWeight = FontWeight.ExtraBold, fontSize = (9 * scaleFactor).sp, letterSpacing = 0.5.sp)
+            Text(strings.AUTODETECT_VERIFIED, color = IosActiveGreen, fontWeight = FontWeight.ExtraBold, fontSize = (9 * scaleFactor).sp, letterSpacing = 0.5.sp)
         }
     }
 }
@@ -569,6 +578,7 @@ private fun AutoDetectFinalResult(
     onRetest: () -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     val infiniteTransition = rememberInfiniteTransition(label = "glow")
     val glowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.3f, targetValue = 0.8f,
@@ -605,7 +615,7 @@ private fun AutoDetectFinalResult(
             Spacer(modifier = Modifier.height((14 * scaleFactor).dp))
 
             Text(
-                "Optimal Configuration Found",
+                strings.AUTODETECT_OPTIMAL_FOUND,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -617,7 +627,7 @@ private fun AutoDetectFinalResult(
 
             val confidencePercent = (result.confidence * 100).toInt()
             Text(
-                "Confidence: $confidencePercent%",
+                strings.AUTODETECT_CONFIDENCE.format(confidencePercent),
                 color = if (result.confidence > 0.7f) IosActiveGreen else IosAmber,
                 fontWeight = FontWeight.Bold,
                 fontSize = (13 * scaleFactor).sp
@@ -631,26 +641,26 @@ private fun AutoDetectFinalResult(
                 colors = CardDefaults.cardColors(containerColor = IosGroupBg)
             ) {
                 Column(modifier = Modifier.padding((14 * scaleFactor).dp)) {
-                    RecommendationRow("Protocol", result.recommendedProtocol.displayName, scaleFactor)
+                    RecommendationRow(strings.AUTODETECT_LABEL_PROTOCOL, result.recommendedProtocol.displayName, scaleFactor)
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                    RecommendationRow("Obfuscation", result.recommendedNoise.displayName, scaleFactor)
+                    RecommendationRow(strings.AUTODETECT_LABEL_OBFUSCATION, result.recommendedNoise.displayName, scaleFactor)
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                    RecommendationRow("Scan Mode", result.recommendedScanMode.name.lowercase().replaceFirstChar { it.uppercase() }, scaleFactor)
+                    RecommendationRow(strings.AUTODETECT_LABEL_SCAN_MODE, result.recommendedScanMode.name.lowercase().replaceFirstChar { it.uppercase() }, scaleFactor)
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                    RecommendationRow("MTU", "${result.recommendedMtu} bytes", scaleFactor)
+                    RecommendationRow(strings.AUTODETECT_LABEL_MTU, "${result.recommendedMtu} bytes", scaleFactor)
                     HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                    RecommendationRow("Network Stack", result.recommendedIpMode.displayName, scaleFactor)
+                    RecommendationRow(strings.AUTODETECT_LABEL_NETWORK_STACK, result.recommendedIpMode.displayName, scaleFactor)
                     if (result.recommendedH2Mode) {
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                        RecommendationRow("HTTP/2 Fallback", "Enabled", scaleFactor)
+                        RecommendationRow(strings.AUTODETECT_LABEL_HTTP2_FALLBACK, strings.AUTODETECT_ENABLED, scaleFactor)
                     }
                     if (result.recommendedEch) {
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                        RecommendationRow("ECH (Encrypted Client Hello)", "Enabled", scaleFactor)
+                        RecommendationRow(strings.AUTODETECT_LABEL_ECH, strings.AUTODETECT_ENABLED, scaleFactor)
                     }
                     if (result.recommendedFragment) {
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(vertical = 4.dp))
-                        RecommendationRow("Packet Fragmentation", "Enabled", scaleFactor)
+                        RecommendationRow(strings.AUTODETECT_LABEL_PACKET_FRAGMENT, strings.AUTODETECT_ENABLED, scaleFactor)
                     }
                 }
             }
@@ -666,7 +676,7 @@ private fun AutoDetectFinalResult(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Apply Configuration", fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+                    Text(strings.AUTODETECT_APPLY_CONFIGURATION, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
                 }
             }
 
@@ -681,7 +691,7 @@ private fun AutoDetectFinalResult(
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Re-Test Network", fontWeight = FontWeight.SemiBold, fontSize = (13 * scaleFactor).sp)
+                Text(strings.AUTODETECT_RETEST_NETWORK, fontWeight = FontWeight.SemiBold, fontSize = (13 * scaleFactor).sp)
             }
         }
     }
@@ -701,6 +711,7 @@ private fun RecommendationRow(label: String, value: String, scaleFactor: Float) 
 
 @Composable
 private fun ErrorCard(error: String?, onRetry: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -712,9 +723,9 @@ private fun ErrorCard(error: String?, onRetry: () -> Unit, scaleFactor: Float) {
         ) {
             Icon(Icons.Default.Error, contentDescription = null, tint = IosErrorRed, modifier = Modifier.size((32 * scaleFactor).dp))
             Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
-            Text("Detection Failed", color = IosErrorRed, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp)
+            Text(strings.AUTODETECT_DETECTION_FAILED, color = IosErrorRed, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp)
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-            Text(error ?: "Unknown error occurred", color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Center)
+            Text(error ?: strings.AUTODETECT_UNKNOWN_ERROR, color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
             Button(
                 onClick = onRetry,
@@ -722,7 +733,7 @@ private fun ErrorCard(error: String?, onRetry: () -> Unit, scaleFactor: Float) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().height((48 * scaleFactor).dp)
             ) {
-                Text("Retry Detection", fontWeight = FontWeight.Bold, color = Color.White)
+                Text(strings.AUTODETECT_RETRY_DETECTION, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
     }
@@ -771,11 +782,14 @@ private fun buildResultForProtocol(protocol: AetherProtocol, base: AutoDetectRes
 }
 
 @Composable
-private fun qualityLabel(latencyMs: Long, scaleFactor: Float): Pair<String, Color> = when {
-    latencyMs < 80 -> "EXCELLENT" to IosActiveGreen
-    latencyMs < 180 -> "GOOD" to IosActiveBlue
-    latencyMs < 350 -> "FAIR" to IosAmber
-    else -> "SLOW" to IosErrorRed
+private fun qualityLabel(latencyMs: Long, scaleFactor: Float): Pair<String, Color> {
+    val strings = LocalAppStrings.current
+    return when {
+        latencyMs < 80 -> strings.AUTODETECT_QUALITY_EXCELLENT to IosActiveGreen
+        latencyMs < 180 -> strings.AUTODETECT_QUALITY_GOOD to IosActiveBlue
+        latencyMs < 350 -> strings.AUTODETECT_QUALITY_FAIR to IosAmber
+        else -> strings.AUTODETECT_QUALITY_SLOW to IosErrorRed
+    }
 }
 
 @Composable
@@ -785,6 +799,7 @@ private fun ProtocolResultRankRow(
     onApply: () -> Unit,
     scaleFactor: Float
 ) {
+    val strings = LocalAppStrings.current
     val (qualityLabel, qualityColor) = qualityLabel(probe.latencyMs, scaleFactor)
     val isBest = rank == 1
 
@@ -826,7 +841,7 @@ private fun ProtocolResultRankRow(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    "${probe.latencyMs}ms median RTT",
+                    strings.AUTODETECT_MEDIAN_RTT.format(probe.latencyMs),
                     color = IosSecondaryLabel,
                     fontSize = (11 * scaleFactor).sp
                 )
@@ -842,7 +857,7 @@ private fun ProtocolResultRankRow(
                 if (isBest) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        "RECOMMENDED",
+                        strings.AUTODETECT_RECOMMENDED,
                         color = IosActiveGreen,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = (9 * scaleFactor).sp,
@@ -852,11 +867,61 @@ private fun ProtocolResultRankRow(
             }
             Spacer(modifier = Modifier.width((10 * scaleFactor).dp))
             Icon(
-                Icons.Default.ChevronRight,
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 null,
                 tint = IosSecondaryLabel,
                 modifier = Modifier.size((20 * scaleFactor).dp)
             )
         }
     }
+}
+
+private fun localizedAutoDetectStep(step: String, strings: io.github.immaghzbad.aetherst.shared.i18n.AppStrings): String {
+    // Exact matches (blue card live steps)
+    when (step) {
+        "Checking internet connection..." -> return strings.AD_STEP_CHECKING_INTERNET
+        "No internet connection. Connect to a working network and try again." -> return strings.AD_STEP_NO_INTERNET
+        "Checking IPv6 connectivity..." -> return strings.AD_STEP_CHECKING_IPV6
+        "Checking DPI restrictions..." -> return strings.AD_STEP_CHECKING_DPI
+        "Detecting ISP..." -> return strings.AD_STEP_DETECTING_ISP
+        "Network fingerprint complete" -> return strings.AD_STEP_FINGERPRINT_COMPLETE
+        "Measuring protocol latency..." -> return strings.AD_STEP_MEASURING_PROTOCOL_LATENCY
+        "Discovering optimal MTU..." -> return strings.AD_STEP_DISCOVERING_MTU
+        "Testing obfuscation modes..." -> return strings.AD_STEP_TESTING_OBFUSCATION
+        "Evaluating scan strategies..." -> return strings.AD_STEP_EVALUATING_SCAN
+        "Computing optimal configuration..." -> return strings.AD_STEP_COMPUTING_OPTIMAL
+        "Optimal configuration found!" -> return strings.AD_STEP_OPTIMAL_FOUND
+        "Detection failed" -> return strings.AD_STEP_DETECTION_FAILED_GENERIC
+        "MASQUE: TCP latency..." -> return strings.AD_STEP_MASQUE_TCP
+        "MASQUE: HTTPS probe..." -> return strings.AD_STEP_MASQUE_HTTPS_PROBE
+        "MASQUE: HTTPS latency..." -> return strings.AD_STEP_MASQUE_HTTPS_LATENCY
+        "WireGuard: TCP latency..." -> return strings.AD_STEP_WG_TCP
+        "WireGuard: HTTPS probe..." -> return strings.AD_STEP_WG_HTTPS_PROBE
+        "Gool: TCP latency..." -> return strings.AD_STEP_GOOL_TCP
+        "Gool: HTTPS probe..." -> return strings.AD_STEP_GOOL_HTTPS_PROBE
+    }
+    // Dynamic patterns with regex
+    Regex("""Checking IPv6\.\.\. attempt (\d+)/(\d+)""").matchEntire(step)?.let {
+        return strings.AD_STEP_CHECKING_IPV6_ATTEMPT.format(it.groupValues[1].toInt(), it.groupValues[2].toInt())
+    }
+    Regex("""Probing DPI\.\.\. attempt (\d+)/(\d+)""").matchEntire(step)?.let {
+        return strings.AD_STEP_PROBING_DPI_ATTEMPT.format(it.groupValues[1].toInt(), it.groupValues[2].toInt())
+    }
+    Regex("""Detecting ISP\.\.\. attempt (\d+)/(\d+)""").matchEntire(step)?.let {
+        return strings.AD_STEP_DETECTING_ISP_ATTEMPT.format(it.groupValues[1].toInt(), it.groupValues[2].toInt())
+    }
+    Regex("""Measuring (.+) latency\.\.\.""").matchEntire(step)?.let {
+        return strings.AD_STEP_MEASURING_X_LATENCY.format(it.groupValues[1])
+    }
+    Regex("""Probing MTU (\d+) bytes\.\.\. best (\d+)""").matchEntire(step)?.let {
+        return strings.AD_STEP_PROBING_MTU.format(it.groupValues[1].toInt(), it.groupValues[2].toInt())
+    }
+    Regex("""Testing (.+) obfuscation (\d+)/(\d+)\.\.\.""").matchEntire(step)?.let {
+        return strings.AD_STEP_TESTING_NOISE.format(it.groupValues[1], it.groupValues[2].toInt(), it.groupValues[3].toInt())
+    }
+    Regex("""Testing (.+) scan (\d+)/(\d+)\.\.\.""").matchEntire(step)?.let {
+        return strings.AD_STEP_TESTING_SCAN.format(it.groupValues[1], it.groupValues[2].toInt(), it.groupValues[3].toInt())
+    }
+    // Fallback: return original (for logs or unknown steps, keep English)
+    return step
 }

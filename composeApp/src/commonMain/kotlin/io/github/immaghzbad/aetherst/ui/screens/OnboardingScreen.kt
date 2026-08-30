@@ -3,7 +3,9 @@ import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.model.*
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -39,7 +42,10 @@ fun OnboardingScreen(
     onRequestVpnPermission: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryOptimization: () -> Unit,
-    onFinish: () -> Unit
+    onFinish: () -> Unit,
+    appLanguage: String = "auto",
+    onSelectLanguage: (String) -> Unit = {},
+    onConfirmLanguage: () -> Unit = {}
 ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -73,6 +79,7 @@ fun OnboardingScreen(
                     label = "step_transition"
                 ) { step ->
                     when (step) {
+                        OnboardingStep.LANGUAGE_SELECT -> LanguageSelectionStep(appLanguage, onSelectLanguage, onConfirmLanguage, scaleFactor)
                         OnboardingStep.WELCOME -> WelcomeStep(onGetStarted, scaleFactor)
                         OnboardingStep.PROTOCOL_TEST -> ProtocolTestStep(
                             state,
@@ -98,25 +105,26 @@ fun OnboardingScreen(
 
 @Composable
 private fun OnboardingHeader(scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     val slogans = listOf(
-        "Privacy at Warp Speed",
-        "Beyond Boundaries, Beyond Limits",
-        "Invisible, Untraceable, Unstoppable",
-        "The Future of Secure Networking",
-        "Your Digital Shield in the Shadows",
-        "Encryption Without Compromise",
-        "Defying Censorship, Ensuring Freedom",
-        "Secure, Free, and Ad-free",
-        "Secure Your Connection Instantly",
-        "Total Freedom for Every User",
-        "High-Performance Proxy Engine",
-        "Advanced Protection Against Tracking",
-        "Seamless Access to Global Content",
-        "Reliable Security for Your Data",
-        "Experience a Truly Open Internet",
-        "Optimized for Low-Latency Browsing",
-        "Your Trusted Companion for Privacy",
-        "Fast, Secure, and Reliable"
+        strings.ONBOARDING_SLOGAN_PRIVACY,
+        strings.ONBOARDING_SLOGAN_BEYOND,
+        strings.ONBOARDING_SLOGAN_INVISIBLE,
+        strings.ONBOARDING_SLOGAN_FUTURE,
+        strings.ONBOARDING_SLOGAN_SHIELD,
+        strings.ONBOARDING_SLOGAN_ENCRYPTION,
+        strings.ONBOARDING_SLOGAN_CENSORSHIP,
+        strings.ONBOARDING_SLOGAN_SECURE_FREE,
+        strings.ONBOARDING_SLOGAN_INSTANT,
+        strings.ONBOARDING_SLOGAN_FREEDOM,
+        strings.ONBOARDING_SLOGAN_PROXY,
+        strings.ONBOARDING_SLOGAN_TRACKING,
+        strings.ONBOARDING_SLOGAN_GLOBAL,
+        strings.ONBOARDING_SLOGAN_RELIABLE,
+        strings.ONBOARDING_SLOGAN_OPEN_INTERNET,
+        strings.ONBOARDING_SLOGAN_LOW_LATENCY,
+        strings.ONBOARDING_SLOGAN_COMPANION,
+        strings.ONBOARDING_SLOGAN_FAST_SECURE
     )
     var index by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
@@ -157,12 +165,86 @@ private fun OnboardingHeader(scaleFactor: Float) {
 }
 
 @Composable
+private fun LanguageSelectionStep(appLanguage: String, onSelectLanguage: (String) -> Unit, onConfirm: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
+    val options = listOf(
+        "auto" to strings.LANGUAGE_AUTO,
+        "en" to strings.LANGUAGE_ENGLISH,
+        "fa" to strings.LANGUAGE_PERSIAN
+    )
+    val descs = listOf(
+        strings.ONBOARDING_LANGUAGE_AUTO_DESC,
+        "English",
+        "فارسی"
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = strings.ONBOARDING_LANGUAGE_TITLE,
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            fontSize = (26 * scaleFactor).sp
+        )
+        Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
+        Text(
+            text = strings.ONBOARDING_LANGUAGE_SUBTITLE,
+            style = MaterialTheme.typography.bodyMedium,
+            color = AppPalette.textSecondary,
+            textAlign = TextAlign.Center,
+            fontSize = (14 * scaleFactor).sp
+        )
+        Spacer(modifier = Modifier.height((32 * scaleFactor).dp))
+        Column(verticalArrangement = Arrangement.spacedBy((10 * scaleFactor).dp)) {
+            options.forEachIndexed { idx, (code, label) ->
+                val selected = appLanguage == code
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) AppPalette.accent.copy(alpha = 0.15f) else AppPalette.surfaceRaised,
+                    border = if (selected) BorderStroke(1.5.dp, AppPalette.accent) else BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth().clickable { onSelectLanguage(code) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = (16 * scaleFactor).dp, vertical = (14 * scaleFactor).dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.size((20 * scaleFactor).dp).clip(CircleShape).background(if (selected) AppPalette.accent else Color.Transparent).border(1.5.dp, if (selected) AppPalette.accent else AppPalette.textSecondary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selected) Box(modifier = Modifier.size((10 * scaleFactor).dp).clip(CircleShape).background(Color.White))
+                        }
+                        Spacer(modifier = Modifier.width((14 * scaleFactor).dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(label, color = if (selected) Color.White else AppPalette.textSecondary, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, fontSize = (15 * scaleFactor).sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(descs[idx], color = AppPalette.textSecondary, fontSize = (11 * scaleFactor).sp)
+                        }
+                        if (selected) Icon(Icons.Default.CheckCircle, null, tint = AppPalette.accent, modifier = Modifier.size((20 * scaleFactor).dp))
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height((28 * scaleFactor).dp))
+        Button(
+            onClick = onConfirm,
+            modifier = Modifier.fillMaxWidth().height((54 * scaleFactor).dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)
+        ) {
+            Text(strings.ONBOARDING_LANGUAGE_CONFIRM, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp)
+        }
+    }
+}
+
+@Composable
 private fun WelcomeStep(onGetStarted: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Welcome to AetherST",
+            text = strings.ONBOARDING_WELCOME,
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White,
             fontWeight = FontWeight.Bold,
@@ -171,7 +253,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, scaleFactor: Float) {
         )
         Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
         Text(
-            text = "Let’s prepare your secure connection in a few quick steps.",
+            text = strings.ONBOARDING_WELCOME_DESC,
             style = MaterialTheme.typography.bodyLarge,
             color = AppPalette.textSecondary,
             textAlign = TextAlign.Center,
@@ -184,7 +266,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, scaleFactor: Float) {
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)
         ) {
-            Text("Get Started", fontSize = (18 * scaleFactor).sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(strings.ONBOARDING_GET_STARTED, fontSize = (18 * scaleFactor).sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
 }
@@ -207,9 +289,10 @@ private fun ProtocolTestStep(
     }
     val anySuccess = state.protocolResults.any { it.status == ProtocolTestStatus.CONNECTED }
 
+    val strings = LocalAppStrings.current
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "Preparing Your Connection",
+            text = strings.ONBOARDING_PREPARE,
             style = MaterialTheme.typography.titleLarge,
             color = Color.White,
             fontWeight = FontWeight.Bold,
@@ -248,7 +331,7 @@ private fun ProtocolTestStep(
                 modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Cancel Test", color = Color.White, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp)
+                Text(strings.ONBOARDING_CANCEL_TEST, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (16 * scaleFactor).sp)
             }
         } else if (allDone && anySuccess) {
             Button(
@@ -257,7 +340,7 @@ private fun ProtocolTestStep(
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AppPalette.statusConnected, contentColor = Color.White)
             ) {
-                Text("Continue", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
+                Text(strings.ONBOARDING_CONTINUE, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
             }
         } else {
             Button(
@@ -267,7 +350,7 @@ private fun ProtocolTestStep(
                 colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)
             ) {
                 Text(
-                    text = if (state.error != null) "Try Again" else "Start Connection Test",
+                    text = if (state.error != null) strings.ONBOARDING_TRY_AGAIN else strings.ONBOARDING_START_CONNECTION_TEST,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = (16 * scaleFactor).sp
@@ -279,8 +362,9 @@ private fun ProtocolTestStep(
 
 @Composable
 private fun SelectorLabel(scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Text(
-        text = "SCAN MODE",
+        text = strings.ONBOARDING_SCAN_MODE,
         style = MaterialTheme.typography.labelSmall,
         color = AppPalette.textSecondary,
         fontSize = (11 * scaleFactor).sp,
@@ -332,6 +416,7 @@ private fun AetherScanModeSelector(
 
 @Composable
 private fun ProtocolRow(name: String, status: ProtocolTestStatus, isActive: Boolean, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Surface(
         color = AppPalette.surfaceRaised,
         shape = RoundedCornerShape(16.dp),
@@ -347,9 +432,9 @@ private fun ProtocolRow(name: String, status: ProtocolTestStatus, isActive: Bool
                 if (isActive) {
                     Text(
                         text = when (status) {
-                            ProtocolTestStatus.PREPARING -> "Preparing engine..."
-                            ProtocolTestStatus.REGISTERING -> "Registering account..."
-                            ProtocolTestStatus.IDENTITY_READY -> "Identity verified"
+                            ProtocolTestStatus.PREPARING -> strings.ONBOARDING_PREPARING_ENGINE
+                            ProtocolTestStatus.REGISTERING -> strings.ONBOARDING_REGISTERING
+                            ProtocolTestStatus.IDENTITY_READY -> strings.ONBOARDING_IDENTITY_VERIFIED
                             else -> ""
                         },
                         style = MaterialTheme.typography.labelSmall,
@@ -360,10 +445,10 @@ private fun ProtocolRow(name: String, status: ProtocolTestStatus, isActive: Bool
             }
 
             when (status) {
-                ProtocolTestStatus.WAITING -> Text("Waiting", color = AppPalette.textSecondary, style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
+                ProtocolTestStatus.WAITING -> Text(strings.ONBOARDING_WAITING, color = AppPalette.textSecondary, style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
                 ProtocolTestStatus.CONNECTED -> Icon(Icons.Default.CheckCircle, null, tint = AppPalette.statusConnected, modifier = Modifier.size((20 * scaleFactor).dp))
                 ProtocolTestStatus.FAILED, ProtocolTestStatus.TIMED_OUT -> Icon(Icons.Default.Error, null, tint = AppPalette.statusError, modifier = Modifier.size((20 * scaleFactor).dp))
-                ProtocolTestStatus.CANCELLED -> Text("Cancelled", color = AppPalette.textSecondary, style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
+                ProtocolTestStatus.CANCELLED -> Text(strings.ONBOARDING_CANCELLED, color = AppPalette.textSecondary, style = MaterialTheme.typography.labelSmall, fontSize = (11 * scaleFactor).sp)
                 else -> CircularProgressIndicator(modifier = Modifier.size((20 * scaleFactor).dp), strokeWidth = 2.dp, color = AppPalette.accent)
             }
         }
@@ -383,6 +468,7 @@ private fun PermissionStepWrapper(
 ) {
     val isVerifying = state.isVerifyingPermission
     val justGranted = state.permissionJustGranted
+    val strings = LocalAppStrings.current
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Box(modifier = Modifier.size((72 * scaleFactor).dp).clip(CircleShape).background(AppPalette.accent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) { icon() }
@@ -396,7 +482,7 @@ private fun PermissionStepWrapper(
             isVerifying -> VerifyingIndicator(scaleFactor)
             else -> {
                 Button(onClick = onRequest, modifier = Modifier.fillMaxWidth().height((56 * scaleFactor).dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = AppPalette.accent, contentColor = Color.White)) {
-                    Text(if (state.error != null) "Try Again" else buttonLabel, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
+                    Text(if (state.error != null) strings.ONBOARDING_TRY_AGAIN else buttonLabel, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
                 }
             }
         }
@@ -406,19 +492,20 @@ private fun PermissionStepWrapper(
         }
         if (onSkip != null && !isVerifying && !justGranted) {
             Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-            TextButton(onClick = onSkip) { Text("Not Now", color = Color.White, fontSize = (14 * scaleFactor).sp) }
+            TextButton(onClick = onSkip) { Text(strings.ONBOARDING_NOT_NOW, color = Color.White, fontSize = (14 * scaleFactor).sp) }
         }
     }
 }
 
 @Composable
 private fun GrantedIndicator(scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AppPalette.statusConnected, modifier = Modifier.size((56 * scaleFactor).dp))
         Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
-        Text("Access Granted", style = MaterialTheme.typography.bodyLarge, color = AppPalette.statusConnected, fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
+        Text(strings.ONBOARDING_ACCESS_GRANTED, style = MaterialTheme.typography.bodyLarge, color = AppPalette.statusConnected, fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-        Text("Continuing to next step...", style = MaterialTheme.typography.bodySmall, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
+        Text(strings.ONBOARDING_CONTINUING, style = MaterialTheme.typography.bodySmall, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
     }
 }
 
@@ -428,41 +515,46 @@ private fun VerifyingIndicator(scaleFactor: Float) {
     val alpha by infiniteTransition.animateFloat(initialValue = 0.4f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Reverse), label = "pulse_alpha")
     val scale by infiniteTransition.animateFloat(initialValue = 0.85f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse_scale")
 
+    val strings = LocalAppStrings.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Box(modifier = Modifier.size((56 * scaleFactor).dp).graphicsLayer(alpha = alpha, scaleX = scale, scaleY = scale).clip(CircleShape).background(AppPalette.accent.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(modifier = Modifier.size((28 * scaleFactor).dp), strokeWidth = 3.dp, color = AppPalette.accent)
         }
         Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
-        Text("Verifying...", style = MaterialTheme.typography.bodyLarge, color = AppPalette.accent, fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
+        Text(strings.ONBOARDING_VERIFYING, style = MaterialTheme.typography.bodyLarge, color = AppPalette.accent, fontWeight = FontWeight.SemiBold, fontSize = (16 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-        Text("Please complete the action, then return to the app.", style = MaterialTheme.typography.bodySmall, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
+        Text(strings.ONBOARDING_VERIFY_DESC, style = MaterialTheme.typography.bodySmall, color = AppPalette.textSecondary, textAlign = TextAlign.Center, fontSize = (13 * scaleFactor).sp)
     }
 }
 
 @Composable
 private fun VpnPermissionStep(state: OnboardingState, onRequest: () -> Unit, scaleFactor: Float) {
-    PermissionStepWrapper(icon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Allow VPN Access", description = "AetherST needs VPN permission to create a secure tunnel. Your current connection remains untouched for now.", buttonLabel = "Allow Access", state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
+    val strings = LocalAppStrings.current
+    PermissionStepWrapper(icon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = strings.ONBOARDING_ALLOW_VPN_TITLE, description = strings.ONBOARDING_ALLOW_VPN_DESC, buttonLabel = strings.ONBOARDING_ALLOW_ACCESS, state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
 }
 
 @Composable
 private fun NotificationPermissionStep(state: OnboardingState, onRequest: () -> Unit, scaleFactor: Float) {
-    PermissionStepWrapper(icon = { Icon(Icons.Default.Notifications, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Stay Informed", description = "Enable notifications to see tunnel status and important updates.", buttonLabel = "Enable Notifications", state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
+    val strings = LocalAppStrings.current
+    PermissionStepWrapper(icon = { Icon(Icons.Default.Notifications, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = strings.ONBOARDING_STAY_INFORMED_TITLE, description = strings.ONBOARDING_STAY_INFORMED_DESC, buttonLabel = strings.ONBOARDING_ENABLE_NOTIFICATIONS, state = state, onRequest = onRequest, onSkip = null, scaleFactor = scaleFactor)
 }
 
 @Composable
 private fun BatteryOptimizationStep(state: OnboardingState, onRequest: () -> Unit, onSkip: () -> Unit, scaleFactor: Float) {
-    PermissionStepWrapper(icon = { Icon(Icons.Default.BatteryAlert, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = "Unrestricted Background Service", description = "To ensure a stable and persistent tunnel connection, please disable battery optimizations for AetherST.", buttonLabel = "Disable Restrictions", state = state, onRequest = onRequest, onSkip = onSkip, scaleFactor = scaleFactor)
+    val strings = LocalAppStrings.current
+    PermissionStepWrapper(icon = { Icon(Icons.Default.BatteryAlert, contentDescription = null, tint = AppPalette.accent, modifier = Modifier.size((32 * scaleFactor).dp)) }, title = strings.ONBOARDING_UNRESTRICTED_TITLE, description = strings.ONBOARDING_UNRESTRICTED_DESC, buttonLabel = strings.ONBOARDING_DISABLE_RESTRICTIONS, state = state, onRequest = onRequest, onSkip = onSkip, scaleFactor = scaleFactor)
 }
 
 @Composable
 private fun SuccessStep(onFinish: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Default.CheckCircle, null, tint = AppPalette.statusConnected, modifier = Modifier.size((80 * scaleFactor).dp))
         Spacer(modifier = Modifier.height((24 * scaleFactor).dp))
-        Text("Setup Complete", style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = (24 * scaleFactor).sp)
+        Text(strings.ONBOARDING_SETUP_COMPLETE, style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontSize = (24 * scaleFactor).sp)
         Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
         Text(
-            text = "AetherST is ready to protect your connection. You can now enter the dashboard and start the tunnel.",
+            text = strings.ONBOARDING_READY,
             color = AppPalette.textSecondary,
             textAlign = TextAlign.Center,
             fontSize = (14 * scaleFactor).sp
@@ -474,7 +566,7 @@ private fun SuccessStep(onFinish: () -> Unit, scaleFactor: Float) {
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AppPalette.statusConnected, contentColor = Color.White)
         ) {
-            Text("Start Secure Journey", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
+            Text(strings.ONBOARDING_START_SECURE_JOURNEY, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (16 * scaleFactor).sp)
         }
     }
 }

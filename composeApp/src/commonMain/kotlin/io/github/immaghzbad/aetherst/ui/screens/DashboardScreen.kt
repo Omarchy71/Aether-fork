@@ -39,17 +39,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Dns
@@ -57,31 +61,39 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,11 +104,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -112,9 +128,12 @@ import io.github.immaghzbad.aetherst.shared.data.PsiphonEgressRegistry
 import io.github.immaghzbad.aetherst.shared.model.AetherConfig
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
 import io.github.immaghzbad.aetherst.shared.model.ConnectionMode
+import io.github.immaghzbad.aetherst.shared.model.PsiphonChainMode
 import io.github.immaghzbad.aetherst.shared.model.ConnectionStatus
 import io.github.immaghzbad.aetherst.shared.model.SessionTraffic
 import io.github.immaghzbad.aetherst.shared.ui.components.CountryFlag
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
+import io.github.immaghzbad.aetherst.shared.i18n.StringsFa
 import io.github.immaghzbad.aetherst.shared.util.CountryNames
 import kotlinx.coroutines.launch
 
@@ -152,6 +171,8 @@ fun DashboardScreen(
     var showAdminRequiredDialog by remember { mutableStateOf(false) }
     var showSupportDialog by remember { mutableStateOf(false) }
     var supportDialogAuto by remember { mutableStateOf(true) }
+    var showPsiphonSheet by remember { mutableStateOf(false) }
+    val strings = LocalAppStrings.current
     val uriHandler = LocalUriHandler.current
     val settings = platformContext?.let { getSettings(it) }
 
@@ -207,7 +228,7 @@ fun DashboardScreen(
                 ) {
                     Column {
                         Text(
-                            text = "AetherST Tunnel",
+                            text = strings.APP_TITLE,
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -215,7 +236,7 @@ fun DashboardScreen(
                             lineHeight = (30 * scaleFactor).sp
                         )
                         Text(
-                            text = if (config.connectionMode == ConnectionMode.TUNNEL) "Secure & Private Tunneling" else "High-Performance Local Proxy",
+                            text = if (config.connectionMode == ConnectionMode.TUNNEL) strings.SUBTITLE_TUNNEL else strings.SUBTITLE_PROXY,
                             style = MaterialTheme.typography.bodySmall,
                             color = IosSecondaryLabel,
                             fontSize = (12 * scaleFactor).sp,
@@ -248,7 +269,7 @@ fun DashboardScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Info,
-                                    contentDescription = "Proxy Info",
+                                    contentDescription = strings.PROXY_INFO,
                                     tint = IosActiveBlue,
                                     modifier = Modifier.size((22 * scaleFactor).dp)
                                 )
@@ -320,9 +341,9 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = if (isReconnecting) {
-                                    if (config.smartReconnect) "Reconnecting automatically... (${config.reconnectRetryLimit} retries • ${config.reconnectSecs}s)" else "Reconnecting..."
+                                    if (config.smartReconnect) "${strings.RECONNECTING_AUTO} (${config.reconnectRetryLimit} ${strings.LABEL_COUNTED} • ${config.reconnectSecs}s)" else strings.STATUS_RECONNECTING
                                 } else {
-                                    if (config.smartReconnect) "Connection failed. Retrying automatically..." else "Connection failed. Please try reconnecting."
+                                    if (config.smartReconnect) strings.CONNECTION_FAILED_RETRY else strings.CONNECTION_FAILED_TRY
                                 },
                                 color = tint,
                                 fontSize = (11 * scaleFactor).sp,
@@ -418,8 +439,8 @@ fun DashboardScreen(
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Psiphon Chain", fontWeight = FontWeight.Bold, color = Color.White, fontSize = (13 * scaleFactor).sp)
-                                        Text(if (!psiphonAllowed) "Not available with Zero Trust" else if (config.psiphonEnabled) when (config.protocol) { AetherProtocol.MASQUE -> "Psiphon over MASQUE" ; AetherProtocol.WG -> "Psiphon over WireGuard" ; AetherProtocol.GOOL -> "Psiphon over Gool" ; AetherProtocol.ZERO_TRUST -> "Route via Psiphon for non-Iran IP" } else "Route via Psiphon for non-Iran IP", color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp)
+                                        Text(strings.PSIPHON_CHAIN, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (13 * scaleFactor).sp)
+                                        Text(if (!psiphonAllowed) strings.PSIPHON_NOT_AVAILABLE_ZT else if (config.psiphonEnabled) when (config.protocol) { AetherProtocol.MASQUE -> strings.PSIPHON_OVER_MASQUE ; AetherProtocol.WG -> strings.PSIPHON_OVER_WG ; AetherProtocol.GOOL -> strings.PSIPHON_OVER_GOOL ; AetherProtocol.ZERO_TRUST -> strings.PSIPHON_ROUTE_VIA } else strings.PSIPHON_ROUTE_VIA, color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp)
                                     }
                                 }
                                 Switch(
@@ -431,38 +452,19 @@ fun DashboardScreen(
                             }
                                 if (psiphonOn) {
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp, modifier = Modifier.padding(start = 50.dp))
-                                    if (config.psiphonViaAether) {
-                                        val defaultViaRegions = listOf("AT", "AU", "BE", "BR", "CA", "CH", "CZ", "DE", "DK", "ES", "FI", "FR", "GB", "ID", "IE", "IN", "IT", "JP", "NL", "NO", "PL", "RO", "RS", "SE", "SG", "US")
-                                        val availableRegionsVia by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
-                                        val mergedVia = (defaultViaRegions + availableRegionsVia).distinct().sorted()
-                                        val selectedVia = config.psiphonEgressRegion.trim().uppercase()
-                                        val viaCodes = buildList { add(""); addAll(mergedVia); if (selectedVia.isNotEmpty() && selectedVia !in mergedVia) add(selectedVia) }
-                                        val viaOptions = viaCodes.map { CountryNames.label(it) }
-                                        IosPickerRow(
-                                            icon = Icons.Default.Public,
-                                            iconBg = Color(0xFF30B0C7),
-                                            title = "Exit Location",
-                                            value = CountryNames.label(selectedVia),
-                                            options = viaOptions,
-                                            onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = viaCodes[idx])) }
-                                        )
-                                    } else {
-                                        val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
-                                        val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
-                                        val regionCodes = buildList {
-                                            add("")
-                                            addAll(availableRegions)
-                                            if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable { showPsiphonSheet = true }.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(AppPalette.accentVariant.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Settings, null, tint = Color.White, modifier = Modifier.size(14.dp))
                                         }
-                                        val regionOptions = regionCodes.map { CountryNames.label(it) }
-                                        IosPickerRow(
-                                            icon = Icons.Default.Public,
-                                            iconBg = Color(0xFF30B0C7),
-                                            title = "Exit Location",
-                                            value = CountryNames.label(selectedRegion),
-                                            options = regionOptions,
-                                            onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) }
-                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(strings.SHOW_MORE_PSIPHON, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = (12 * scaleFactor).sp)
+                                            Text(strings.SHOW_MORE_SUBTITLE, color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp)
+                                        }
+                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = IosSecondaryLabel, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -562,6 +564,14 @@ fun DashboardScreen(
                 scaleFactor = scaleFactor
             )
         }
+        if (showPsiphonSheet) {
+            PsiphonOptionsSheet(
+                config = config,
+                onUpdateConfig = onUpdateConfig,
+                onDismiss = { showPsiphonSheet = false },
+                scaleFactor = scaleFactor
+            )
+        }
     }
 }
 
@@ -579,6 +589,9 @@ private fun SupportDialog(
         onDismissRequest = { if (autoShow) onSkip() else onCancel() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val strings = LocalAppStrings.current
+        val isRtl = strings is StringsFa
+        CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -595,19 +608,27 @@ private fun SupportDialog(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        "Support AetherST",
+                        strings.SUPPORT_AETHERST,
+                        modifier = Modifier.fillMaxWidth(),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = (18 * scaleFactor).sp,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        style = androidx.compose.material3.LocalTextStyle.current.copy(
+                            textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                        )
                     )
                     Spacer(modifier = Modifier.height((10 * scaleFactor).dp))
                     Text(
-                        "AetherST is a free and open-source project developed in our spare time.\nIf you find it useful, please consider joining our official Telegram channel.\nYou will get instant updates about new releases, new features, bug fixes and important announcements.\nYour support keeps the project alive and growing!",
+                        strings.SUPPORT_DIALOG_DESC,
+                        modifier = Modifier.fillMaxWidth(),
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = (13 * scaleFactor).sp,
                         lineHeight = (18 * scaleFactor).sp,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        style = androidx.compose.material3.LocalTextStyle.current.copy(
+                            textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                        )
                     )
                     Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
                     Button(
@@ -619,11 +640,15 @@ private fun SupportDialog(
                         Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Join Telegram Channel",
+                            strings.JOIN_TELEGRAM,
                             fontWeight = FontWeight.Bold,
                             fontSize = (14 * scaleFactor).sp,
                             maxLines = 1,
-                            softWrap = false
+                            softWrap = false,
+                            textAlign = TextAlign.Center,
+                            style = androidx.compose.material3.LocalTextStyle.current.copy(
+                                textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                            )
                         )
                     }
                     Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
@@ -632,14 +657,19 @@ private fun SupportDialog(
                         modifier = Modifier.fillMaxWidth().height((42 * scaleFactor).dp)
                     ) {
                         Text(
-                            if (autoShow) "Skip" else "Cancel",
+                            if (autoShow) strings.SKIP else strings.CANCEL,
                             color = IosSecondaryLabel,
                             fontWeight = FontWeight.Bold,
-                            fontSize = (13 * scaleFactor).sp
+                            fontSize = (13 * scaleFactor).sp,
+                            textAlign = TextAlign.Center,
+                            style = androidx.compose.material3.LocalTextStyle.current.copy(
+                                textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                            )
                         )
                     }
                 }
             }
+        }
         }
     }
 }
@@ -654,6 +684,7 @@ fun AdminRequiredDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val strings = LocalAppStrings.current
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -698,7 +729,7 @@ fun AdminRequiredDialog(
                     Spacer(modifier = Modifier.height((20 * scaleFactor).dp))
                     
                     Text(
-                        text = "Admin Privileges Required",
+                        text = strings.ADMIN_REQUIRED,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -709,7 +740,7 @@ fun AdminRequiredDialog(
                     Spacer(modifier = Modifier.height((12 * scaleFactor).dp))
                     
                     Text(
-                        text = "TUN Mode requires administrator rights to create a virtual network interface. Please relaunch the app as Administrator.",
+                        text = strings.ADMIN_REQUIRED_DESC,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = (14 * scaleFactor).sp,
@@ -737,7 +768,7 @@ fun AdminRequiredDialog(
                                 Icon(Icons.Default.FlashOn, null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Relaunch as Admin",
+                                    text = strings.RELAUNCH_AS_ADMIN,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = (15 * scaleFactor).sp
                                 )
@@ -752,7 +783,7 @@ fun AdminRequiredDialog(
                             shape = RoundedCornerShape(14.dp)
                         ) {
                             Text(
-                                text = "Cancel",
+                                text = strings.CANCEL,
                                 color = Color.White.copy(alpha = 0.5f),
                                 fontWeight = FontWeight.Medium,
                                 fontSize = (15 * scaleFactor).sp
@@ -943,6 +974,8 @@ fun IosStatusHeroCard(
     hideConfigChips: Boolean = false,
     scaleFactor: Float = 1f
 ) {
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val statusColor by animateColorAsState(
         targetValue = when (connectionStatus) {
             ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> IosActiveGreen
@@ -990,14 +1023,14 @@ fun IosStatusHeroCard(
                         Spacer(modifier = Modifier.width((5 * scaleFactor).dp))
                                 Text(
                                     text = when (connectionStatus) {
-                                        ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> if (config.connectionMode == ConnectionMode.TUNNEL) "PROTECTED & CONNECTED" else "PROXY ACTIVE"
-                                        ConnectionStatus.STARTING -> "FINDING SERVERS..."
-                                        ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED -> "ESTABLISHING LINK..."
-                                        ConnectionStatus.SOCKS_READY -> "CONNECTING..."
-                                        ConnectionStatus.RECONNECTING -> "RECONNECTING..."
-            ConnectionStatus.STOPPING -> "SWIPE TO FORCE STOP"
-                                        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "CONNECTION ERROR"
-                                        ConnectionStatus.STOPPED -> "READY TO CONNECT"
+                                        ConnectionStatus.RUNNING, ConnectionStatus.TUN_ACTIVE -> if (config.connectionMode == ConnectionMode.TUNNEL) strings.STATUS_PROTECTED_CONNECTED else strings.STATUS_PROXY_ACTIVE
+                                        ConnectionStatus.STARTING -> strings.STATUS_FINDING_SERVERS
+                                        ConnectionStatus.VALIDATING, ConnectionStatus.DATAPLANE_VALIDATED -> strings.STATUS_ESTABLISHING_LINK
+                                        ConnectionStatus.SOCKS_READY -> strings.STATUS_CONNECTING
+                                        ConnectionStatus.RECONNECTING -> strings.STATUS_RECONNECTING
+            ConnectionStatus.STOPPING -> strings.STATUS_SWIPE_FORCE_STOP
+                                        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> strings.STATUS_CONNECTION_ERROR
+                                        ConnectionStatus.STOPPED -> strings.STATUS_READY_TO_CONNECT
                                     },
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
@@ -1082,7 +1115,7 @@ fun IosStatusHeroCard(
                         }
                     } else {
                         Text(
-                            text = if (connectionStatus == ConnectionStatus.RECONNECTING) "RETRY" else "NO UPLINK",
+                            text = if (connectionStatus == ConnectionStatus.RECONNECTING) strings.DASHBOARD_RETRY else strings.DASHBOARD_NO_UPLINK,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (connectionStatus == ConnectionStatus.RECONNECTING) IosScanningAmber else IosSecondaryLabel,
@@ -1094,6 +1127,7 @@ fun IosStatusHeroCard(
 
                 Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
 
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 if (connectionStatus == ConnectionStatus.RUNNING) {
                     Row(
                         modifier = Modifier
@@ -1165,11 +1199,13 @@ fun IosStatusHeroCard(
                                 Text(
                                     text = when {
                                         ipInfo.country.isNotEmpty() -> if (ipInfo.countryCode.isNotEmpty()) "${ipInfo.country} (${ipInfo.countryCode})" else ipInfo.country
-                                        ipInfo.isLoading -> "Wait..."
-                                        ipInfo.error != null -> "Error"
-                                        else -> "Unknown"
+                                        ipInfo.isLoading -> strings.DASHBOARD_IP_WAIT
+                                        ipInfo.error != null -> strings.DASHBOARD_IP_ERROR
+                                        else -> strings.DASHBOARD_IP_UNKNOWN
                                     },
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        textDirection = if (ipInfo.country.isNotEmpty()) TextDirection.Ltr else if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                                    ),
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
                                     fontSize = (11 * scaleFactor).sp
@@ -1177,11 +1213,13 @@ fun IosStatusHeroCard(
                             Text(
                                 text = when {
                                     ipInfo.ip.isNotEmpty() -> ipInfo.ip
-                                    ipInfo.isLoading -> "LOCATING YOUR IP..."
-                                    ipInfo.error != null -> "COULD NOT FIND IP"
-                                    else -> "SHOW PUBLIC IP"
+                                    ipInfo.isLoading -> strings.DASHBOARD_IP_LOCATING
+                                    ipInfo.error != null -> strings.DASHBOARD_IP_NOT_FOUND
+                                    else -> strings.DASHBOARD_IP_SHOW
                                 },
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    textDirection = if (ipInfo.ip.isNotEmpty()) TextDirection.Ltr else if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                                ),
                                 color = when {
                                     ipInfo.error != null -> IosErrorRed
                                     ipInfo.isLoading -> IosScanningAmber
@@ -1207,6 +1245,7 @@ fun IosStatusHeroCard(
                             )
                         }
                     }
+                }
                 }
 
                 if (!hideConfigChips) {
@@ -1434,6 +1473,7 @@ fun CapsuleConnectButton(
     scaleFactor: Float = 1f,
     onRecover: () -> Unit = {}
 ) {
+    val strings = LocalAppStrings.current
     val sf = scaleFactor.coerceIn(0.7f, 1.1f)
     val isConnected = connectionStatus == ConnectionStatus.RUNNING
     val isWorking = connectionStatus in setOf(
@@ -1448,11 +1488,11 @@ fun CapsuleConnectButton(
         else -> IosGroupBg
     }
     val label = when {
-        connectionStatus == ConnectionStatus.STOPPING -> "FORCE STOP"
-        isWorking -> "CONNECTING..."
-        isConnected -> "DISCONNECT"
-        isError -> "RECONNECT"
-        else -> "CONNECT"
+        connectionStatus == ConnectionStatus.STOPPING -> strings.FORCE_STOP
+        isWorking -> strings.CONNECTING_DOTS
+        isConnected -> strings.DISCONNECT
+        isError -> strings.RECONNECT
+        else -> strings.CONNECT
     }
     Box(
         modifier = modifier
@@ -1488,6 +1528,7 @@ fun WindowsSwipeSwitch(
     onRecover: () -> Unit = {},
     onDraggingChanged: (Boolean) -> Unit = {}
 ) {
+    val strings = LocalAppStrings.current
     val isConnected = connectionStatus == ConnectionStatus.RUNNING
     val isWorking = connectionStatus == ConnectionStatus.STARTING ||
             connectionStatus == ConnectionStatus.VALIDATING ||
@@ -1501,6 +1542,11 @@ fun WindowsSwipeSwitch(
     val scope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
     var isDragging by remember { mutableStateOf(false) }
+    val latestOnToggle by rememberUpdatedState(onToggle)
+    val latestOnRecover by rememberUpdatedState(onRecover)
+    val latestConnectionStatus by rememberUpdatedState(connectionStatus)
+    val latestIsConnected by rememberUpdatedState(isConnected)
+    val latestIsWorking by rememberUpdatedState(isWorking)
     val trackColor by animateColorAsState(
         targetValue = when {
             isConnected -> IosActiveGreen
@@ -1510,14 +1556,14 @@ fun WindowsSwipeSwitch(
         }, label = "trackColor"
     )
     val text = when (connectionStatus) {
-        ConnectionStatus.STARTING -> "FINDING SERVERS..."
-        ConnectionStatus.VALIDATING -> "VALIDATING..."
-        ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY, ConnectionStatus.TUN_ACTIVE -> "CONNECTING..."
-        ConnectionStatus.RECONNECTING -> "RECONNECTING..."
-        ConnectionStatus.STOPPING -> "SWIPE TO FORCE STOP"
-        ConnectionStatus.RUNNING -> "SWIPE TO DISCONNECT"
-        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "SWIPE TO RECONNECT"
-        ConnectionStatus.STOPPED -> "SWIPE TO CONNECT"
+        ConnectionStatus.STARTING -> strings.FINDING_SERVERS
+        ConnectionStatus.VALIDATING -> strings.VALIDATING
+        ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY, ConnectionStatus.TUN_ACTIVE -> strings.CONNECTING_DOTS
+        ConnectionStatus.RECONNECTING -> strings.STATUS_RECONNECTING
+        ConnectionStatus.STOPPING -> strings.STATUS_SWIPE_FORCE_STOP
+        ConnectionStatus.RUNNING -> strings.SWIPE_TO_DISCONNECT
+        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> strings.SWIPE_TO_RECONNECT
+        ConnectionStatus.STOPPED -> strings.SWIPE_TO_CONNECT
     }
     val hintTransition = rememberInfiniteTransition(label = "hint")
     val hintShift by hintTransition.animateFloat(
@@ -1534,6 +1580,7 @@ fun WindowsSwipeSwitch(
         label = "dotPhase"
     )
     val sf = scaleFactor.coerceIn(0.7f, 1.1f)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     BoxWithConstraints(
         modifier = modifier
             .widthIn(min = (280 * sf).dp, max = (360 * sf).dp)
@@ -1583,7 +1630,7 @@ fun WindowsSwipeSwitch(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (isDisconnectDrag) "RELEASE TO DISCONNECT" else text,
+                text = if (isDisconnectDrag) strings.RELEASE_TO_DISCONNECT else text,
                 color = Color.White.copy(alpha = 0.95f),
                 fontWeight = FontWeight.Bold,
                 fontSize = ((11 * sf).coerceIn(10f, 13f)).sp,
@@ -1606,7 +1653,7 @@ fun WindowsSwipeSwitch(
                 .shadow(8.dp, CircleShape, clip = false)
                 .clip(CircleShape)
                 .background(Color.White)
-                .pointerInput(isConnected, isWorking, canSwipe, maxDrag) {
+                .pointerInput(canSwipe, maxDrag) {
                         if (!canSwipe) return@pointerInput
                         detectHorizontalDragGestures(
                             onDragStart = { isDragging = true; onDraggingChanged(true) },
@@ -1614,35 +1661,35 @@ fun WindowsSwipeSwitch(
                                 isDragging = false
                                 onDraggingChanged(false)
                                 scope.launch {
-                                    val threshold = if (isWorking) maxDrag * 0.25f else maxDrag * 0.5f
-                                    val shouldTrigger = if (isWorking) {
-                                        if (!isConnected) offsetX.value > threshold else offsetX.value < maxDrag - threshold
+                                    val threshold = if (latestIsWorking) maxDrag * 0.25f else maxDrag * 0.5f
+                                    val shouldTrigger = if (latestIsWorking) {
+                                        if (!latestIsConnected) offsetX.value > threshold else offsetX.value < maxDrag - threshold
                                     } else {
-                                        if (!isConnected) offsetX.value > threshold else offsetX.value < threshold
+                                        if (!latestIsConnected) offsetX.value > threshold else offsetX.value < threshold
                                     }
                                     if (shouldTrigger) {
-                                        val success = if (connectionStatus == ConnectionStatus.STOPPING) {
-                                            onRecover()
+                                        val success = if (latestConnectionStatus == ConnectionStatus.STOPPING) {
+                                            latestOnRecover()
                                             true
-                                        } else onToggle()
+                                        } else latestOnToggle()
                                         if (success) {
-                                            if (isWorking) {
+                                            if (latestIsWorking) {
                                                 offsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
                                             } else {
                                                 offsetX.animateTo(
-                                                    if (!isConnected) maxDrag else 0f,
+                                                    if (!latestIsConnected) maxDrag else 0f,
                                                     spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
                                                 )
                                             }
                                         } else {
                                             offsetX.animateTo(
-                                                if (isConnected) maxDrag else 0f,
+                                                if (latestIsConnected) maxDrag else 0f,
                                                 spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
                                             )
                                         }
                                     } else {
                                         offsetX.animateTo(
-                                            if (isConnected) maxDrag else 0f,
+                                            if (latestIsConnected) maxDrag else 0f,
                                             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
                                         )
                                     }
@@ -1653,7 +1700,7 @@ fun WindowsSwipeSwitch(
                                 onDraggingChanged(false)
                                 scope.launch {
                                     offsetX.animateTo(
-                                        if (isConnected) maxDrag else 0f,
+                                        if (latestIsConnected) maxDrag else 0f,
                                         spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
                                     )
                                 }
@@ -1714,6 +1761,7 @@ fun WindowsSwipeSwitch(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -1723,10 +1771,11 @@ fun IosConnectionModeSegmentedControl(
     enabled: Boolean = true,
     scaleFactor: Float = 1f
 ) {
+    val strings = LocalAppStrings.current
     val modes = listOf(
-        ConnectionMode.TUNNEL to "TUN Mode",
-        ConnectionMode.SYSTEM_PROXY to "System Proxy",
-        ConnectionMode.PROXY_ONLY to "Proxy Only"
+        ConnectionMode.TUNNEL to strings.TUN_MODE,
+        ConnectionMode.SYSTEM_PROXY to strings.SYSTEM_PROXY,
+        ConnectionMode.PROXY_ONLY to strings.PROXY_ONLY
     )
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1918,5 +1967,109 @@ private fun formatSpeedValue(bytesPerSec: Double): String {
         bytesPerSec >= 1024.0 * 1024.0 -> "${"%.1f".format(bytesPerSec / (1024.0 * 1024.0))} MB/s"
         bytesPerSec >= 1024.0 -> "${"%.0f".format(bytesPerSec / 1024.0)} KB/s"
         else -> "${"%.0f".format(bytesPerSec)} B/s"
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PsiphonOptionsSheet(
+    config: AetherConfig,
+    onUpdateConfig: (AetherConfig) -> Unit,
+    onDismiss: () -> Unit,
+    scaleFactor: Float
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val strings = LocalAppStrings.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = IosCardBg,
+        contentColor = Color.White,
+        scrimColor = Color.Black.copy(alpha = 0.6f)
+    ) {
+        CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
+        Column(
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+                Text(strings.PSIPHON_OPTIONS_TITLE, fontWeight = FontWeight.Bold, fontSize = (18 * scaleFactor).sp, color = Color.White)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    when (config.protocol) {
+                        AetherProtocol.MASQUE -> strings.PSIPHON_OPTIONS_SUBTITLE_MASQUE
+                        else -> strings.PSIPHON_OPTIONS_SUBTITLE_WG
+                    },
+                    color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp
+                )
+            }
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.Black)) { Column {
+                val outerOptions = listOf("MASQUE", "WireGuard", "Gool")
+                val outerValues = listOf("masque", "wg", "gool")
+                val currentOuter = when (config.psiphonChainOuter) { "wg" -> "WireGuard"; "gool" -> "Gool"; else -> "MASQUE" }
+                IosPickerRow(icon = Icons.Default.VpnLock, iconBg = AppPalette.statusConnected, title = strings.OUTER_PROTOCOL, value = currentOuter, options = outerOptions, onOptionSelected = { idx -> val outer = outerValues[idx]; val proto = when (outer) { "wg" -> AetherProtocol.WG; "gool" -> AetherProtocol.GOOL; else -> AetherProtocol.MASQUE }; onUpdateConfig(config.copy(psiphonChainOuter = outer, protocol = proto)) })
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(when (config.psiphonChainOuter) { "wg" -> strings.PSIPHON_SHEET_OUTER_DESC_WG ; "gool" -> strings.PSIPHON_SHEET_OUTER_DESC_GOOL ; else -> strings.PSIPHON_SHEET_OUTER_DESC_MASQUE }, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                }
+                if (config.psiphonChainOuter == "masque") {
+                    AppDivider()
+                    val orderOptions = listOf("Psiphon first", "MASQUE first", "Auto")
+                    val orderValues = listOf("psiphon_first", "masque_first", "auto")
+                    val currentOrder = when (config.psiphonMasqueOrder) { "masque_first" -> "MASQUE first"; "auto" -> "Auto"; else -> "Psiphon first" }
+                    IosPickerRow(icon = Icons.Default.SwapHoriz, iconBg = Color(0xFF30B0C7), title = strings.MASQUE_ORDER, value = currentOrder, options = orderOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonMasqueOrder = orderValues[idx])) })
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(when (config.psiphonMasqueOrder) { "masque_first" -> strings.PSIPHON_SHEET_ORDER_DESC_MASQUE_FIRST ; "auto" -> strings.PSIPHON_SHEET_ORDER_DESC_AUTO ; else -> strings.PSIPHON_SHEET_ORDER_DESC_PSIPHON_FIRST }, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                    }
+                }
+                val isWgFamily = config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL
+                if (!isWgFamily) {
+                    AppDivider()
+                    val chainModes = listOf(PsiphonChainMode.AUTO, PsiphonChainMode.FALLBACK, PsiphonChainMode.ALWAYS)
+                    val chainLabels = mapOf(PsiphonChainMode.AUTO to "Auto", PsiphonChainMode.FALLBACK to "Fallback", PsiphonChainMode.ALWAYS to "Always")
+                    IosPickerRow(icon = Icons.Default.Sync, iconBg = AppPalette.accent, title = strings.PSIPHON_CHAIN_MODE, value = chainLabels[config.psiphonChainMode] ?: strings.CHAIN_MODE_AUTO, options = chainModes.map { chainLabels[it]!! }, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonChainMode = chainModes[idx])) })
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        val modeDesc = when (config.psiphonChainMode) {
+                            PsiphonChainMode.AUTO -> strings.PSIPHON_SHEET_CHAIN_DESC_AUTO
+                            PsiphonChainMode.FALLBACK -> strings.PSIPHON_SHEET_CHAIN_DESC_FALLBACK
+                            PsiphonChainMode.ALWAYS -> strings.PSIPHON_SHEET_CHAIN_DESC_ALWAYS
+                        }
+                        Text(modeDesc, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                    }
+                    AppDivider()
+                    IosSwitchRow(icon = Icons.Default.Public, iconBg = Color(0xFF5856D6), title = strings.HELP_PSIPHON_WITH_AETHER, subtitle = if (config.psiphonViaAether) strings.HELP_PSIPHON_ON else strings.HELP_PSIPHON_OFF, checked = config.psiphonViaAether, onCheckedChange = { checked -> onUpdateConfig(config.copy(psiphonViaAether = checked, psiphonEgressRegion = if (checked) "" else config.psiphonEgressRegion)) }, testTag = "switch_psiphon_via_aether")
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(if (config.psiphonViaAether) strings.PSIPHON_SHEET_VIA_ON else strings.PSIPHON_SHEET_VIA_OFF, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                    }
+                    if (!config.psiphonViaAether) {
+                        AppDivider()
+                        val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                        val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
+                        val regionCodes = buildList {
+                            add("")
+                            addAll(availableRegions)
+                            if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                        }
+                        val regionOptions = regionCodes.map { CountryNames.label(it) }
+                        IosPickerRow(icon = Icons.Default.Public, iconBg = Color(0xFF30B0C7), title = strings.EXIT_COUNTRY, value = CountryNames.label(selectedRegion), options = regionOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) })
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            Text(strings.PSIPHON_SHEET_EXIT_AUTO, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(strings.PSIPHON_SHEET_WG_ALWAYS_VIA, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                    }
+                }
+            } }
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.Black)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text(strings.HOW_IT_WORKS, fontWeight = FontWeight.Bold, color = Color.White, fontSize = (14 * scaleFactor).sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(when (config.psiphonChainOuter) { "wg" -> strings.PSIPHON_SHEET_HOW_WG ; "gool" -> strings.PSIPHON_SHEET_HOW_GOOL ; else -> strings.PSIPHON_SHEET_HOW_MASQUE }, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (17 * scaleFactor).sp)
+                }
+            }
+        }
+        }
     }
 }

@@ -192,11 +192,9 @@ class AetherWidgetProvider : AppWidgetProvider() {
                     val status = ConnectionController.status.value
                     if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.RECONNECTING) {
                         if (currentConfig.connectionMode == ConnectionMode.TUNNEL) {
-                            AetherVpnService.stopVpn(context)
-                            AetherVpnService.startVpn(context)
+                            AetherVpnService.restartVpn(context)
                         } else {
-                            AetherProxyService.stopProxy(context)
-                            AetherProxyService.startProxy(context)
+                            AetherProxyService.restartProxy(context)
                         }
                     }
 

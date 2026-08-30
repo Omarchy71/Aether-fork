@@ -199,8 +199,8 @@ actual object ConnectionController {
             }
             LogRepository.i("[Controller] Local SOCKS bridge listening on 127.0.0.1:10808")
 
-            TunHelper.start(config.socksPort.toIntOrNull() ?: 1819)
-            LogRepository.i("[Controller] TUN helper started")
+            TunHelper.start(config.socksPort.toIntOrNull() ?: 1819, config.mtu)
+            LogRepository.i("[Controller] TUN helper started mtu=${config.mtu}")
         }
 
         private val stopLock = Any()

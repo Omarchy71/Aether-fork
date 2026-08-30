@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.immaghzbad.aetherst.platform.isDesktop
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.ui.components.IosActionRow
 import io.github.immaghzbad.aetherst.shared.ui.components.SectionCard
 import io.github.immaghzbad.aetherst.shared.ui.components.AppDivider
@@ -39,6 +40,7 @@ fun AboutUsScreen(
     appVersion: String = "1.0.0",
     bottomContentPadding: Dp = 0.dp
 ) {
+    val strings = LocalAppStrings.current
     val uriHandler = LocalUriHandler.current
     val colors = appColors()
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -59,10 +61,10 @@ fun AboutUsScreen(
             item { AboutHero(appVersion = appVersion) }
             item {
                 SectionCard {
-                    SectionTitle("Overview")
+                    SectionTitle(strings.ABOUT_OVERVIEW)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "AetherST is a modern client for the Aether tunnel ecosystem. It turns advanced protocol management into a calm, focused experience — real-time stats, intelligent presets, and zero clutter.",
+                        text = strings.ABOUT_OVERVIEW_DESC,
                         style = MaterialTheme.typography.bodyMedium,
                         color = colors.textSecondary,
                         fontSize = 14.sp,
@@ -72,75 +74,75 @@ fun AboutUsScreen(
             }
             item {
                 SectionCard {
-                    SectionTitle("Why AetherST")
+                    SectionTitle(strings.ABOUT_WHY)
                     InfoRow(
-                        title = "Censorship-Resistant",
-                        description = "Engineered to bypass DPI and protocol-based filtering."
+                        title = strings.ABOUT_WHY_CENSORSHIP,
+                        description = strings.ABOUT_WHY_CENSORSHIP_DESC
                     )
                     AppDivider()
                     InfoRow(
-                        title = "Hybrid Transports",
-                        description = "Support for MASQUE (HTTP/2 & HTTP/3), WireGuard, and cascaded tunnels."
+                        title = strings.ABOUT_WHY_HYBRID,
+                        description = strings.ABOUT_WHY_HYBRID_DESC
                     )
                     AppDivider()
                     InfoRow(
-                        title = "Gateway Validation",
-                        description = "Verifies gateway health and integrity before routing any data."
+                        title = strings.ABOUT_WHY_GATEWAY,
+                        description = strings.ABOUT_WHY_GATEWAY_DESC
                     )
                     AppDivider()
                     InfoRow(
-                        title = "Fast Recovery",
-                        description = "Automatic reconnection logic that adapts to network changes."
+                        title = strings.ABOUT_WHY_RECOVERY,
+                        description = strings.ABOUT_WHY_RECOVERY_DESC
                     )
                 }
             }
             item {
                 SectionCard {
-                    SectionTitle("Architecture")
+                    SectionTitle(strings.ABOUT_ARCHITECTURE)
                     InfoRow(
-                        title = "The Aether Core",
-                        description = "Open-source proxy core built for stability in restricted networks, using dynamic gateway discovery and traffic obfuscation."
+                        title = strings.ABOUT_ARCH_AETHER,
+                        description = strings.ABOUT_ARCH_AETHER_DESC
                     )
                     AppDivider()
                     InfoRow(
-                        title = "Native HEV Stack",
-                        description = "A specialized SOCKS5 tunnel written in C that bridges Android's TUN interface with the Aether core for minimal overhead."
+                        title = strings.ABOUT_ARCH_HEV,
+                        description = strings.ABOUT_ARCH_HEV_DESC
                     )
                     AppDivider()
                     InfoRow(
-                        title = "SocksTunBridge",
-                        description = "A custom Kotlin bridge managing traffic between the system TUN and the proxy core with high compatibility."
+                        title = strings.ABOUT_ARCH_SOCKS,
+                        description = strings.ABOUT_ARCH_SOCKS_DESC
                     )
                 }
             }
             item {
                 SectionCard {
-                    SectionTitle("Links & Source")
+                    SectionTitle(strings.ABOUT_LINKS)
                     IosActionRow(
                         iconBg = IosActiveBlue.copy(alpha = 0.16f),
-                        title = "Project Maintainer",
+                        title = strings.ABOUT_LINK_MAINTAINER,
                         subtitle = "github.com/immaghzbad",
                         onClick = { uriHandler.openUri(UserGithubUrl) }
                     )
                     AppDivider()
                     IosActionRow(
                         iconBg = IosActiveBlue.copy(alpha = 0.16f),
-                        title = "Telegram Channel",
-                        subtitle = "Support, chat & dev updates",
+                        title = strings.ABOUT_LINK_TELEGRAM,
+                        subtitle = strings.ABOUT_LINK_TELEGRAM_SUB,
                         onClick = { uriHandler.openUri(DeveloperTelegramUrl) }
                     )
                     AppDivider()
                     IosActionRow(
                         iconBg = IosActiveGreen.copy(alpha = 0.16f),
-                        title = "Aether Repository",
-                        subtitle = "Engine source & protocol",
+                        title = strings.ABOUT_LINK_AETHER,
+                        subtitle = strings.ABOUT_LINK_AETHER_SUB,
                         onClick = { uriHandler.openUri(AetherRepositoryUrl) }
                     )
                     AppDivider()
                     IosActionRow(
                         iconBg = IosPurple.copy(alpha = 0.16f),
-                        title = "HEV Stack Source",
-                        subtitle = "Native C TUN-to-SOCKS bridge",
+                        title = strings.ABOUT_LINK_HEV,
+                        subtitle = strings.ABOUT_LINK_HEV_SUB,
                         onClick = { uriHandler.openUri(HevRepositoryUrl) }
                     )
                 }
@@ -152,13 +154,14 @@ fun AboutUsScreen(
 
 @Composable
 private fun AboutHero(appVersion: String) {
+    val strings = LocalAppStrings.current
     val colors = appColors()
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "AetherST",
+            text = strings.ABOUT_TITLE,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = colors.textPrimary,
@@ -166,7 +169,7 @@ private fun AboutHero(appVersion: String) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Advanced Secure Tunneling Client",
+            text = strings.ABOUT_SUBTITLE,
             style = MaterialTheme.typography.bodyMedium,
             color = colors.textSecondary,
             fontSize = 14.sp,
@@ -177,9 +180,9 @@ private fun AboutHero(appVersion: String) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            VersionChip(label = "APP", value = appVersion)
-            VersionChip(label = "AETHER", value = "1.7.0")
-            VersionChip(label = "HEV", value = "2.17.1")
+            VersionChip(label = strings.ABOUT_VERSION_APP, value = appVersion)
+            VersionChip(label = strings.ABOUT_VERSION_AETHER, value = "1.7.0")
+            VersionChip(label = strings.ABOUT_VERSION_HEV, value = "2.17.1")
         }
     }
 }
@@ -256,6 +259,7 @@ private fun SectionTitle(text: String) {
 
 @Composable
 private fun AboutFooter() {
+    val strings = LocalAppStrings.current
     val colors = appColors()
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -263,7 +267,8 @@ private fun AboutFooter() {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Built with ",
+                text = strings.ABOUT_FOOTER_BUILT,
+                style = MaterialTheme.typography.bodySmall,
                 color = colors.textSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
@@ -275,7 +280,8 @@ private fun AboutFooter() {
                 modifier = Modifier.size(14.dp)
             )
             Text(
-                text = " by PowerSigma Team",
+                text = strings.ABOUT_FOOTER_BY,
+                style = MaterialTheme.typography.bodySmall,
                 color = colors.textSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
@@ -283,7 +289,7 @@ private fun AboutFooter() {
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "AetherST is an independent client project. The Aether core is developed by CluvexStudio and distributed under its own open-source license.",
+            text = strings.ABOUT_FOOTER_DESC,
             style = MaterialTheme.typography.bodySmall,
             color = colors.textSecondary.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
