@@ -1,14 +1,26 @@
 package io.github.immaghzbad.aetherst.shared.ui.screens
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -16,9 +28,29 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,11 +62,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.AutoDetectRepository
 import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
-import io.github.immaghzbad.aetherst.shared.model.*
+import io.github.immaghzbad.aetherst.shared.model.AetherNoise
+import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
+import io.github.immaghzbad.aetherst.shared.model.AetherScanMode
+import io.github.immaghzbad.aetherst.shared.model.AutoDetectPhase
+import io.github.immaghzbad.aetherst.shared.model.AutoDetectResult
+import io.github.immaghzbad.aetherst.shared.model.AutoDetectState
+import io.github.immaghzbad.aetherst.shared.model.MtuProbeResult
+import io.github.immaghzbad.aetherst.shared.model.NoiseProbeResult
+import io.github.immaghzbad.aetherst.shared.model.ProbeStatus
+import io.github.immaghzbad.aetherst.shared.model.ProtocolProbeResult
+import io.github.immaghzbad.aetherst.shared.model.ScanModeProbeResult
+import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 
 private val IosCardBg = AppPalette.surfaceRaised
 private val IosGroupBg = AppPalette.divider
@@ -296,53 +340,51 @@ private fun AutoDetectProgressCard(state: AutoDetectState, scaleFactor: Float) {
 private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
     val strings = LocalAppStrings.current
     val fingerprint = state.finalResult?.networkFingerprint ?: state.liveFingerprint
-    val isComplete = fingerprint != null
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = IosCardBg)
-    ) {
-        Column(modifier = Modifier.padding((14 * scaleFactor).dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
-            ) {
-                InfoPill(
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides if (strings is io.github.immaghzbad.aetherst.shared.i18n.StringsFa) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = IosCardBg)
+        ) {
+            Column(modifier = Modifier.padding((14 * scaleFactor).dp), verticalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)) {
+                FingerprintRow(
                     label = strings.AUTODETECT_PILL_NETWORK,
-                    value = if (isComplete) fingerprint.networkType.uppercase() else "—",
-                    color = if (isComplete && fingerprint.supportsDPI) IosAmber else IosActiveGreen,
-                    modifier = Modifier.weight(1f),
+                    value = when (fingerprint?.networkType) {
+                        "open" -> strings.AUTODETECT_NETWORK_OPEN
+                        "restricted" -> strings.AUTODETECT_NETWORK_RESTRICTED
+                        else -> "—"
+                    },
+                    color = if (fingerprint?.supportsDPI == true) IosAmber else IosActiveGreen,
                     scaleFactor = scaleFactor
                 )
-                InfoPill(
+                FingerprintRow(
                     label = strings.AUTODETECT_PILL_DPI_DETECTED,
-                    value = if (isComplete) if (fingerprint.supportsDPI) strings.AUTODETECT_YES else strings.AUTODETECT_NO else "—",
-                    color = if (isComplete && fingerprint.supportsDPI) IosErrorRed else IosActiveGreen,
-                    modifier = Modifier.weight(1f),
+                    value = when (fingerprint?.supportsDPI) { true -> strings.AUTODETECT_YES; false -> strings.AUTODETECT_NO; null -> "—" },
+                    color = if (fingerprint?.supportsDPI == true) IosErrorRed else IosActiveGreen,
                     scaleFactor = scaleFactor
                 )
-            }
-            Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy((8 * scaleFactor).dp)
-            ) {
-                InfoPill(
+                FingerprintRow(
                     label = strings.AUTODETECT_PILL_IPV6,
-                    value = if (isComplete) if (fingerprint.supportsIPv6) strings.AUTODETECT_YES else strings.AUTODETECT_NO else "—",
-                    color = if (isComplete && fingerprint.supportsIPv6) IosActiveGreen else IosSecondaryLabel,
-                    modifier = Modifier.weight(1f),
+                    value = when (fingerprint?.supportsIPv6) { true -> strings.AUTODETECT_YES; false -> strings.AUTODETECT_NO; null -> "—" },
+                    color = if (fingerprint?.supportsIPv6 == true) IosActiveGreen else IosSecondaryLabel,
                     scaleFactor = scaleFactor
                 )
-                InfoPill(
-                    label = strings.AUTODETECT_PILL_ISP_IP,
-                    value = if (isComplete) {
-                        val isp = fingerprint.carrierOrIsp
-                        if (isp.length > 16) isp.take(16) + "…" else isp
-                    } else "—",
+                FingerprintRow(
+                    label = "UDP",
+                    value = when (fingerprint?.supportsUDP) { true -> strings.AUTODETECT_YES; false -> strings.AUTODETECT_NO; null -> "—" },
+                    color = if (fingerprint?.supportsUDP == true) IosActiveGreen else IosErrorRed,
+                    scaleFactor = scaleFactor
+                )
+                FingerprintRow(
+                    label = strings.AUTODETECT_PILL_ISP,
+                    value = fingerprint?.carrierOrIsp?.ifBlank { "—" } ?: "—",
                     color = IosActiveBlue,
-                    modifier = Modifier.weight(1f),
+                    scaleFactor = scaleFactor
+                )
+                FingerprintRow(
+                    label = strings.AUTODETECT_PILL_IP,
+                    value = fingerprint?.ipAddress?.ifBlank { "—" } ?: "—",
+                    color = IosActiveBlue,
                     scaleFactor = scaleFactor
                 )
             }
@@ -350,6 +392,38 @@ private fun NetworkFingerprintCard(state: AutoDetectState, scaleFactor: Float) {
     }
 }
 
+@Composable
+private fun FingerprintRow(label: String, value: String, color: Color, scaleFactor: Float) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = IosGroupBg
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = (12 * scaleFactor).dp, vertical = (10 * scaleFactor).dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = label,
+                color = IosSecondaryLabel,
+                fontSize = (10 * scaleFactor).sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+            Text(
+                text = value,
+                color = color,
+                fontSize = (12 * scaleFactor).sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f).padding(start = (12 * scaleFactor).dp)
+            )
+        }
+    }
+}
+
+@Suppress("UNUSED")
 @Composable
 private fun InfoPill(label: String, value: String, color: Color, modifier: Modifier = Modifier, scaleFactor: Float) {
     Surface(
@@ -782,7 +856,7 @@ private fun buildResultForProtocol(protocol: AetherProtocol, base: AutoDetectRes
 }
 
 @Composable
-private fun qualityLabel(latencyMs: Long, scaleFactor: Float): Pair<String, Color> {
+private fun qualityLabel(latencyMs: Long): Pair<String, Color> {
     val strings = LocalAppStrings.current
     return when {
         latencyMs < 80 -> strings.AUTODETECT_QUALITY_EXCELLENT to IosActiveGreen
@@ -800,7 +874,7 @@ private fun ProtocolResultRankRow(
     scaleFactor: Float
 ) {
     val strings = LocalAppStrings.current
-    val (qualityLabel, qualityColor) = qualityLabel(probe.latencyMs, scaleFactor)
+    val (qualityLabel, qualityColor) = qualityLabel(probe.latencyMs)
     val isBest = rank == 1
 
     Card(

@@ -55,6 +55,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
+import io.github.immaghzbad.aetherst.shared.i18n.StringsFa
 import io.github.immaghzbad.aetherst.shared.ui.theme.AppPalette
 import io.github.immaghzbad.aetherst.shared.ui.theme.appColors
 
@@ -86,7 +91,16 @@ fun AppDivider() = HorizontalDivider(color = IosDividerColor, thickness = 0.5.dp
 
 @Composable
 fun IosConfirmationDialog(title: String, message: String, confirmText: String, confirmColor: Color = Color.White, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, confirmButton = { Button(onClick = onConfirm, modifier = Modifier.height(44.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = confirmColor, contentColor = Color.White)) { Text(confirmText, fontWeight = FontWeight.Bold, fontSize = 14.sp) } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = IosSecondaryLabel, fontWeight = FontWeight.Bold) } }, title = { Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }, text = { Text(message, color = IosSecondaryLabel, fontSize = 14.sp, lineHeight = 20.sp) }, containerColor = AppPalette.surfaceRaised, shape = RoundedCornerShape(20.dp), modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)))
+    val strings = LocalAppStrings.current
+    val isRtl = strings is StringsFa
+    CompositionLocalProvider(LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr) {
+        AlertDialog(onDismissRequest = onDismiss, confirmButton = {
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onDismiss, modifier = Modifier.height(44.dp)) { Text(strings.CANCEL, color = IosSecondaryLabel, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+                Button(onClick = onConfirm, modifier = Modifier.height(44.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = confirmColor, contentColor = Color.White)) { Text(confirmText, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+            }
+        }, dismissButton = {}, title = { Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = if (isRtl) androidx.compose.ui.text.style.TextAlign.Right else androidx.compose.ui.text.style.TextAlign.Left, modifier = Modifier.fillMaxWidth()) }, text = { Text(message, color = IosSecondaryLabel, fontSize = 14.sp, lineHeight = 20.sp, textAlign = if (isRtl) androidx.compose.ui.text.style.TextAlign.Right else androidx.compose.ui.text.style.TextAlign.Left, modifier = Modifier.fillMaxWidth()) }, containerColor = AppPalette.surfaceRaised, shape = RoundedCornerShape(20.dp), modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)))
+    }
 }
 
 @Composable

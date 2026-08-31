@@ -204,6 +204,7 @@ interface AppStrings {
     val PSIPHON_SHEET_VIA_OFF: String
     val PSIPHON_SHEET_EXIT_AUTO: String
     val PSIPHON_SHEET_WG_ALWAYS_VIA: String
+    val PSIPHON_SHEET_EGRESS_WARN_WG: String
     val PSIPHON_SHEET_HOW_MASQUE: String
     val PSIPHON_SHEET_HOW_WG: String
     val PSIPHON_SHEET_HOW_GOOL: String
@@ -567,6 +568,10 @@ interface AppStrings {
     val AUTODETECT_PILL_DPI_DETECTED: String
     val AUTODETECT_PILL_IPV6: String
     val AUTODETECT_PILL_ISP_IP: String
+    val AUTODETECT_PILL_ISP: String
+    val AUTODETECT_PILL_IP: String
+    val AUTODETECT_NETWORK_OPEN: String
+    val AUTODETECT_NETWORK_RESTRICTED: String
     val AUTODETECT_YES: String
     val AUTODETECT_NO: String
     val AD_STEP_CHECKING_INTERNET: String

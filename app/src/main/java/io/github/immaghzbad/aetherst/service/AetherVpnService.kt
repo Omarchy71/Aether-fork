@@ -839,7 +839,6 @@ class AetherVpnService : VpnService() {
         if (activeTunnelEngine == TunnelEngine.HEV_TUN2SOCKS) {
             hevEngine?.stats?.value?.let {
                 getController().setTraffic(it.txBytes, it.rxBytes)
-                logPeriodicTraffic("[VpnService] TUN stats (HEV): txBytes=${it.txBytes} rxBytes=${it.rxBytes} txPackets=${it.txPackets} rxPackets=${it.rxPackets}")
             }
         } else {
             socksBridge?.getStats()?.let {

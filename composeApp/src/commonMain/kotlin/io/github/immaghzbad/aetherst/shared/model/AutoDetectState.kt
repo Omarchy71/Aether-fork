@@ -47,7 +47,8 @@ data class NetworkFingerprint(
     val supportsUDP: Boolean = true,
     val supportsIPv6: Boolean = false,
     val dnsServers: List<String> = emptyList(),
-    val carrierOrIsp: String = ""
+    val carrierOrIsp: String = "",
+    val ipAddress: String = ""
 )
 
 @Serializable

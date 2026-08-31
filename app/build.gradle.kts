@@ -15,8 +15,8 @@ android {
     applicationId = "io.github.immaghzbad.aetherst"
     minSdk = 26
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.6.4"
+    versionCode = 4
+    versionName = "1.6.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

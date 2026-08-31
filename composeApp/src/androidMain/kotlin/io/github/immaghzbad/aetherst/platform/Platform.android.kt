@@ -165,7 +165,7 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     override fun getFilesDir(): String = context.filesDir.absolutePath
     override fun getCacheDir(): String = context.cacheDir.absolutePath
     override fun getPackageName(): String = context.packageName
-    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.4" } catch (_: Exception) { "1.6.4" }
+    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.5" } catch (_: Exception) { "1.6.5" }
     override fun getAppVersionCode(): Int = try {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {

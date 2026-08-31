@@ -181,7 +181,7 @@ private fun AboutHero(appVersion: String) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             VersionChip(label = strings.ABOUT_VERSION_APP, value = appVersion)
-            VersionChip(label = strings.ABOUT_VERSION_AETHER, value = "1.7.0")
+            VersionChip(label = strings.ABOUT_VERSION_AETHER, value = "1.8.0")
             VersionChip(label = strings.ABOUT_VERSION_HEV, value = "2.17.1")
         }
     }

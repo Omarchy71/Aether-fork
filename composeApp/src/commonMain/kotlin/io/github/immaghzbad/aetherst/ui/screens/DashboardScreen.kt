@@ -1502,18 +1502,27 @@ fun CapsuleConnectButton(
             .clickable { if (connectionStatus == ConnectionStatus.STOPPING) onRecover() else onToggle() },
         contentAlignment = Alignment.Center
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = (16 * sf).dp)
+        ) {
             if (isWorking) {
                 CircularProgressIndicator(modifier = Modifier.size((18 * sf).dp), color = Color.White, strokeWidth = 2.5.dp)
                 Spacer(modifier = Modifier.width((8 * sf).dp))
             }
-            Text(
-                text = label,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = ((14 * sf).coerceIn(12f, 16f)).sp,
-                letterSpacing = (0.6f * sf).sp
-            )
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides if (strings is StringsFa) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr) {
+                Text(
+                    text = label,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = ((if (strings is StringsFa) 13 else 14) * sf).coerceIn(11f, 15f).sp,
+                    letterSpacing = (if (strings is StringsFa) 0.1f else 0.6f * sf).sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
@@ -1629,16 +1638,20 @@ fun WindowsSwipeSwitch(
                 .background(effectiveTrackColor.copy(alpha = if (isConnected || isDisconnectDrag) 1f else 0.95f)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = if (isDisconnectDrag) strings.RELEASE_TO_DISCONNECT else text,
-                color = Color.White.copy(alpha = 0.95f),
-                fontWeight = FontWeight.Bold,
-                fontSize = ((11 * sf).coerceIn(10f, 13f)).sp,
-                letterSpacing = (0.6f * sf).sp,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = (56 * sf).dp)
-            )
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides if (strings is StringsFa) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr) {
+                Text(
+                    text = if (isDisconnectDrag) strings.RELEASE_TO_DISCONNECT else text,
+                    color = Color.White.copy(alpha = 0.95f),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = ((if (strings is StringsFa) 10 else 11) * sf).coerceIn(9f, 12f).sp,
+                    letterSpacing = (if (strings is StringsFa) 0.15f else 0.6f * sf).sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = ((if (strings is StringsFa) 50 else 56) * sf).dp)
+                )
+            }
         }
 
         val hintOffset = if (!isDragging && !isWorking) {
@@ -2036,29 +2049,27 @@ private fun PsiphonOptionsSheet(
                         }
                         Text(modeDesc, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
                     }
-                    AppDivider()
-                    IosSwitchRow(icon = Icons.Default.Public, iconBg = Color(0xFF5856D6), title = strings.HELP_PSIPHON_WITH_AETHER, subtitle = if (config.psiphonViaAether) strings.HELP_PSIPHON_ON else strings.HELP_PSIPHON_OFF, checked = config.psiphonViaAether, onCheckedChange = { checked -> onUpdateConfig(config.copy(psiphonViaAether = checked, psiphonEgressRegion = if (checked) "" else config.psiphonEgressRegion)) }, testTag = "switch_psiphon_via_aether")
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                        Text(if (config.psiphonViaAether) strings.PSIPHON_SHEET_VIA_ON else strings.PSIPHON_SHEET_VIA_OFF, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
-                    }
-                    if (!config.psiphonViaAether) {
-                        AppDivider()
-                        val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
-                        val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
-                        val regionCodes = buildList {
-                            add("")
-                            addAll(availableRegions)
-                            if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
-                        }
-                        val regionOptions = regionCodes.map { CountryNames.label(it) }
-                        IosPickerRow(icon = Icons.Default.Public, iconBg = Color(0xFF30B0C7), title = strings.EXIT_COUNTRY, value = CountryNames.label(selectedRegion), options = regionOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) })
-                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                            Text(strings.PSIPHON_SHEET_EXIT_AUTO, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
-                        }
-                    }
                 } else {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                         Text(strings.PSIPHON_SHEET_WG_ALWAYS_VIA, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                    }
+                }
+                AppDivider()
+                val availableRegions by PsiphonEgressRegistry.availableRegions.collectAsStateWithLifecycle()
+                val selectedRegion = config.psiphonEgressRegion.trim().uppercase()
+                val regionCodes = buildList {
+                    add("")
+                    addAll(availableRegions)
+                    if (selectedRegion.isNotEmpty() && selectedRegion !in availableRegions) add(selectedRegion)
+                }
+                val regionOptions = regionCodes.map { CountryNames.label(it) }
+                IosPickerRow(icon = Icons.Default.Public, iconBg = Color(0xFF30B0C7), title = strings.EXIT_COUNTRY, value = CountryNames.label(selectedRegion), options = regionOptions, onOptionSelected = { idx -> onUpdateConfig(config.copy(psiphonEgressRegion = regionCodes[idx])) })
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(strings.PSIPHON_SHEET_EXIT_AUTO, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
+                }
+                if (isWgFamily) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Text(strings.PSIPHON_SHEET_EGRESS_WARN_WG, color = Color(0xFFFFCC00), fontSize = (11 * scaleFactor).sp, lineHeight = (15 * scaleFactor).sp)
                     }
                 }
             } }

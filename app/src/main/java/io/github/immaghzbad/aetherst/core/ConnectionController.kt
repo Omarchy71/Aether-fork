@@ -189,18 +189,20 @@ class ConnectionController private constructor(context: Context) {
                                                 throw IllegalStateException("Core failed via psiphon chain fallback")
                                             }
                                         } else {
-                                            LogRepository.w("[Controller] Psiphon fallback also failed, keeping direct MASQUE")
+                                            LogRepository.e("[Controller] Psiphon not connected over ${effectiveConfig.protocol} after fallback - aborting chain")
                                             PsiphonController.stop()
                                             ActiveProxyProvider.psiphonProxyUrl = null
                                             psiphonChaining = false
-                                            notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                                            runCatching { runner.stop() }
+                                            throw IllegalStateException("Psiphon not connected over ${effectiveConfig.protocol}")
                                         }
                                     } else {
-                                        LogRepository.w("[Controller] Psiphon not connected over ${effectiveConfig.protocol}, keeping direct")
+                                        LogRepository.e("[Controller] Psiphon not connected over ${effectiveConfig.protocol} - chain requires Psiphon, aborting")
                                         PsiphonController.stop()
                                         ActiveProxyProvider.psiphonProxyUrl = null
                                         psiphonChaining = false
-                                        notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                                        runCatching { runner.stop() }
+                                        throw IllegalStateException("Psiphon not connected over ${effectiveConfig.protocol}")
                                     }
                                 }
                             } else {
@@ -221,12 +223,19 @@ class ConnectionController private constructor(context: Context) {
                                     ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
                                     LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
                                 } else {
-                                    LogRepository.w("[Controller] Psiphon not connected/stable, using direct")
+                                    LogRepository.e("[Controller] Psiphon not connected/stable - chain requires Psiphon, aborting")
                                     ActiveProxyProvider.psiphonProxyUrl = null
                                     PsiphonController.stop()
+                                    psiphonChaining = false
+                                    runCatching { runner.stop() }
+                                    throw IllegalStateException("Psiphon not connected/stable")
                                 }
                             } else {
+                                LogRepository.e("[Controller] Psiphon failed to start - chain requires Psiphon, aborting")
                                 ActiveProxyProvider.psiphonProxyUrl = null
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon failed to start")
                             }
                             psiphonChaining = false
                             if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
@@ -327,15 +336,15 @@ class ConnectionController private constructor(context: Context) {
                                     notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
                                     return@withLock
                                 } else {
-                                    LogRepository.i("[Controller] Keeping direct ${effectiveConfig.protocol} egress, psiphon not ready")
+                                    LogRepository.e("[Controller] Psiphon not ready over ${effectiveConfig.protocol} after direct - chain requires Psiphon, aborting")
                                     PsiphonController.stop()
                                     ActiveProxyProvider.psiphonProxyUrl = null
                                     psiphonChaining = false
-                                    notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
-                                    return@withLock
+                                    runCatching { runner.stop() }
+                                    throw IllegalStateException("Psiphon not ready over ${effectiveConfig.protocol}")
                                 }
                             }
-                            LogRepository.w("[Controller] Direct ${effectiveConfig.protocol} failed, WireGuard family cannot be chained over Psiphon SOCKS (code 7 UDP); failing")
+                            LogRepository.e("[Controller] Direct ${effectiveConfig.protocol} failed and Psiphon over HTTP also failed - aborting")
                             throw IllegalStateException("WireGuard family cannot fallback via Psiphon SOCKS")
                         } else {
                         val masqueOrder = effectiveConfig.psiphonMasqueOrder.lowercase().trim()
@@ -359,21 +368,20 @@ class ConnectionController private constructor(context: Context) {
                                     }
                                     return@withLock
                                 } else {
-                                    LogRepository.w("[Controller] Psiphon not connected/stable over ${effectiveConfig.protocol}, falling back to direct")
+                                    LogRepository.e("[Controller] Psiphon not connected/stable over ${effectiveConfig.protocol} - chain requires Psiphon, aborting")
                                     PsiphonController.stop()
                                     ActiveProxyProvider.psiphonProxyUrl = null
-                                    notifyStatusChanged(appContext, ConnectionStatus.STARTING)
+                                    psiphonChaining = false
+                                    runCatching { runner.stop() }
+                                    throw IllegalStateException("Psiphon not connected/stable over ${effectiveConfig.protocol}")
                                 }
                             } else {
+                                LogRepository.e("[Controller] Psiphon failed to start over ${effectiveConfig.protocol} - chain requires Psiphon, aborting")
                                 ActiveProxyProvider.psiphonProxyUrl = null
-                                notifyStatusChanged(appContext, ConnectionStatus.STARTING)
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon failed to start over ${effectiveConfig.protocol}")
                             }
-                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, 20.seconds)) {
-                                throw IllegalStateException("Core failed direct")
-                            }
-                            psiphonChaining = false
-                            notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
-                            return@withLock
                         }
                         var directSuccess = false
                         try {
@@ -391,35 +399,13 @@ class ConnectionController private constructor(context: Context) {
                             notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
                             var psiphonReady = false
                             try {
-                                if (effectiveConfig.psiphonViaAether) {
-                                    val firstUpstream = "socks5://127.0.0.1:${effectiveConfig.socksPort}"
-                                    val firstConfig = effectiveConfig.copy(psiphonEgressRegion = "")
-                                    val firstStarted = runNativeBounded<Unit>(30000L, "Psiphon.bg1") { PsiphonController.start(appContext, firstConfig, upstream = firstUpstream) } != null && PsiphonController.isRunning()
-                                    if (firstStarted) {
-                                        var w1 = 0
-                                        while (w1 < 15 && !PsiphonController.isConnected()) { delay(1000.milliseconds); w1++ }
-                                        if (PsiphonController.isConnected()) {
-                                            PsiphonController.stop()
-                                            delay(800.milliseconds)
-                                            val secondStarted = runNativeBounded<Unit>(30000L, "Psiphon.bg2") { PsiphonController.start(appContext, effectiveConfig.copy(psiphonEgressRegion = ""), upstream = null) } != null && PsiphonController.isRunning()
-                                            if (secondStarted) {
-                                                var w2 = 0
-                                                while (w2 < 30 && !PsiphonController.isConnected()) { delay(1000.milliseconds); w2++ }
-                                                var s2 = 0
-                                                while (s2 < 25 && !PsiphonController.stableFor(10000)) { delay(1000.milliseconds); s2++ }
-                                                psiphonReady = PsiphonController.isConnected() && PsiphonController.stableFor(10000)
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    val started = runNativeBounded<Unit>(30000L, "Psiphon.bg") { PsiphonController.start(appContext, effectiveConfig, upstream = null) } != null && PsiphonController.isRunning()
-                                    if (started) {
-                                        var waitPsiphon = 0
-                                        while (waitPsiphon < 30 && !PsiphonController.isConnected()) { delay(1000.milliseconds); waitPsiphon++ }
-                                        var stableWait = 0
-                                        while (stableWait < 25 && !PsiphonController.stableFor(10000)) { delay(1000.milliseconds); stableWait++ }
-                                        psiphonReady = PsiphonController.isConnected() && PsiphonController.stableFor(10000)
-                                    }
+                                val started = runNativeBounded<Unit>(30000L, "Psiphon.bg") { PsiphonController.start(appContext, effectiveConfig, upstream = null) } != null && PsiphonController.isRunning()
+                                if (started) {
+                                    var waitPsiphon = 0
+                                    while (waitPsiphon < 30 && !PsiphonController.isConnected()) { delay(1000.milliseconds); waitPsiphon++ }
+                                    var stableWait = 0
+                                    while (stableWait < 25 && !PsiphonController.stableFor(10000)) { delay(1000.milliseconds); stableWait++ }
+                                    psiphonReady = PsiphonController.isConnected() && PsiphonController.stableFor(10000)
                                 }
                             } catch (_: Exception) {}
                             if (psiphonReady) {
@@ -445,10 +431,12 @@ class ConnectionController private constructor(context: Context) {
                                 } catch (_: Exception) {}
                                 return@withLock
                             } else {
-                                LogRepository.i("[Controller] Keeping direct aether egress, psiphon not ready")
+                                LogRepository.e("[Controller] Psiphon not ready after direct aether - chain requires Psiphon, aborting")
+                                PsiphonController.stop()
+                                ActiveProxyProvider.psiphonProxyUrl = null
                                 psiphonChaining = false
-                                notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
-                                return@withLock
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon not ready after direct aether")
                             }
                         }
                         LogRepository.i("[Controller] Fallback to psiphon-first chain")
@@ -470,12 +458,19 @@ class ConnectionController private constructor(context: Context) {
                                 ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
                                 LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
                             } else {
-                                LogRepository.w("[Controller] Psiphon not connected/stable, using direct")
+                                LogRepository.e("[Controller] Psiphon not connected/stable in fallback - chain requires Psiphon, aborting")
                                 ActiveProxyProvider.psiphonProxyUrl = null
                                 PsiphonController.stop()
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon not connected/stable in fallback")
                             }
                         } else {
+                            LogRepository.e("[Controller] Psiphon failed to start in fallback - chain requires Psiphon, aborting")
                             ActiveProxyProvider.psiphonProxyUrl = null
+                            psiphonChaining = false
+                            runCatching { runner.stop() }
+                            throw IllegalStateException("Psiphon failed to start in fallback")
                         }
                         psiphonChaining = false
                         if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {

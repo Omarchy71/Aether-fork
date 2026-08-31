@@ -197,8 +197,8 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         if (isWgFamily && !out.httpProxyEnabled) {
             out = out.copy(httpProxyEnabled = true)
         }
-        if (isWgFamily && !out.psiphonViaAether) {
-            out = out.copy(psiphonViaAether = true, psiphonEgressRegion = "")
+        if (isWgFamily && out.psiphonEgressRegion.isNotEmpty()) {
+            out = out.copy(psiphonEgressRegion = out.psiphonEgressRegion)
         }
         if ((out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool") && out.psiphonChainMode == PsiphonChainMode.FALLBACK) {
             out = out.copy(psiphonChainMode = PsiphonChainMode.AUTO)
@@ -372,12 +372,23 @@ class AetherConfigRepository private constructor(private val settings: Settings)
     }
 
     fun getFullConfigJson(): String {
-        return Json.encodeToString(_config.value)
+        val sanitized = _config.value.copy(
+            excludedPackages = emptySet(),
+            blockedPackages = emptySet(),
+            tunneledPackages = emptySet(),
+            routingRules = emptyList()
+        )
+        return Json.encodeToString(sanitized)
     }
 
     fun restoreFullConfig(json: String): Boolean {
         return try {
-            val restored = Json.decodeFromString<AetherConfig>(json)
+            val restored = Json.decodeFromString<AetherConfig>(json).copy(
+                excludedPackages = emptySet(),
+                blockedPackages = emptySet(),
+                tunneledPackages = emptySet(),
+                routingRules = emptyList()
+            )
             updateConfig(restored)
             LogRepository.i("Full configuration restored from backup")
             true
