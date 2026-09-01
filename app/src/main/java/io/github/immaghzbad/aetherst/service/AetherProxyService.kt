@@ -76,7 +76,10 @@ class AetherProxyService : Service() {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AetherST:ProxyWakeLock")
 
         scope.launch {
-            ConnectionController.status.collect { updateNotification() }
+            ConnectionController.status.collect {
+                updateNotification()
+                runCatching { AetherWidgetProvider.updateAllWidgets(this@AetherProxyService) }
+            }
         }
     }
 
@@ -95,11 +98,10 @@ class AetherProxyService : Service() {
                 stopProxyService(commandCounter.incrementAndGet())
             }
             else -> {
-                showInitialNotification()
-                startAttempt(commandCounter.incrementAndGet())
+                LogRepository.i("[ProxyService] System-initiated start with null intent ignored (START_NOT_STICKY)")
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startAttempt(commandId: Long) {
@@ -152,7 +154,7 @@ class AetherProxyService : Service() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (status == ConnectionStatus.STOPPED) {
             manager.cancel(NOTIFICATION_ID)
-            Handler(Looper.getMainLooper()).post { stopForeground(STOP_FOREGROUND_REMOVE) }
+            stopForeground(STOP_FOREGROUND_REMOVE)
             return
         }
         val text = when (status) {
@@ -173,13 +175,16 @@ class AetherProxyService : Service() {
             ConnectionStatus.ERROR, ConnectionStatus.FAILED -> "Proxy error"
             else -> "Starting proxy..."
         }
-        runCatching {
+        try {
             val notification = buildNotification(text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+        } catch (e: Exception) {
+            LogRepository.w("[ProxyService] startForeground failed: ${e.message}")
+            try { stopSelf() } catch (_: Exception) {}
         }
     }
 
@@ -213,6 +218,8 @@ class AetherProxyService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+        wakeLock = null
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(NOTIFICATION_ID)
         stopForeground(STOP_FOREGROUND_REMOVE)

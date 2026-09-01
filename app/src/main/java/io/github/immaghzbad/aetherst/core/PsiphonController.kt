@@ -14,12 +14,12 @@ import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicLong
 
 object PsiphonController {
-    private var psiphonPort: Int = 3080
-    private var running = false
-    private var connected = false
-    private var tunnelObj: Any? = null
+    @Volatile private var psiphonPort: Int = 3080
+    @Volatile private var running = false
+    @Volatile private var connected = false
+    @Volatile private var tunnelObj: Any? = null
     private val lastEventTime = AtomicLong(0L)
-    private var vpnServiceRef: WeakReference<VpnService>? = null
+    @Volatile private var vpnServiceRef: WeakReference<VpnService>? = null
 
     fun setVpnService(service: VpnService) {
         vpnServiceRef = WeakReference(service)
@@ -162,6 +162,8 @@ object PsiphonController {
         tunnelObj = null
         running = false
         connected = false
+        vpnServiceRef?.clear()
+        vpnServiceRef = null
         LogRepository.i("Psiphon stopped", "Psiphon")
     }
 

@@ -37,7 +37,6 @@ class AetherProcessRunner(private val context: Context) {
     private val currentAttemptId = AtomicLong(0)
     private var goolOuterValidated = false
     private var dataPlaneOk = false
-    private val reconnectMutex = Mutex()
     private val isReconnecting = AtomicBoolean(false)
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.STOPPED)
@@ -266,6 +265,14 @@ class AetherProcessRunner(private val context: Context) {
                 }
                 if (config.useGateway) env["AETHER_GATEWAY"] = "1"
             }
+            routingFile?.let {
+                try {
+                    it.setReadable(false, false)
+                    it.setReadable(true, true)
+                    it.setWritable(false, false)
+                    it.setWritable(true, true)
+                } catch (_: Exception) {}
+            }
             if (config.dnsList.isNotEmpty()) env["AETHER_DNS"] = config.dnsList
             if (config.upstreamProxyEnabled && config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
             env["AETHER_ROUTE_SNIFF"] = if (config.routeSniffing) "1" else "0"
@@ -338,7 +345,7 @@ class AetherProcessRunner(private val context: Context) {
             synchronized(lock) {
                 if (process === proc) process = null
             }
-            try { proc?.destroyForcibly() } catch (_: Exception) {}
+            try { proc?.destroyForcibly() } catch (e: Exception) { LogRepository.w("destroyForcibly failed: ${e.message}") }
         }
     }
 

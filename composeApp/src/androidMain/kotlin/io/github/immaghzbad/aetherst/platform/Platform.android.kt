@@ -106,7 +106,7 @@ class AndroidVpnController(private val context: Context) : VpnController {
     override fun restartProxy() {
         val intent = Intent().apply {
             setClassName(context.packageName, "io.github.immaghzbad.aetherst.service.AetherProxyService")
-            action = "PROXY_RESTART"
+            action = "io.github.immaghzbad.aetherst.PROXY_RESTART"
         }
         context.startForegroundService(intent)
     }
@@ -144,7 +144,11 @@ class AndroidTrafficProvider : TrafficProvider {
 class AndroidAppInfoProvider(private val context: Context) : AppInfoProvider {
     override suspend fun getInstalledApps(): List<AppInfo> {
         val pm = context.packageManager
-        return pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        return (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong()))
+        } else {
+            @Suppress("DEPRECATION") pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        })
             .filter { it.packageName != context.packageName }
             .map { app ->
                 AppInfo(
@@ -165,15 +169,28 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     override fun getFilesDir(): String = context.filesDir.absolutePath
     override fun getCacheDir(): String = context.cacheDir.absolutePath
     override fun getPackageName(): String = context.packageName
-    override fun getAppVersion(): String = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.6.5" } catch (_: Exception) { "1.6.5" }
+    override fun getAppVersion(): String = try {
+        val pm = context.packageManager
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION") pm.getPackageInfo(context.packageName, 0)
+        }
+        info.versionName ?: "1.6.6"
+    } catch (_: Exception) { "1.6.6" }
     override fun getAppVersionCode(): Int = try {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val pm = context.packageManager
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION") pm.getPackageInfo(context.packageName, 0)
+        }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             info.longVersionCode.toInt()
         } else {
             @Suppress("DEPRECATION") info.versionCode
         }
-    } catch (_: Exception) { 3 }
+    } catch (_: Exception) { 5 }
     override fun exitApp() { Process.killProcess(Process.myPid()) }
 
     override fun readLastCrashLog(): String? {
@@ -320,12 +337,16 @@ class AndroidSystemUtils(private val context: Context) : SystemUtils {
     }
 
     override fun execPing(host: String, size: Int, timeoutMs: Int, dontFragment: Boolean): Boolean {
+        val sanitized = host.trim()
+        if (sanitized.isEmpty() || sanitized.length > 253 || sanitized.contains(Regex("""[^a-zA-Z0-9.\-:\[\]]"""))) {
+            return false
+        }
         return try {
             val timeoutSec = (timeoutMs / 1000).coerceAtLeast(1)
             val pb = if (dontFragment) {
-                ProcessBuilder("ping", "-c", "1", "-s", size.toString(), "-M", "do", "-W", timeoutSec.toString(), host)
+                ProcessBuilder("ping", "-c", "1", "-s", size.toString(), "-M", "do", "-W", timeoutSec.toString(), sanitized)
             } else {
-                ProcessBuilder("ping", "-c", "1", "-s", size.toString(), "-W", timeoutSec.toString(), host)
+                ProcessBuilder("ping", "-c", "1", "-s", size.toString(), "-W", timeoutSec.toString(), sanitized)
             }
             pb.redirectErrorStream(true)
             val proc = pb.start()

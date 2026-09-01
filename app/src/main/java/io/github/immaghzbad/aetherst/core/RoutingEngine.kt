@@ -37,7 +37,11 @@ class RoutingEngine(rules: List<RoutingRule>) {
 
     private val compiledRules = rules.mapNotNull(::compileRule)
         .sortedWith(compareByDescending<CompiledRule> { it.priority }.thenByDescending { it.normalizedPattern.length })
-    private val decisionCache = ConcurrentHashMap<String, RoutingDecision>()
+    private val decisionCache = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, RoutingDecision>(2048, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RoutingDecision>?): Boolean = size > 2048
+        }
+    )
     private val containsDomainRules = compiledRules.any { !it.normalizedPattern.startsWith("ip:") }
 
     fun hasDomainRules(): Boolean = containsDomainRules

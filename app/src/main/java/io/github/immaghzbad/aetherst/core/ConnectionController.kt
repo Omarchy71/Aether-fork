@@ -31,23 +31,32 @@ object SocksGate {
     fun setReady(v: SocksReadiness) { _readiness.value = v }
 }
 
-class ConnectionController private constructor(context: Context) {
+interface ConnectionControl {
+    suspend fun start()
+    suspend fun stop()
+    fun submitLoginCode(code: String)
+}
+
+class ConnectionController private constructor(context: Context) : ConnectionControl {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val runner = AetherProcessRunner(appContext)
     private val mutex = Mutex()
     private val activeAttemptId = AtomicLong(0)
-    private val loginCodeChannel = Channel<String>(Channel.UNLIMITED)
+    private val loginCodeChannel = Channel<String>(Channel.CONFLATED)
 
     private var timerJob: Job? = null
     private var durationSeconds = 0L
     private var baseTx = 0L
     private var baseRx = 0L
-    private var isManualTraffic = false
-    private var lastManualTx = 0L
-    private var lastManualRx = 0L
-    private var prevSpeedTx = 0L
-    private var prevSpeedRx = 0L
+    private var accumulatedTx = 0L
+    private var accumulatedRx = 0L
+    private var lastEngineTx = 0L
+    private var lastEngineRx = 0L
+    private var prevTotalTx = 0L
+    private var prevTotalRx = 0L
+    private var hasManualTraffic = false
+    private var useTrafficStatsFallback = true
 
     companion object {
         const val ACTION_STATUS_CHANGED = "io.github.immaghzbad.aetherst.STATUS_CHANGED"
@@ -100,7 +109,7 @@ class ConnectionController private constructor(context: Context) {
     }
 
 
-    fun submitLoginCode(code: String) {
+    override fun submitLoginCode(code: String) {
         updateIsWaitingForCode(false)
         loginCodeChannel.trySend(code)
     }
@@ -111,13 +120,14 @@ class ConnectionController private constructor(context: Context) {
         }
     }
 
-    suspend fun start() = mutex.withLock {
-        if (_status.value == ConnectionStatus.RUNNING || _status.value == ConnectionStatus.VALIDATING) {
-            return@withLock
+    override suspend fun start() {
+        val attemptId: Long
+        mutex.withLock {
+            if (_status.value == ConnectionStatus.RUNNING || _status.value == ConnectionStatus.VALIDATING) return
+            attemptId = System.currentTimeMillis()
+            activeAttemptId.set(attemptId)
+            notifyStatusChanged(appContext, ConnectionStatus.STARTING)
         }
-        val attemptId = System.currentTimeMillis()
-        activeAttemptId.set(attemptId)
-        notifyStatusChanged(appContext, ConnectionStatus.STARTING)
         try {
             val config = AetherConfigRepository.getInstance(getSettings(PlatformContext(appContext))).config.value.effectiveZeroTrustConfig()
             var effectiveConfig = config
@@ -137,9 +147,18 @@ class ConnectionController private constructor(context: Context) {
             if (effectiveConfig.httpProxyEnabled && bindHost != "127.0.0.1") {
                 LogRepository.w("[Controller] HTTP listener bound to $bindHost:${effectiveConfig.httpPort} - not loopback, anyone who can reach this address can use the tunnel")
             }
-            isManualTraffic = false
-            baseTx = TrafficStats.getUidTxBytes(Process.myUid()).coerceAtLeast(0)
-            baseRx = TrafficStats.getUidRxBytes(Process.myUid()).coerceAtLeast(0)
+            hasManualTraffic = false
+            accumulatedTx = 0L
+            accumulatedRx = 0L
+            lastEngineTx = 0L
+            lastEngineRx = 0L
+            prevTotalTx = 0L
+            prevTotalRx = 0L
+            useTrafficStatsFallback = effectiveConfig.connectionMode != ConnectionMode.TUNNEL
+            val rawTx = TrafficStats.getUidTxBytes(Process.myUid())
+            val rawRx = TrafficStats.getUidRxBytes(Process.myUid())
+            baseTx = if (rawTx == TrafficStats.UNSUPPORTED.toLong() || rawTx < 0) 0L else rawTx
+            baseRx = if (rawRx == TrafficStats.UNSUPPORTED.toLong() || rawRx < 0) 0L else rawRx
             if (psiphonSupported) {
                 psiphonChaining = true
                 when (effectiveConfig.psiphonChainMode) {
@@ -150,7 +169,7 @@ class ConnectionController private constructor(context: Context) {
                         if (shouldCoreFirst) {
                             val modeDesc = if (isWireGuardFamily) "Psiphon over ${effectiveConfig.protocol} via http" else "MASQUE first -> Psiphon via http ($masqueOrder)"
                             LogRepository.i("[Controller] Psiphon ALWAYS $modeDesc")
-                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                                 if (effectiveConfig.protocol == AetherProtocol.MASQUE && masqueOrder == "auto") {
                                     LogRepository.w("[Controller] MASQUE direct failed, falling back to Psiphon first")
                                 } else {
@@ -163,11 +182,7 @@ class ConnectionController private constructor(context: Context) {
                             val httpUpstream = "http://127.0.0.1:${effectiveConfig.httpPort}"
                             runNativeBounded<Unit>(30000L, "Psiphon.start") { PsiphonController.start(appContext, effectiveConfig, upstream = httpUpstream) }
                             if (PsiphonController.isRunning()) {
-                                var waitPsiphon = 0
-                                while (waitPsiphon < 30 && !PsiphonController.isConnected()) { delay(1000.milliseconds); waitPsiphon++ }
-                                var stableWait = 0
-                                while (stableWait < 25 && !PsiphonController.stableFor(10000)) { delay(1000.milliseconds); stableWait++ }
-                                if (PsiphonController.isConnected() && PsiphonController.stableFor(10000)) {
+                                if (awaitPsiphonStable()) {
                                     ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
                                     LogRepository.i("[Controller] Psiphon over ${effectiveConfig.protocol} ready via ${ActiveProxyProvider.psiphonProxyUrl}")
                                     try { val intent = Intent().setClassName(appContext.packageName, "io.github.immaghzbad.aetherst.service.AetherVpnService").apply { action = "io.github.immaghzbad.aetherst.SWITCH_HEV"; putExtra("host", "127.0.0.1"); putExtra("port", 3080) }; appContext.startService(intent) } catch (_: Exception) {}
@@ -185,7 +200,7 @@ class ConnectionController private constructor(context: Context) {
                                         if (PsiphonController.isConnected() && PsiphonController.stableFor(10000)) {
                                             effectiveConfig = effectiveConfig.copy(upstreamProxyEnabled = true, upstreamProxy = PsiphonController.getUpstreamProxy())
                                             ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
-                                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                                                 throw IllegalStateException("Core failed via psiphon chain fallback")
                                             }
                                         } else {
@@ -238,7 +253,7 @@ class ConnectionController private constructor(context: Context) {
                                 throw IllegalStateException("Psiphon failed to start")
                             }
                             psiphonChaining = false
-                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                                 throw IllegalStateException("Core failed via psiphon chain")
                             }
                         }
@@ -248,15 +263,15 @@ class ConnectionController private constructor(context: Context) {
                         var directSuccess = false
                         try {
                             LogRepository.i("[Controller] Psiphon FALLBACK mode -> trying direct first")
-                            directSuccess = startAetherInternal(effectiveConfig, bindAddress, attemptId, 20.seconds)
+                            directSuccess = startAetherInternal(effectiveConfig, bindAddress, attemptId)
                         } catch (e: Exception) {
                             LogRepository.w("[Controller] Direct aether failed: ${e.localizedMessage}")
                             runCatching { cleanup(attemptId) }
                             delay(500.milliseconds)
-                            if (activeAttemptId.get() != attemptId) return@withLock
+                            if (activeAttemptId.get() != attemptId) return
                             notifyStatusChanged(appContext, ConnectionStatus.STARTING)
                         }
-                        if (directSuccess) return@withLock
+                        if (directSuccess) return
                         if (isWireGuardFamilyFallback) {
                             LogRepository.w("[Controller] Direct ${effectiveConfig.protocol} failed, WireGuard cannot be chained over Psiphon SOCKS (code 7 UDP); failing")
                             throw IllegalStateException("WireGuard family cannot fallback via Psiphon SOCKS")
@@ -288,7 +303,7 @@ class ConnectionController private constructor(context: Context) {
                             ActiveProxyProvider.psiphonProxyUrl = null
                         }
                         psiphonChaining = false
-                        if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                        if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                             throw IllegalStateException("Core failed via psiphon chain")
                         }
                     }
@@ -298,12 +313,12 @@ class ConnectionController private constructor(context: Context) {
                             var directSuccess = false
                             try {
                                 LogRepository.i("[Controller] Psiphon AUTO WireGuard family -> direct first for Psiphon over ${effectiveConfig.protocol}")
-                                directSuccess = startAetherInternal(effectiveConfig, bindAddress, attemptId, 20.seconds)
+                                directSuccess = startAetherInternal(effectiveConfig, bindAddress, attemptId)
                             } catch (e: Exception) {
                                 LogRepository.w("[Controller] Direct aether failed: ${e.localizedMessage}")
                                 runCatching { cleanup(attemptId) }
                                 delay(500.milliseconds)
-                                if (activeAttemptId.get() != attemptId) return@withLock
+                                if (activeAttemptId.get() != attemptId) return
                                 notifyStatusChanged(appContext, ConnectionStatus.STARTING)
                             }
                             if (directSuccess) {
@@ -334,7 +349,7 @@ class ConnectionController private constructor(context: Context) {
                                     } catch (_: Exception) {}
                                     psiphonChaining = false
                                     notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
-                                    return@withLock
+                                    return
                                 } else {
                                     LogRepository.e("[Controller] Psiphon not ready over ${effectiveConfig.protocol} after direct - chain requires Psiphon, aborting")
                                     PsiphonController.stop()
@@ -363,10 +378,10 @@ class ConnectionController private constructor(context: Context) {
                                     LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
                                     notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
                                     psiphonChaining = false
-                                    if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                                    if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                                         throw IllegalStateException("Core failed via psiphon chain")
                                     }
-                                    return@withLock
+                                    return
                                 } else {
                                     LogRepository.e("[Controller] Psiphon not connected/stable over ${effectiveConfig.protocol} - chain requires Psiphon, aborting")
                                     PsiphonController.stop()
@@ -386,12 +401,12 @@ class ConnectionController private constructor(context: Context) {
                         var directSuccess = false
                         try {
                             LogRepository.i("[Controller] Psiphon AUTO mode -> trying direct first")
-                            directSuccess = startAetherInternal(effectiveConfig, bindAddress, attemptId, 20.seconds)
+                            directSuccess = startAetherInternal(effectiveConfig, bindAddress, attemptId)
                         } catch (e: Exception) {
                             LogRepository.w("[Controller] Direct aether failed: ${e.localizedMessage}")
                             runCatching { cleanup(attemptId) }
                             delay(500.milliseconds)
-                            if (activeAttemptId.get() != attemptId) return@withLock
+                            if (activeAttemptId.get() != attemptId) return
                             notifyStatusChanged(appContext, ConnectionStatus.STARTING)
                         }
                         if (directSuccess) {
@@ -412,13 +427,13 @@ class ConnectionController private constructor(context: Context) {
                                 LogRepository.i("[Controller] Re-chaining aether via Psiphon for Psiphon egress")
                                 runCatching { runner.stop() }
                                 delay(800.milliseconds)
-                                if (activeAttemptId.get() != attemptId) return@withLock
+                                if (activeAttemptId.get() != attemptId) return
                                 notifyStatusChanged(appContext, ConnectionStatus.STARTING)
                                 effectiveConfig = effectiveConfig.copy(upstreamProxyEnabled = true, upstreamProxy = PsiphonController.getUpstreamProxy())
                                 ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
                                 LogRepository.i("[Controller] Restarting aether via Psiphon ${effectiveConfig.upstreamProxy}")
                                 psiphonChaining = false
-                                if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                                if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                                     throw IllegalStateException("Core failed via psiphon chain after direct")
                                 }
                                 try {
@@ -429,7 +444,7 @@ class ConnectionController private constructor(context: Context) {
                                     }
                                     appContext.startService(intent)
                                 } catch (_: Exception) {}
-                                return@withLock
+                                return
                             } else {
                                 LogRepository.e("[Controller] Psiphon not ready after direct aether - chain requires Psiphon, aborting")
                                 PsiphonController.stop()
@@ -473,7 +488,7 @@ class ConnectionController private constructor(context: Context) {
                             throw IllegalStateException("Psiphon failed to start in fallback")
                         }
                         psiphonChaining = false
-                        if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                        if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                             throw IllegalStateException("Core failed via psiphon chain")
                         }
                         }
@@ -481,7 +496,7 @@ class ConnectionController private constructor(context: Context) {
                 }
             } else {
                 ActiveProxyProvider.psiphonProxyUrl = null
-                if (!startAetherInternal(effectiveConfig, bindAddress, attemptId, (effectiveConfig.validateSecs.coerceAtLeast(0) + 10).seconds)) {
+                if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                     throw IllegalStateException("Core failed direct")
                 }
             }
@@ -489,7 +504,7 @@ class ConnectionController private constructor(context: Context) {
             val st = _status.value
             if (st == ConnectionStatus.STOPPED || st == ConnectionStatus.STOPPING) {
                 runCatching { cleanup(attemptId) }
-                return@withLock
+                return
             }
             if (runner.connectionStatus.value != ConnectionStatus.RUNNING) {
                 LogRepository.e("[Controller] Startup failed: ${e.localizedMessage}")
@@ -501,15 +516,23 @@ class ConnectionController private constructor(context: Context) {
         }
     }
 
-    private suspend fun startAetherInternal(config: AetherConfig, bindAddress: String, attemptId: Long, timeout: kotlin.time.Duration): Boolean {
-        LogRepository.i("[Controller] Starting core at $bindAddress")
+    private suspend fun startAetherInternal(config: AetherConfig, bindAddress: String, attemptId: Long): Boolean {
+        LogRepository.i("[Controller] Starting core at $bindAddress (event-driven, awaiting core verdict)")
         runner.start(config, bindAddress, onCodeRequired = { updateIsWaitingForCode(true) }, inputProvider = { loginCodeChannel.receive() })
         val proxyPort = config.socksPort.toIntOrNull() ?: 1819
-        val dpDeadline = System.currentTimeMillis() + timeout.inWholeMilliseconds
         var dpValidated = false
+        var lastStatus = runner.connectionStatus.value
+        var lastProgressAt = System.currentTimeMillis()
+        var stallWarned = false
         while (currentCoroutineContext().isActive) {
             if (activeAttemptId.get() != attemptId) return false
             val coreStatus = runner.connectionStatus.value
+            if (coreStatus != lastStatus) {
+                lastStatus = coreStatus
+                lastProgressAt = System.currentTimeMillis()
+                stallWarned = false
+                LogRepository.i("[Controller] Core status -> $coreStatus")
+            }
             if (coreStatus == ConnectionStatus.DATAPLANE_VALIDATED || coreStatus == ConnectionStatus.SOCKS_READY) {
                 dpValidated = true
                 break
@@ -517,17 +540,25 @@ class ConnectionController private constructor(context: Context) {
             if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core reported error during startup")
             if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly during startup")
             if (isWaitingForCode.value) {
+                lastProgressAt = System.currentTimeMillis()
                 delay(1000.milliseconds)
                 continue
             }
-            if (System.currentTimeMillis() > dpDeadline) throw IllegalStateException("Core data-plane validation timed out after ${timeout.inWholeSeconds}s")
+            val stalledMs = System.currentTimeMillis() - lastProgressAt
+            if (stalledMs > 120_000 && !stallWarned) {
+                LogRepository.w("[Controller] Core stalled without progress for ${stalledMs / 1000}s while awaiting data-plane validation (still waiting for core verdict)")
+                stallWarned = true
+            }
+            if (stalledMs > 180_000) {
+                throw IllegalStateException("Core stalled: no data-plane validation after 180s without status change (core did not report success or failure)")
+            }
             delay(250.milliseconds)
         }
         if (!dpValidated) {
             val coreStatus = runner.connectionStatus.value
             if (coreStatus == ConnectionStatus.ERROR) throw IllegalStateException("Core failed to start (error)")
             if (coreStatus == ConnectionStatus.STOPPED) throw IllegalStateException("Core stopped unexpectedly")
-            throw IllegalStateException("Core data-plane validation timed out after ${timeout.inWholeSeconds}s")
+            throw IllegalStateException("Core data-plane validation failed (no verdict from core)")
         }
         notifyStatusChanged(appContext, ConnectionStatus.DATAPLANE_VALIDATED)
         val socksReady = withTimeoutOrNull(60.seconds) {
@@ -552,10 +583,13 @@ class ConnectionController private constructor(context: Context) {
         return true
     }
 
-    suspend fun stop() = mutex.withLock {
-        if (_status.value == ConnectionStatus.STOPPED) {
-            return@withLock
-        }
+    override suspend fun stop() {
+        mutex.withLock {
+            if (_status.value == ConnectionStatus.STOPPED) {
+                stopTimer()
+                ActiveProxyProvider.psiphonProxyUrl = null
+                return@withLock
+            }
 
         psiphonChaining = false
         val attemptId = activeAttemptId.get()
@@ -565,19 +599,30 @@ class ConnectionController private constructor(context: Context) {
         try {
             withTimeoutOrNull(10000.milliseconds) {
                 withContext(Dispatchers.IO) {
-                    runNativeBounded<Unit>(3000L, "Cloak.stop") { CloakController.stop() }
-                    runNativeBounded<Unit>(3000L, "Psiphon.stop") { PsiphonController.stop() }
+                    runNativeBounded(3000L, "Cloak.stop") { CloakController.stop() }
+                    runNativeBounded(3000L, "Psiphon.stop") { PsiphonController.stop() }
                 }
                 ActiveProxyProvider.psiphonProxyUrl = null
-                stopTimer()
                 runCatching { cleanup(attemptId) }
             } ?: LogRepository.w("[Controller] Stop teardown exceeded 10s safety bound")
         } catch (e: Exception) {
             LogRepository.e("[Controller] Stop teardown error: ${e.localizedMessage}")
         } finally {
+            ActiveProxyProvider.psiphonProxyUrl = null
+            stopTimer()
+            runCatching { withTimeoutOrNull(2000.milliseconds) { cleanup(attemptId) } }
             notifyStatusChanged(appContext, ConnectionStatus.STOPPED)
             LogRepository.i("[Controller] Core stopped")
         }
+        }
+    }
+
+    private suspend fun awaitPsiphonStable(timeoutSec: Int = 30, stableMs: Long = 10000): Boolean {
+        var wait = 0
+        while (wait < timeoutSec && !PsiphonController.isConnected()) { delay(1000.milliseconds); wait++ }
+        var stable = 0
+        while (stable < 25 && !PsiphonController.stableFor(stableMs)) { delay(1000.milliseconds); stable++ }
+        return PsiphonController.isConnected() && PsiphonController.stableFor(stableMs)
     }
 
     private suspend fun <T> runNativeBounded(timeoutMs: Long, label: String, block: () -> T): T? {
@@ -586,7 +631,8 @@ class ConnectionController private constructor(context: Context) {
             val thread = Thread {
                 try {
                     done.complete(block())
-                } catch (_: Throwable) {
+                } catch (e: Throwable) {
+                    LogRepository.w("[Controller] $label failed: ${e.message}")
                     done.complete(null)
                 }
             }
@@ -598,12 +644,17 @@ class ConnectionController private constructor(context: Context) {
         }
     }
 
+    @Suppress("UNUSED_EXPRESSION")
     private suspend fun cleanup(attemptId: Long) {
         if (activeAttemptId.get() == attemptId) {
             activeAttemptId.set(0)
         }
         runner.stop()
         updateIsWaitingForCode(false)
+        runCatching {
+            var r = loginCodeChannel.tryReceive()
+            while (r.isSuccess) r = loginCodeChannel.tryReceive()
+        }
         delay(500.milliseconds)
     }
 
@@ -632,9 +683,11 @@ class ConnectionController private constructor(context: Context) {
                         stopTimer()
                         ConnectionStatus.ERROR
                     } else if (current == ConnectionStatus.STOPPING) {
+                        stopTimer()
                         ConnectionStatus.STOPPED
                     } else if (current == ConnectionStatus.STARTING || current == ConnectionStatus.VALIDATING) {
                         LogRepository.w("[Controller] Core stopped during $current")
+                        stopTimer()
                         coreStatus
                     } else {
                         current
@@ -642,7 +695,7 @@ class ConnectionController private constructor(context: Context) {
                 }
                 ConnectionStatus.RECONNECTING -> {
                     if (current != ConnectionStatus.RECONNECTING) {
-                        stopTimer()
+                        pauseTimer()
                         ConnectionStatus.RECONNECTING
                     } else {
                         current
@@ -650,7 +703,7 @@ class ConnectionController private constructor(context: Context) {
                 }
                 ConnectionStatus.SOCKS_READY -> {
                     if (current == ConnectionStatus.RECONNECTING) {
-                        startTimer()
+                        resumeTimer()
                         ConnectionStatus.RUNNING
                     } else {
                         current
@@ -659,7 +712,7 @@ class ConnectionController private constructor(context: Context) {
                 ConnectionStatus.DATAPLANE_VALIDATED -> current
                 ConnectionStatus.RUNNING -> {
                     if (current != ConnectionStatus.RUNNING) {
-                        startTimer()
+                        if (current == ConnectionStatus.RECONNECTING) resumeTimer() else startTimer()
                         ConnectionStatus.RUNNING
                     } else {
                         current
@@ -735,16 +788,35 @@ class ConnectionController private constructor(context: Context) {
     }
 
     private fun startTimer() {
-        if (timerJob?.isActive == true) return
+        timerJob?.cancel()
         durationSeconds = 0L
-        prevSpeedTx = 0L
-        prevSpeedRx = 0L
+        prevTotalTx = 0L
+        prevTotalRx = 0L
         timerJob = scope.launch {
             while (isActive) {
                 delay(1000.milliseconds)
                 durationSeconds++
                 Bridge.elapsedOverride.value = durationSeconds
-                if (!isManualTraffic) {
+                if (useTrafficStatsFallback && !hasManualTraffic) {
+                    updateTrafficFromStats()
+                }
+            }
+        }
+    }
+
+    private fun pauseTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
+
+    private fun resumeTimer() {
+        if (timerJob?.isActive == true) return
+        timerJob = scope.launch {
+            while (isActive) {
+                delay(1000.milliseconds)
+                durationSeconds++
+                Bridge.elapsedOverride.value = durationSeconds
+                if (useTrafficStatsFallback && !hasManualTraffic) {
                     updateTrafficFromStats()
                 }
             }
@@ -757,40 +829,61 @@ class ConnectionController private constructor(context: Context) {
         durationSeconds = 0L
         Bridge.elapsedOverride.value = 0L
         Bridge.trafficOverride.value = SessionTraffic()
-        isManualTraffic = false
-        lastManualTx = 0L
-        lastManualRx = 0L
-        prevSpeedTx = 0L
-        prevSpeedRx = 0L
+        hasManualTraffic = false
+        accumulatedTx = 0L
+        accumulatedRx = 0L
+        lastEngineTx = 0L
+        lastEngineRx = 0L
+        prevTotalTx = 0L
+        prevTotalRx = 0L
+        baseTx = 0L
+        baseRx = 0L
     }
 
     private fun updateTrafficFromStats() {
-        val currentTx = TrafficStats.getUidTxBytes(Process.myUid()).coerceAtLeast(0)
-        val currentRx = TrafficStats.getUidRxBytes(Process.myUid()).coerceAtLeast(0)
-        
+        val rawTx = TrafficStats.getUidTxBytes(Process.myUid())
+        val rawRx = TrafficStats.getUidRxBytes(Process.myUid())
+        if (rawTx == TrafficStats.UNSUPPORTED.toLong() || rawRx == TrafficStats.UNSUPPORTED.toLong()) return
+        val currentTx = if (rawTx < 0) 0L else rawTx
+        val currentRx = if (rawRx < 0) 0L else rawRx
         val diffTx = (currentTx - baseTx).coerceAtLeast(0)
         val diffRx = (currentRx - baseRx).coerceAtLeast(0)
-        
-        val uploadSpeed = (diffTx - prevSpeedTx).coerceAtLeast(0).toDouble()
-        val downloadSpeed = (diffRx - prevSpeedRx).coerceAtLeast(0).toDouble()
-        prevSpeedTx = diffTx
-        prevSpeedRx = diffRx
+        val uploadSpeed = (diffTx - prevTotalTx).coerceAtLeast(0).toDouble()
+        val downloadSpeed = (diffRx - prevTotalRx).coerceAtLeast(0).toDouble()
+        prevTotalTx = diffTx
+        prevTotalRx = diffRx
         Bridge.trafficOverride.value = SessionTraffic(diffTx, diffRx, uploadSpeed, downloadSpeed)
     }
 
     fun setTraffic(tx: Long, rx: Long) {
-        if (tx > lastManualTx || rx > lastManualRx || (tx == 0L && rx == 0L && !isManualTraffic)) {
-            isManualTraffic = true
-            val newTx = tx.coerceAtLeast(lastManualTx)
-            val newRx = rx.coerceAtLeast(lastManualRx)
-            val uploadSpeed = (newTx - prevSpeedTx).coerceAtLeast(0).toDouble()
-            val downloadSpeed = (newRx - prevSpeedRx).coerceAtLeast(0).toDouble()
-            prevSpeedTx = newTx
-            prevSpeedRx = newRx
-            lastManualTx = newTx
-            lastManualRx = newRx
-            val traffic = SessionTraffic(lastManualTx, lastManualRx, uploadSpeed, downloadSpeed)
-            Bridge.trafficOverride.value = traffic
+        val safeTx = tx.coerceAtLeast(0)
+        val safeRx = rx.coerceAtLeast(0)
+        if (!hasManualTraffic) {
+            if (safeTx == 0L && safeRx == 0L) {
+                hasManualTraffic = true
+                lastEngineTx = 0L
+                lastEngineRx = 0L
+                accumulatedTx = 0L
+                accumulatedRx = 0L
+                prevTotalTx = 0L
+                prevTotalRx = 0L
+                Bridge.trafficOverride.value = SessionTraffic(0, 0, 0.0, 0.0)
+                return
+            }
+            hasManualTraffic = true
         }
+        if (safeTx < lastEngineTx || safeRx < lastEngineRx) {
+            accumulatedTx += lastEngineTx
+            accumulatedRx += lastEngineRx
+        }
+        lastEngineTx = safeTx
+        lastEngineRx = safeRx
+        val totalTx = accumulatedTx + safeTx
+        val totalRx = accumulatedRx + safeRx
+        val uploadSpeed = (totalTx - prevTotalTx).coerceAtLeast(0).toDouble()
+        val downloadSpeed = (totalRx - prevTotalRx).coerceAtLeast(0).toDouble()
+        prevTotalTx = totalTx
+        prevTotalRx = totalRx
+        Bridge.trafficOverride.value = SessionTraffic(totalTx, totalRx, uploadSpeed, downloadSpeed)
     }
 }

@@ -6,10 +6,14 @@ import io.github.immaghzbad.aetherst.shared.model.AetherConfig
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
 import java.io.File
 import java.net.ServerSocket
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 object CloakController {
-    private var cloakPort: Int = 40443
-    private var running = false
+    @Volatile private var cloakPort: Int = 40443
+    @Volatile private var running = false
+    private val tailScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private var tailJob: kotlinx.coroutines.Job? = null
 
     fun isSupported(config: AetherConfig): Boolean {
         return config.cloakEnabled && config.protocol == AetherProtocol.MASQUE && config.h2Mode
@@ -45,6 +49,21 @@ object CloakController {
             appendLine("summary_interval_sec = 60")
         }
         confFile.writeText(content)
+        try {
+            confFile.setReadable(false, false)
+            confFile.setReadable(true, true)
+            confFile.setWritable(false, false)
+            confFile.setWritable(true, true)
+        } catch (_: Exception) {}
+        runCatching {
+            if (logFile.exists() && logFile.length() > 1024 * 1024) {
+                logFile.writeText("")
+            }
+            logFile.setReadable(false, false)
+            logFile.setReadable(true, true)
+            logFile.setWritable(false, false)
+            logFile.setWritable(true, true)
+        }
         if (!statsFile.exists()) statsFile.writeText("")
         return confFile.absolutePath
     }
@@ -70,25 +89,37 @@ object CloakController {
             val files = dir.listFiles()?.filter { it.name.contains("lastconn") } ?: emptyList()
             val regex = Regex("""\d+\.\d+\.\d+\.\d+:\d+""")
             for (file in files) {
-                val text = try { file.readText() } catch (_: Exception) { continue }
+                val text = try { file.readText() } catch (e: Exception) {
+                    LogRepository.w("read lastconn ${file.name} failed: ${e.message}", "Cloak")
+                    continue
+                }
                 val match = regex.find(text)
                 if (match != null) return match.value
             }
             val fallbackFiles = listOf(File(dir, "aether-masque.toml"), File(dir, "aether.toml"))
             for (file in fallbackFiles) {
                 if (!file.exists()) continue
-                val text = try { file.readText() } catch (_: Exception) { continue }
+                val text = try { file.readText() } catch (e: Exception) {
+                    LogRepository.w("read fallback ${file.name} failed: ${e.message}", "Cloak")
+                    continue
+                }
                 val match = regex.find(text)
                 if (match != null) return match.value
             }
             null
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            LogRepository.w("getCachedGateway failed: ${e.message}", "Cloak")
+            null
+        }
     }
 
     private fun findFreePort(): Int {
         return try {
             ServerSocket(0).use { it.localPort }
-        } catch (_: Exception) { 40443 }
+        } catch (e: Exception) {
+            LogRepository.w("findFreePort failed: ${e.message}, using 40443", "Cloak")
+            40443
+        }
     }
 
     fun start(context: Context, config: AetherConfig): Boolean {
@@ -126,18 +157,26 @@ object CloakController {
         try {
             CloakNative.stop()
             LogRepository.i("Cloak stopped", "Cloak")
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            LogRepository.w("Cloak stop failed: ${e.message}", "Cloak")
+        }
         running = false
+        tailJob?.cancel()
+        tailJob = null
     }
 
     fun isRunning(): Boolean {
-        return try { CloakNative.isRunning() != 0 } catch (_: Exception) { running }
+        return try { CloakNative.isRunning() != 0 } catch (e: Exception) {
+            LogRepository.w("Cloak isRunning check failed: ${e.message}", "Cloak")
+            running
+        }
     }
 
     private fun startLogTail(context: Context) {
         try {
             val logFile = File(File(context.filesDir, "cloak"), "cloak.log")
-            Thread {
+            tailJob?.cancel()
+            tailJob = tailScope.launch {
                 var offset = logFile.length()
                 while (isRunning()) {
                     try {
@@ -153,11 +192,15 @@ object CloakController {
                                 LogRepository.i(it, "CloakCore")
                             }
                         }
-                    } catch (_: Exception) {}
-                    Thread.sleep(1000)
+                    } catch (e: Exception) {
+                        LogRepository.w("Cloak log tail read failed: ${e.message}", "Cloak")
+                    }
+                    delay(1000)
                 }
-            }.apply { isDaemon = true; start() }
-        } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            LogRepository.w("startLogTail failed: ${e.message}", "Cloak")
+        }
     }
 
     fun getEffectivePeer(config: AetherConfig): String {

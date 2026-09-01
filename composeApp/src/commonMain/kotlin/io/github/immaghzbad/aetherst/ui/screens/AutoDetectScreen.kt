@@ -183,7 +183,7 @@ fun AutoDetectScreen(
                         colors = CardDefaults.cardColors(containerColor = IosActiveBlue.copy(alpha = 0.1f))
                     ) {
                         Row(
-                            modifier = Modifier.padding((14 * scaleFactor).dp),
+                            modifier = Modifier.fillMaxWidth().padding((14 * scaleFactor).dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             CircularProgressIndicator(
@@ -196,7 +196,11 @@ fun AutoDetectScreen(
                                 text = localizedAutoDetectStep(state.currentStep, strings),
                                 color = IosActiveBlue,
                                 fontSize = (13 * scaleFactor).sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
@@ -483,33 +487,48 @@ private fun ProtocolProbeRow(result: ProtocolProbeResult, scaleFactor: Float) {
                         .background(statusColor)
                 )
                 Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = result.protocol.displayName,
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = (14 * scaleFactor).sp
+                        fontSize = (14 * scaleFactor).sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     when (result.status) {
                         ProbeStatus.SUCCESS -> Text(
                             text = strings.AUTODETECT_RTT.format(result.latencyMs, result.latencyMs),
                             color = IosActiveGreen,
-                            fontSize = (11 * scaleFactor).sp
+                            fontSize = (11 * scaleFactor).sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         ProbeStatus.FAILED -> Text(
                             text = result.error ?: strings.AUTODETECT_CONNECTION_FAILED,
                             color = IosErrorRed,
-                            fontSize = (11 * scaleFactor).sp
+                            fontSize = (11 * scaleFactor).sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         ProbeStatus.RUNNING -> Text(
                             text = strings.AUTODETECT_MEASURING_LATENCY,
                             color = IosAmber,
-                            fontSize = (11 * scaleFactor).sp
+                            fontSize = (11 * scaleFactor).sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         ProbeStatus.SKIPPED -> Text(
                             text = result.error ?: strings.AUTODETECT_SKIPPED,
                             color = IosSecondaryLabel,
-                            fontSize = (11 * scaleFactor).sp
+                            fontSize = (11 * scaleFactor).sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         else -> {}
                     }

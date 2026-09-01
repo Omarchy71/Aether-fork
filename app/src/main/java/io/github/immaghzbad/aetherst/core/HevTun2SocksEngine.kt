@@ -49,6 +49,7 @@ class HevTun2SocksEngine {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lifecycleMutex = Mutex()
+    private val dupLock = Any()
     private val active = AtomicBoolean(false)
     private val stopping = AtomicBoolean(false)
     private val currentAttemptId = AtomicLong(0)
@@ -97,7 +98,7 @@ class HevTun2SocksEngine {
                     }
                 } catch (throwable: Throwable) {
                     if (currentAttemptId.get() == attemptId) {
-                        LogRepository.e("[Hev] [attempt=$attemptId] Native loop failed: ${throwable.localizedMessage}")
+                        LogRepository.e("[Hev] [attempt=$attemptId] Native loop failed: ${throwable.message}")
                         _state.value = if (stopping.get()) State.STOPPED else State.FAILED
                     }
                 } finally {
@@ -203,7 +204,7 @@ class HevTun2SocksEngine {
     }
 
     private fun closeDuplicatedFd(attemptId: Long) {
-        val descriptor = synchronized(this) {
+        val descriptor = synchronized(dupLock) {
             val value = duplicatedFd
             duplicatedFd = null
             value

@@ -32,6 +32,10 @@ actual object ConnectionController {
             Bridge.statusOverride.collect { s ->
                 if (s != null) {
                     _status.value = s
+                    if (s == ConnectionStatus.STOPPED || s == ConnectionStatus.ERROR || s == ConnectionStatus.FAILED) {
+                        _elapsedSeconds.value = 0L
+                        _sessionTraffic.value = SessionTraffic()
+                    }
                 }
             }
         }
@@ -62,5 +66,11 @@ actual object ConnectionController {
 
     actual fun markStatus(status: ConnectionStatus) {
         _status.value = status
+        if (status == ConnectionStatus.STOPPED || status == ConnectionStatus.ERROR || status == ConnectionStatus.FAILED) {
+            _elapsedSeconds.value = 0L
+            _sessionTraffic.value = SessionTraffic()
+            Bridge.elapsedOverride.value = 0L
+            Bridge.trafficOverride.value = SessionTraffic()
+        }
     }
 }

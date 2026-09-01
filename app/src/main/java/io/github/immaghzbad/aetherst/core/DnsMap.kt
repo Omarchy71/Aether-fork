@@ -50,6 +50,6 @@ object DnsMap {
     }
 
     fun clear() {
-        ipToDomains.clear()
+        synchronized(ipToDomains) { ipToDomains.clear() }
     }
 }

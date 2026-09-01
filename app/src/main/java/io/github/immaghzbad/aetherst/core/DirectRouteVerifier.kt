@@ -46,12 +46,12 @@ object DirectRouteVerifier {
 
         scope.launch {
             try {
-                val direct = apiMutex.withLock {
+                apiMutex.withLock {
                     val waitMs = GLOBAL_COOLDOWN_MS - (nowMillis() - lastApiRequestAt.get())
                     if (waitMs > 0) delay(waitMs.milliseconds)
                     lastApiRequestAt.set(nowMillis())
-                    fetchIpWhoIs(network) ?: fetchIpApi(network)
                 }
+                val direct = fetchIpWhoIs(network) ?: fetchIpApi(network)
                 if (direct == null) {
                     LogRepository.w("[DirectVerify] FAILED domain=$normalizedDomain network=$networkType reason=api_unavailable", "DirectVerify")
                     return@launch

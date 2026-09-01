@@ -29,8 +29,19 @@ object AutoDetectRepository {
     private const val UDP_TARGET_PORT = 53
     private const val HTTPS_TARGET = "https://1.1.1.1/cdn-cgi/trace"
     private const val HTTPS_FALLBACK = "https://8.8.8.8/"
+    private const val CONNECTIVITY_CHECK_HOST = "connectivitycheck.gstatic.com"
+    private const val CONNECTIVITY_CHECK_PORT = 443
+    private const val CONNECTIVITY_CHECK_URL = "https://connectivitycheck.gstatic.com/generate_204"
     private const val SAMPLES = 5
     private const val ICMP_TIMEOUT_MS = 3000
+    private val httpsClient by lazy {
+        NetworkClient.instance.newBuilder()
+            .connectTimeout(2000, TimeUnit.MILLISECONDS)
+            .readTimeout(2000, TimeUnit.MILLISECONDS)
+            .writeTimeout(2000, TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+    }
 
     fun cancel() {
         detectJob?.cancel()
@@ -77,7 +88,7 @@ object AutoDetectRepository {
                     result
                 }.getOrDefault(false)
                 val hasUdp = runCatching {
-                    withTimeout(4000.milliseconds) { detectUdp() }
+                    withTimeout(7000.milliseconds) { detectUdp() }
                 }.getOrDefault(true)
                 updateState(
                     _state.value.copy(
@@ -93,7 +104,7 @@ object AutoDetectRepository {
                     )
                 )
                 val isDPI = runCatching {
-                    withTimeout(6000.milliseconds) { detectDPI() }
+                    withTimeout(7000.milliseconds) { detectDPI() }
                 }.getOrDefault(false)
                 updateState(
                     _state.value.copy(
@@ -235,19 +246,13 @@ object AutoDetectRepository {
 
     private fun detectDPI(): Boolean {
         return try {
-            val tcpOk = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 2).isNotEmpty()
-            val httpsOk = measureHttpsLatency(3).isNotEmpty()
+            val tcpOk = measureTcpLatency(TCP_TARGET_HOST, TCP_TARGET_PORT, 1).isNotEmpty()
+            val httpsOk = measureHttpsLatency(1).isNotEmpty()
             if (tcpOk && !httpsOk) return true
-            val request = Request.Builder().url(HTTPS_TARGET).header("User-Agent", "AetherST-AutoDetect/1.0").build()
-            val client = NetworkClient.instance.newBuilder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(4, TimeUnit.SECONDS).build()
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: ""
-                    if (body.contains("warp=on") || body.contains("gateway=true")) return false
-                    return false
-                } else {
-                    return response.code == 403 || response.code == 407
-                }
+            val request = Request.Builder().url(CONNECTIVITY_CHECK_URL).header("User-Agent", "AetherST-AutoDetect/1.0").build()
+            httpsClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful || response.code == 204) return false
+                return response.code == 403 || response.code == 407
             }
         } catch (_: Exception) { false }
     }
@@ -322,12 +327,12 @@ object AutoDetectRepository {
                 val sock = Socket()
                 sock.tcpNoDelay = true
                 val start = System.nanoTime()
-                sock.connect(InetSocketAddress(host, port), 2500)
+                sock.connect(InetSocketAddress(host, port), 1200)
                 val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
                 sock.close()
                 if (elapsed in 1..4000) samples.add(elapsed)
             } catch (_: Exception) {}
-            if (sampleCount > 1) Thread.sleep(80)
+            if (sampleCount > 1) Thread.sleep(60)
         }
         return samples
     }
@@ -338,7 +343,7 @@ object AutoDetectRepository {
             try {
                 val query = buildDnsQuery("google.com")
                 val socket = DatagramSocket()
-                socket.soTimeout = 2500
+                socket.soTimeout = 1200
                 val packet = DatagramPacket(query, query.size, InetSocketAddress(host, port))
                 val buffer = ByteArray(512)
                 val resp = DatagramPacket(buffer, buffer.size)
@@ -349,7 +354,7 @@ object AutoDetectRepository {
                 socket.close()
                 if (elapsed in 1..4000 && resp.length > 12) samples.add(elapsed)
             } catch (_: Exception) {}
-            if (sampleCount > 1) Thread.sleep(100)
+            if (sampleCount > 1) Thread.sleep(60)
         }
         return samples
     }
@@ -368,21 +373,25 @@ object AutoDetectRepository {
 
     private fun measureHttpsLatency(sampleCount: Int): List<Long> {
         val samples = mutableListOf<Long>()
-        val client = NetworkClient.instance.newBuilder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(4, TimeUnit.SECONDS).build()
         repeat(sampleCount) {
             try {
-                val request = Request.Builder().url(HTTPS_TARGET).header("User-Agent", "AetherST/1.0").build()
+                val request = Request.Builder().url(CONNECTIVITY_CHECK_URL).head().header("User-Agent", "AetherST/1.0").build()
                 val start = System.nanoTime()
-                client.newCall(request).execute().use { response ->
+                httpsClient.newCall(request).execute().use { response ->
                     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
-                    val body = runCatching { response.body?.string() }.getOrNull() ?: ""
-                    if (response.isSuccessful && (body.contains("fl=") || body.contains("ip="))) {
-                        if (elapsed in 1..5000) samples.add(elapsed)
-                    } else if (response.isSuccessful) {
-                        if (elapsed in 1..5000) samples.add(elapsed)
-                    }
+                    if ((response.isSuccessful || response.code == 204) && elapsed in 1..4000) samples.add(elapsed)
                 }
             } catch (_: Exception) {}
+            if (samples.isEmpty()) {
+                try {
+                    val request = Request.Builder().url(HTTPS_TARGET).header("User-Agent", "AetherST/1.0").build()
+                    val start = System.nanoTime()
+                    httpsClient.newCall(request).execute().use { response ->
+                        val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
+                        if (response.isSuccessful && elapsed in 1..4000) samples.add(elapsed)
+                    }
+                } catch (_: Exception) {}
+            }
             if (sampleCount > 1) Thread.sleep(110)
         }
         if (samples.isEmpty()) {
@@ -390,9 +399,9 @@ object AutoDetectRepository {
                 try {
                     val request = Request.Builder().url(HTTPS_FALLBACK).header("User-Agent", "AetherST/1.0").build()
                     val start = System.nanoTime()
-                    client.newCall(request).execute().use { response ->
+                    httpsClient.newCall(request).execute().use { response ->
                         val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)
-                        if (response.isSuccessful && elapsed in 1..5000) samples.add(elapsed)
+                        if (response.isSuccessful && elapsed in 1..4000) samples.add(elapsed)
                     }
                 } catch (_: Exception) {}
             }
@@ -416,14 +425,11 @@ object AutoDetectRepository {
                     progressPercent = 20 + (index * 10)
                 )
             )
-            val result = try {
-                withTimeout(15000.milliseconds) { probeProtocol(protocol, context) }
-            } catch (e: CancellationException) { throw e } catch (_: Exception) {
-                ProtocolProbeResult(protocol, ProbeStatus.FAILED, -1, "Timeout on weak network")
-            }
+            val result = withTimeoutOrNull(12000.milliseconds) { probeProtocol(protocol, context) }
+                ?: ProtocolProbeResult(protocol, ProbeStatus.FAILED, -1, "Timeout on weak network")
             results.add(result)
-            updateState(_state.value.copy(protocolResults = results.map { it }, progressPercent = 20 + (index + 1) * 10))
-            delay(200.milliseconds)
+            updateState(_state.value.copy(protocolResults = results.toList(), progressPercent = 20 + (index + 1) * 10))
+            delay(120.milliseconds)
         }
         return results
     }
@@ -447,21 +453,25 @@ object AutoDetectRepository {
     private suspend fun probeMasque(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
             updateState(_state.value.copy(currentStep = "MASQUE: TCP latency..."))
-            val icmp = measureIcmpLatency(context)
-            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, 443, 3)
-            val tcpMedian = medianLatency(tcpSamples)
+            val tcpSamplesCc = measureTcpLatency(CONNECTIVITY_CHECK_HOST, CONNECTIVITY_CHECK_PORT, 1)
+            val tcpMedianCc = medianLatency(tcpSamplesCc)
+            val tcpFallback = if (tcpMedianCc < 0) measureTcpLatency(TCP_TARGET_HOST, 443, 1) else emptyList()
+            val tcpMedian = if (tcpMedianCc > 0) tcpMedianCc else medianLatency(tcpFallback)
+            val icmp = if (tcpMedian < 0) measureIcmpLatency(context) else -1L
             if (tcpMedian < 0 && icmp < 0) {
                 updateState(_state.value.copy(currentStep = "MASQUE: HTTPS probe..."))
-                val httpsSamples = measureHttpsLatency(3)
+                val httpsSamples = measureHttpsLatency(1)
                 val httpsMedian = medianLatency(httpsSamples)
                 return@withContext if (httpsMedian > 0) ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, httpsMedian) else ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.FAILED, -1, "Network unreachable")
             }
             updateState(_state.value.copy(currentStep = "MASQUE: HTTPS latency..."))
-            val httpsSamples = measureHttpsLatency(4)
+            val httpsSamples = measureHttpsLatency(1)
             val httpsMedian = medianLatency(httpsSamples)
             if (httpsMedian > 0) {
                 val best = if (tcpMedian > 0) minOf(tcpMedian, httpsMedian) else httpsMedian
                 ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, best)
+            } else if (tcpMedian > 0) {
+                ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.SUCCESS, tcpMedian)
             } else {
                 ProtocolProbeResult(AetherProtocol.MASQUE, ProbeStatus.FAILED, -1, "TCP reachable but no internet access (captive portal or restricted network)")
             }
@@ -471,11 +481,11 @@ object AutoDetectRepository {
     private suspend fun probeWireGuard(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
             updateState(_state.value.copy(currentStep = "WireGuard: TCP latency..."))
-            val udpSamples = measureUdpDnsLatency(UDP_TARGET_HOST, UDP_TARGET_PORT, 3)
-            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, 443, 3)
-            val tcpMedian = medianLatency(tcpSamples)
+            val udpSamples = measureUdpDnsLatency(UDP_TARGET_HOST, UDP_TARGET_PORT, 1)
+            val tcpSamplesCc = measureTcpLatency(CONNECTIVITY_CHECK_HOST, CONNECTIVITY_CHECK_PORT, 1)
+            val tcpMedian = medianLatency(tcpSamplesCc).let { if (it < 0) medianLatency(measureTcpLatency(TCP_TARGET_HOST, 443, 1)) else it }
             updateState(_state.value.copy(currentStep = "WireGuard: HTTPS probe..."))
-            val httpsSamples = measureHttpsLatency(3)
+            val httpsSamples = measureHttpsLatency(1)
             val httpsMedian = medianLatency(httpsSamples)
             val udpOk = udpSamples.isNotEmpty()
             when {
@@ -490,11 +500,11 @@ object AutoDetectRepository {
     private suspend fun probeGool(context: PlatformContext): ProtocolProbeResult {
         return withContext(Dispatchers.Default) {
             updateState(_state.value.copy(currentStep = "Gool: TCP latency..."))
-            val udpSamples = measureUdpDnsLatency(UDP_TARGET_HOST, UDP_TARGET_PORT, 3)
-            val tcpSamples = measureTcpLatency(TCP_TARGET_HOST, 443, 3)
-            val tcpMedian = medianLatency(tcpSamples)
+            val udpSamples = measureUdpDnsLatency(UDP_TARGET_HOST, UDP_TARGET_PORT, 1)
+            val tcpSamplesCc = measureTcpLatency(CONNECTIVITY_CHECK_HOST, CONNECTIVITY_CHECK_PORT, 1)
+            val tcpMedian = medianLatency(tcpSamplesCc).let { if (it < 0) medianLatency(measureTcpLatency(TCP_TARGET_HOST, 443, 1)) else it }
             updateState(_state.value.copy(currentStep = "Gool: HTTPS probe..."))
-            val httpsSamples = measureHttpsLatency(3)
+            val httpsSamples = measureHttpsLatency(1)
             val httpsMedian = medianLatency(httpsSamples)
             val udpOk = udpSamples.isNotEmpty()
             when {

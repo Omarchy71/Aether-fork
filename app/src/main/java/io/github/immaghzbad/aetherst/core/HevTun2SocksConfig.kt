@@ -30,9 +30,11 @@ object HevTun2SocksConfig {
         sb.append("  address: $socksAddress\n")
         sb.append("  port: $socksPort\n")
         when (udpMode.lowercase().trim()) {
-            "udp" -> sb.append("  udp: true\n")
-            "icmp" -> sb.append("  udp: icmp\n")
-            else -> { }
+            "udp" -> sb.append("  udp: 'udp'\n")
+            "tcp" -> sb.append("  udp: 'tcp'\n")
+            "true", "icmp" -> sb.append("  udp: 'tcp'\n")
+            "off", "disable", "disabled", "none" -> { }
+            else -> sb.append("  udp: 'tcp'\n")
         }
 
         sb.append("\nmapdns:\n")
@@ -48,12 +50,17 @@ object HevTun2SocksConfig {
         val readWriteTimeout = settings.readWriteTimeoutMs.coerceIn(1000, 600000)
         val maxSessions = settings.maxSessionCount.coerceAtLeast(0)
 
+        val isUdpEnabled = udpMode.lowercase().trim() !in setOf("off", "disable", "disabled", "none", "")
         sb.append("\nmisc:\n")
         sb.append("  log-level: $logLevel\n")
         sb.append("  connect-timeout: $connectTimeout\n")
         sb.append("  read-write-timeout: $readWriteTimeout\n")
         if (maxSessions > 0) {
             sb.append("  max-session-count: $maxSessions\n")
+        }
+        if (isUdpEnabled) {
+            val udpTimeout = maxOf(readWriteTimeout, 180000)
+            sb.append("  udp-read-write-timeout: $udpTimeout\n")
         }
 
         return sb.toString()

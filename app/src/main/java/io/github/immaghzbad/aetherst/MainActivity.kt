@@ -27,7 +27,8 @@ class MainActivity : ComponentActivity() {
                     os.write(pendingSaveContent?.toByteArray() ?: ByteArray(0))
                 }
                 saveCallback?.invoke(true)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                io.github.immaghzbad.aetherst.shared.data.LogRepository.w("saveLauncher failed: ${e.message}")
                 saveCallback?.invoke(false)
             }
         } else {
@@ -42,7 +43,8 @@ class MainActivity : ComponentActivity() {
             try {
                 val content = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 pickCallback?.invoke(content)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                io.github.immaghzbad.aetherst.shared.data.LogRepository.w("pickLauncher failed: ${e.message}")
                 pickCallback?.invoke(null)
             }
         } else {
@@ -81,5 +83,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             App(PlatformContext(this))
         }
+    }
+
+    override fun onDestroy() {
+        saveCallback = null
+        pickCallback = null
+        pendingSaveContent = null
+        super.onDestroy()
     }
 }

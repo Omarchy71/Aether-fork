@@ -555,13 +555,14 @@ private fun encodeUpstreamCredential(s: String): String = s.replace("@", "%40").
     val hevLevels = listOf("error", "warn", "info", "debug")
     val levelLabels = mapOf("error" to strings.LOG_LEVEL_ERROR, "warn" to strings.HEV_LOG_WARN_DEFAULT, "info" to strings.HEV_LOG_INFO, "debug" to strings.HEV_LOG_DEBUG)
     val currentLevel = if (config.hevLogLevel in hevLevels) config.hevLogLevel else "warn"
-    val hevUdpOptions = listOf("udp", "icmp", "off")
+    val hevUdpOptions = listOf("udp", "tcp", "off")
     val hevUdpLabels = mapOf(
         "udp" to strings.HEV_UDP_ASSOCIATE,
-        "icmp" to strings.HEV_UDP_ICMP_TCP,
+        "tcp" to strings.HEV_UDP_ICMP_TCP,
         "off" to strings.HEV_UDP_DISABLED
     )
-    val hevUdpMode = if (config.hevUdpMode in hevUdpOptions) config.hevUdpMode else "udp"
+    val rawMode = config.hevUdpMode.lowercase().trim().let { if (it == "icmp" || it == "true") "tcp" else it }
+    val hevUdpMode = if (rawMode in hevUdpOptions) rawMode else "tcp"
 
     IosGroupCard { Column {
         IosPickerRow(
