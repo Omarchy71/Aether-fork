@@ -392,7 +392,6 @@ fun RoutingRulesScreen(
             onModeSelected = { modeFilter = it },
             scaleFactor = scaleFactor
         )
-
         if (rules.isNotEmpty()) {
             StatsBar(
                 totalCount = rules.size,

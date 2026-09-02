@@ -157,9 +157,10 @@ class AetherProcessRunner(private val context: PlatformContext) {
             }
             if (config.noDataCheck) command.add("--no-data-check")
             if (config.quickReconnect) command.add("--quick-reconnect") else command.add("--no-quick-reconnect")
-            if (config.peer.isNotEmpty()) {
+            val effectivePeerForCmd = if ((config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) && config.wgPeer.isNotEmpty()) config.wgPeer else config.peer
+            if (effectivePeerForCmd.isNotEmpty()) {
                 command.add("--peer")
-                command.add(config.peer)
+                command.add(effectivePeerForCmd)
             }
             if ((config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL)) {
                 command.add("--keepalive")
@@ -209,11 +210,14 @@ class AetherProcessRunner(private val context: PlatformContext) {
                 env["AETHER_WG_NO_DATA_CHECK"] = "1"
             }
             if (config.quickReconnect) env["AETHER_QUICK_RECONNECT"] = "1" else env["AETHER_QUICK_RECONNECT"] = "0"
-            if (config.peer.isNotEmpty()) {
-                env["AETHER_PEER"] = config.peer
-                env["AETHER_WG_PEER"] = config.peer
+            if (config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) {
+                if (config.wgPeer.isNotEmpty()) env["AETHER_WG_PEER"] = config.wgPeer else if (config.peer.isNotEmpty()) env["AETHER_WG_PEER"] = config.peer
+                if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
+            } else {
+                if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
             }
             env["AETHER_WG_KEEPALIVE"] = if (config.keepaliveEnabled) config.keepalive.toString() else "0"
+            env["AETHER_WG_ENDPOINT_COOLDOWN_SECS"] = config.wgEndpointCooldownSecs.toString()
             env["AETHER_MASQUE_VALIDATE_SECS"] = config.validateSecs.toString()
             env["AETHER_MASQUE_RECONNECT_SECS"] = config.reconnectSecs.toString()
             env["AETHER_WG_RECONNECT_SECS"] = config.reconnectSecs.toString()

@@ -92,12 +92,18 @@ interface AppStrings {
     val CAT_USER_INTERFACE_SUB: String
     val PRESETS_CUSTOM: String
     val PRESETS_CUSTOM_SUB: String
-    val PRESETS_BYPASS_UDP: String
-    val PRESETS_BYPASS_UDP_SUB: String
-    val PRESETS_IRONCLAD: String
-    val PRESETS_IRONCLAD_SUB: String
     val PRESETS_TURBO: String
     val PRESETS_TURBO_SUB: String
+    val PRESETS_THOROUGH: String
+    val PRESETS_THOROUGH_SUB: String
+    val PRESETS_STEALTH: String
+    val PRESETS_STEALTH_SUB: String
+    val PRESETS_IRONCLAD: String
+    val PRESETS_IRONCLAD_SUB: String
+    val PRESET_CHIP_SPEED: String
+    val PRESET_CHIP_STABLE: String
+    val PRESET_CHIP_STEALTH: String
+    val PRESET_CHIP_IRONCLAD: String
     val CONNECT_BUTTON_STYLE: String
     val CONNECT_BUTTON_SWIPE: String
     val CONNECT_BUTTON_CAPSULE: String
@@ -705,7 +711,9 @@ interface AppStrings {
     val TOAST_ZT_PROVIDE_ONE_AUTH: String
     val TOAST_ZT_SERVICE_TOKEN_REQUIRES: String
     val TOAST_ZT_ONLY_ONE_AUTH: String
+    val TOAST_DISABLE_PSIPHON_FIRST: String
     val TOAST_REPORT_COPIED: String
+    val INTERNAL_HTTP_PROXY_LOCKED_BY_PSIPHON: String
     val CRASH_TITLE: String
     val CRASH_SUBTITLE: String
     val CRASH_DIAGNOSTICS: String

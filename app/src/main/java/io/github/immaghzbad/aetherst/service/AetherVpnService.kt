@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -480,48 +481,6 @@ class AetherVpnService : VpnService() {
             .setMtu(effectiveMtu)
             .setSession("AetherST Tunnel")
             .setConfigureIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), pendingFlags))
-        runCatching {
-            val bypassIps = mutableSetOf<String>()
-            val cfg = AetherConfigRepository.getInstance(getSettings(PlatformContext(this))).config.value
-            val ipv4Regex = Regex("""\d+\.\d+\.\d+\.\d+""")
-            val ipv6Regex = Regex("""(?:[0-9a-fA-F]{1,4}:){2,}[0-9a-fA-F:]*""")
-            fun extractIps(text: String, out: MutableSet<String>) {
-                ipv4Regex.findAll(text).forEach { out.add(it.value) }
-                ipv6Regex.findAll(text).forEach {
-                    val ip = it.value.trim().trim('[', ']')
-                    if (ip.contains(":") && ip.length >= 3) {
-                        try { InetAddress.getByName(ip); out.add(ip) } catch (_: Exception) {}
-                    }
-                }
-            }
-            if (cfg.peer.isNotEmpty()) {
-                extractIps(cfg.peer, bypassIps)
-            }
-            filesDir.listFiles()?.filter { it.name.contains("lastconn") }?.forEach { f ->
-                try {
-                    extractIps(f.readText(), bypassIps)
-                } catch (e: Exception) {
-                    LogRepository.w("[VpnService] read lastconn failed ${f.name}: ${e.message}")
-                }
-            }
-            bypassIps.add("162.159.198.39")
-            bypassIps.add("162.159.198.2")
-            bypassIps.add("162.159.192.1")
-            bypassIps.add("188.114.96.1")
-            for (ip in bypassIps) {
-                try {
-                    val s = Socket()
-                    if (!protect(s)) {
-                        LogRepository.w("[VpnService] protect failed for bypass $ip")
-                    }
-                    val port = if (ip.contains(":")) 443 else 443
-                    s.connect(InetSocketAddress(ip, port), 200)
-                    s.close()
-                } catch (e: Exception) {
-                    LogRepository.w("[VpnService] bypass probe failed $ip: ${e.message}")
-                }
-            }
-        }
 
         if (engine == TunnelEngine.HEV_TUN2SOCKS) {
             builder.addDnsServer(HevTun2SocksConfig.MAP_DNS_ADDRESS)
@@ -595,6 +554,52 @@ class AetherVpnService : VpnService() {
             return@runCatching false
         }
         LogRepository.i("[Tun] [attempt=$attemptId] Established mtu=$effectiveMtu engine=$engine")
+        scope.launch(Dispatchers.IO) {
+            withTimeoutOrNull(2000) {
+                runCatching {
+                    val bypassIps = mutableSetOf<String>()
+                    val cfg = AetherConfigRepository.getInstance(getSettings(PlatformContext(this@AetherVpnService))).config.value
+                    val ipv4Regex = Regex("""\d+\.\d+\.\d+\.\d+""")
+                    val ipv6Regex = Regex("""(?:[0-9a-fA-F]{1,4}:){2,}[0-9a-fA-F:]*""")
+                    fun extractIps(text: String, out: MutableSet<String>) {
+                        ipv4Regex.findAll(text).forEach { out.add(it.value) }
+                        ipv6Regex.findAll(text).forEach {
+                            val ip = it.value.trim().trim('[', ']')
+                            if (ip.contains(":") && ip.length >= 3) {
+                                try { InetAddress.getByName(ip); out.add(ip) } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                    if (cfg.peer.isNotEmpty()) {
+                        extractIps(cfg.peer, bypassIps)
+                    }
+                    filesDir.listFiles()?.filter { it.name.contains("lastconn") }?.take(8)?.forEach { f ->
+                        try {
+                            extractIps(f.readText().take(8192), bypassIps)
+                        } catch (e: Exception) {
+                            LogRepository.w("[VpnService] read lastconn failed ${f.name}: ${e.message}")
+                        }
+                    }
+                    bypassIps.add("162.159.198.39")
+                    bypassIps.add("162.159.198.2")
+                    bypassIps.add("162.159.192.1")
+                    bypassIps.add("188.114.96.1")
+                    for (ip in bypassIps) {
+                        try {
+                            val s = Socket()
+                            if (!protect(s)) {
+                                LogRepository.d("[VpnService] protect failed for bypass $ip")
+                            }
+                            val port = if (ip.contains(":")) 443 else 443
+                            s.connect(InetSocketAddress(ip, port), 200)
+                            s.close()
+                        } catch (e: Exception) {
+                            LogRepository.d("[VpnService] bypass probe failed $ip: ${e.message}")
+                        }
+                    }
+                }
+            }
+        }
         true
     }.getOrElse {
         LogRepository.e("[Tun] [attempt=$attemptId] Failed: ${it.localizedMessage}")
@@ -633,8 +638,8 @@ class AetherVpnService : VpnService() {
 
             if (commandCounter.get() != commandId) return@launch
 
-            Handler(Looper.getMainLooper()).post {
-                if (commandCounter.get() == commandId) {
+            scope.launch(Dispatchers.Main) {
+                if (isActive && commandCounter.get() == commandId) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -883,8 +888,11 @@ class AetherVpnService : VpnService() {
 
     private fun probeCoreSocks5(socksHost: String, socksPort: Int, domainTarget: String?, ipLiteralTarget: String?): Int {
         val socket = Socket()
-        if (!protect(socket)) {
-            LogRepository.w("[VpnService] probe protect failed for $socksHost:$socksPort")
+        val isLoopback = socksHost == "127.0.0.1" || socksHost == "::1" || socksHost == "localhost"
+        if (!isLoopback) {
+            if (!protect(socket)) {
+                LogRepository.w("[VpnService] probe protect failed for $socksHost:$socksPort")
+            }
         }
         try {
             socket.tcpNoDelay = true

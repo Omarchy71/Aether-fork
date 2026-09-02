@@ -147,9 +147,10 @@ class AetherProcessRunner(private val context: Context) {
             if (config.noDataCheck) commandList.add("--no-data-check")
             if (config.quickReconnect) commandList.add("--quick-reconnect") else commandList.add("--no-quick-reconnect")
 
-            if (config.peer.isNotEmpty()) {
+            val effectivePeerForCmd = if ((config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) && config.wgPeer.isNotEmpty()) config.wgPeer else config.peer
+            if (effectivePeerForCmd.isNotEmpty()) {
                 commandList.add("--peer")
-                commandList.add(config.peer)
+                commandList.add(effectivePeerForCmd)
             }
 
             if ((config.protocol == AetherProtocol.WG) || (config.protocol == AetherProtocol.GOOL)) {
@@ -240,12 +241,15 @@ class AetherProcessRunner(private val context: Context) {
 
             if (config.quickReconnect) env["AETHER_QUICK_RECONNECT"] = "1" else env["AETHER_QUICK_RECONNECT"] = "0"
 
-            if (config.peer.isNotEmpty()) {
-                env["AETHER_PEER"] = config.peer
-                env["AETHER_WG_PEER"] = config.peer
+            if (config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) {
+                if (config.wgPeer.isNotEmpty()) env["AETHER_WG_PEER"] = config.wgPeer else if (config.peer.isNotEmpty()) env["AETHER_WG_PEER"] = config.peer
+                if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
+            } else {
+                if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
             }
 
             env["AETHER_WG_KEEPALIVE"] = if (config.keepaliveEnabled) config.keepalive.toString() else "0"
+            env["AETHER_WG_ENDPOINT_COOLDOWN_SECS"] = config.wgEndpointCooldownSecs.toString()
             env["AETHER_MASQUE_VALIDATE_SECS"] = config.validateSecs.toString()
             env["AETHER_MASQUE_RECONNECT_SECS"] = config.reconnectSecs.toString()
             env["AETHER_WG_RECONNECT_SECS"] = config.reconnectSecs.toString()

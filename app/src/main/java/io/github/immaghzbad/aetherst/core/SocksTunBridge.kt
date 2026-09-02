@@ -106,6 +106,26 @@ class SocksTunBridge(
         },
         ThreadPoolExecutor.AbortPolicy()
     )
+    private val rejectedCount = AtomicLong(0)
+    private fun safeExecute(block: () -> Unit) {
+        try {
+            executor.execute(block)
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            val c = rejectedCount.incrementAndGet()
+            if (c <= 5 || c % 50 == 0L) LogRepository.w("[TunBridge] Task rejected pool 64/64 queued 0 count=$c: ${e.message}")
+        }
+    }
+    private fun safeExecuteInline(block: () -> Unit) {
+        try {
+            executor.execute(block)
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            val c = rejectedCount.incrementAndGet()
+            if (c <= 5 || c % 50 == 0L) LogRepository.w("[TunBridge] Task rejected pool 64/64 queued 0 count=$c inline fallback: ${e.message}")
+            if (isRunning.get()) {
+                try { block() } catch (_: Exception) {}
+            }
+        }
+    }
     private val tunOutputQueue = LinkedBlockingQueue<ByteArray>(32768)
     private val tcpSessions = ConcurrentHashMap<FlowKey, TcpSession>()
     private val udpSessions = ConcurrentHashMap<FlowKey, UdpSession>()
@@ -288,7 +308,7 @@ class SocksTunBridge(
                 val seq = getLong(packet, hLen + 4)
                 val newSession = TcpSession(key, 4, srcBytes, dstBytes, srcPort, dstPort, seq, uid)
                 tcpSessions[key] = newSession
-                executor.execute { newSession.run() }
+                safeExecute { newSession.run() }
             }
         } else {
             if (len < hLen + 8) return
@@ -309,7 +329,7 @@ class SocksTunBridge(
                         return
                     }
                 }
-                executor.execute {
+                safeExecute {
                     val response = dnsResolver.resolve(payload, dstIpStr)
                     if (response != null) {
                         sniffDnsResponse(response)
@@ -363,7 +383,7 @@ class SocksTunBridge(
 
             val newSession = UdpSession(key, 4, srcBytes, dstBytes, srcPort, dstPort, uid)
             udpSessions[key] = newSession
-            executor.execute { newSession.run() }
+            safeExecute { newSession.run() }
             newSession.queue(payload)
         }
     }
@@ -427,7 +447,7 @@ class SocksTunBridge(
                 val seq = getLong(packet, offset + 4)
                 val newSession = TcpSession(key, 6, srcIp, dstIp, srcPort, dstPort, seq, uid)
                 tcpSessions[key] = newSession
-                executor.execute { newSession.run() }
+                safeExecute { newSession.run() }
             }
         } else if (transport.nextHeader == 17) {
             if (len < offset + 8) return
@@ -445,7 +465,7 @@ class SocksTunBridge(
                         return
                     }
                 }
-                executor.execute {
+                safeExecute {
                     val response = dnsResolver.resolve(payload, dstIpStr)
                     if (response != null) {
                         sniffDnsResponse(response)
@@ -497,7 +517,7 @@ class SocksTunBridge(
 
             val newSession = UdpSession(key, 6, srcIp, dstIp, srcPort, dstPort, uid)
             udpSessions[key] = newSession
-            executor.execute { newSession.run() }
+            safeExecute { newSession.run() }
             newSession.queue(payload)
         }
     }
@@ -825,7 +845,7 @@ class SocksTunBridge(
 
                 if (isClosed.get()) return
 
-                executor.execute { readFromSocks(ins) }
+                safeExecuteInline { readFromSocks(ins) }
 
                 while (!isClosed.get() && isRunning.get()) {
                     val data = queue.poll(2, TimeUnit.SECONDS)
@@ -1042,7 +1062,7 @@ class SocksTunBridge(
                 }
                 relaySocket.soTimeout = 10000
 
-                executor.execute { receiveFromNetwork(relaySocket, isDirect) }
+                safeExecuteInline { receiveFromNetwork(relaySocket, isDirect) }
 
                 val relayAddress = InetSocketAddress(relayHost, relayPort)
                 val idleTimeoutMs = if (isVoipPort(serverPort)) UDP_IDLE_VOIP else UDP_IDLE_SHORT

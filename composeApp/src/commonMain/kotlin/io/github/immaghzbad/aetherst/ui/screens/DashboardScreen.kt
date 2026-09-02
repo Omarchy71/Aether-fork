@@ -2025,7 +2025,7 @@ private fun PsiphonOptionsSheet(
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Text(when (config.psiphonChainOuter) { "wg" -> strings.PSIPHON_SHEET_OUTER_DESC_WG ; "gool" -> strings.PSIPHON_SHEET_OUTER_DESC_GOOL ; else -> strings.PSIPHON_SHEET_OUTER_DESC_MASQUE }, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
                 }
-                if (config.psiphonChainOuter == "masque") {
+                if (config.psiphonChainOuter == "masque" && config.protocol != AetherProtocol.MASQUE) {
                     AppDivider()
                     val orderOptions = listOf("Psiphon first", "MASQUE first", "Auto")
                     val orderValues = listOf("psiphon_first", "masque_first", "auto")
@@ -2036,7 +2036,7 @@ private fun PsiphonOptionsSheet(
                     }
                 }
                 val isWgFamily = config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL
-                if (!isWgFamily) {
+                if (!isWgFamily && config.protocol != AetherProtocol.MASQUE) {
                     AppDivider()
                     val chainModes = listOf(PsiphonChainMode.AUTO, PsiphonChainMode.FALLBACK, PsiphonChainMode.ALWAYS)
                     val chainLabels = mapOf(PsiphonChainMode.AUTO to "Auto", PsiphonChainMode.FALLBACK to "Fallback", PsiphonChainMode.ALWAYS to "Always")

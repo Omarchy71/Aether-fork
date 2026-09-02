@@ -108,7 +108,11 @@ class AetherProxyService : Service() {
         startupJob = scope.launch {
             if (commandCounter.get() != commandId) return@launch
 
-            runCatching { wakeLock?.acquire(24 * 60 * 60 * 1000L) }
+            if (wakeLock?.isHeld == true) {
+                LogRepository.d("[ProxyService] WakeLock already held, skipping acquire")
+            } else {
+                runCatching { wakeLock?.acquire(24 * 60 * 60 * 1000L) }.onFailure { LogRepository.w("[ProxyService] WakeLock acquire failed: ${it.message}") }
+            }
 
             getController().start()
         }
@@ -140,8 +144,8 @@ class AetherProxyService : Service() {
 
             if (commandCounter.get() != commandId) return@launch
 
-            Handler(Looper.getMainLooper()).post {
-                if (commandCounter.get() == commandId) {
+            scope.launch(Dispatchers.Main) {
+                if (isActive && commandCounter.get() == commandId) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }

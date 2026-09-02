@@ -65,84 +65,83 @@ class HevTun2SocksEngine {
         attemptId: Long,
         settings: HevEngineSettings = HevEngineSettings(),
         udpMode: String = "udp"
-    ): Boolean = lifecycleMutex.withLock {
+    ): Boolean {
         if (!active.compareAndSet(false, true)) {
             LogRepository.w("[Hev] [attempt=$attemptId] Start rejected; engine already active")
-            return@withLock false
+            return false
         }
-
         stopping.set(false)
         currentAttemptId.set(attemptId)
         _state.value = State.STARTING
         val started = CompletableDeferred<Boolean>()
-
+        var localEngineJob: Job? = null
         try {
-            val duplicate = ParcelFileDescriptor.dup(tunPfd.fileDescriptor)
-            duplicatedFd = duplicate
-            val fd = duplicate.fd
-            val config = HevTun2SocksConfig.generate(socksAddress, socksPort, mtu, settings, udpMode = udpMode)
-
-            engineJob = scope.launch {
-                try {
-                    LogRepository.i("[Hev] [attempt=$attemptId] Engine event loop starting")
-                    val result = HevTun2SocksNative.nativeStart(config, fd)
-                    val expected = stopping.get() || (_state.value == State.STOPPING)
-                    if (currentAttemptId.get() == attemptId) {
-                        if (expected) {
-                            LogRepository.i("[Hev] [attempt=$attemptId] Engine event loop exited (Code: $result)")
-                            _state.value = State.STOPPED
-                        } else {
-                            LogRepository.e("[Hev] [attempt=$attemptId] Native loop exited code=$result expected=false")
-                            _state.value = State.FAILED
+            lifecycleMutex.withLock {
+                val duplicate = ParcelFileDescriptor.dup(tunPfd.fileDescriptor)
+                duplicatedFd = duplicate
+                val fd = duplicate.fd
+                val config = HevTun2SocksConfig.generate(socksAddress, socksPort, mtu, settings, udpMode = udpMode)
+                localEngineJob = scope.launch {
+                    try {
+                        LogRepository.i("[Hev] [attempt=$attemptId] Engine event loop starting")
+                        val result = HevTun2SocksNative.nativeStart(config, fd)
+                        val expected = stopping.get() || (_state.value == State.STOPPING)
+                        if (currentAttemptId.get() == attemptId) {
+                            if (expected) {
+                                LogRepository.i("[Hev] [attempt=$attemptId] Engine event loop exited (Code: $result)")
+                                _state.value = State.STOPPED
+                            } else {
+                                LogRepository.e("[Hev] [attempt=$attemptId] Native loop exited code=$result expected=false")
+                                _state.value = State.FAILED
+                            }
                         }
+                    } catch (throwable: Throwable) {
+                        if (currentAttemptId.get() == attemptId) {
+                            LogRepository.e("[Hev] [attempt=$attemptId] Native loop failed: ${throwable.message}")
+                            _state.value = if (stopping.get()) State.STOPPED else State.FAILED
+                        }
+                    } finally {
+                        if (!started.isCompleted) {
+                            started.complete(false)
+                        }
+                        closeDuplicatedFd(attemptId)
+                        active.set(false)
+                        stopStatsPolling()
                     }
-                } catch (throwable: Throwable) {
-                    if (currentAttemptId.get() == attemptId) {
-                        LogRepository.e("[Hev] [attempt=$attemptId] Native loop failed: ${throwable.message}")
-                        _state.value = if (stopping.get()) State.STOPPED else State.FAILED
-                    }
-                } finally {
+                }
+                engineJob = localEngineJob
+                scope.launch {
+                    delay(800.milliseconds)
                     if (!started.isCompleted) {
-                        started.complete(false)
+                        val running = localEngineJob?.isActive == true && currentAttemptId.get() == attemptId
+                        if (running) {
+                            _state.value = State.RUNNING
+                            startStatsPolling(attemptId)
+                            LogRepository.i("[Hev] [attempt=$attemptId] Engine status: ACTIVE")
+                        }
+                        started.complete(running)
                     }
-                    closeDuplicatedFd(attemptId)
-                    active.set(false)
-                    stopStatsPolling()
                 }
             }
-
-            scope.launch {
-                delay(800.milliseconds)
-                if (!started.isCompleted) {
-                    val running = engineJob?.isActive == true && currentAttemptId.get() == attemptId
-                    if (running) {
-                        _state.value = State.RUNNING
-                        startStatsPolling(attemptId)
-                        LogRepository.i("[Hev] [attempt=$attemptId] Engine status: ACTIVE")
-                    }
-                    started.complete(running)
-                }
-            }
-
-            withTimeoutOrNull(3.seconds) { started.await() } ?: false
+            return withTimeoutOrNull(3.seconds) { started.await() } ?: false
         } catch (cancellation: CancellationException) {
             stopping.set(true)
             _state.value = State.STOPPING
             runCatching { HevTun2SocksNative.nativeStop() }
-            withTimeoutOrNull(3.seconds) { engineJob?.join() }
+            withTimeoutOrNull(3.seconds) { localEngineJob?.join() }
             throw cancellation
         } catch (throwable: Throwable) {
             LogRepository.e("[Hev] [attempt=$attemptId] Startup failed: ${throwable.localizedMessage}")
             _state.value = State.FAILED
-            if (engineJob?.isActive == true) {
+            if (localEngineJob?.isActive == true) {
                 stopping.set(true)
                 runCatching { HevTun2SocksNative.nativeStop() }
-                withTimeoutOrNull(3.seconds) { engineJob?.join() }
+                withTimeoutOrNull(3.seconds) { localEngineJob?.join() }
             } else {
                 closeDuplicatedFd(attemptId)
                 active.set(false)
             }
-            false
+            return false
         }
     }
 

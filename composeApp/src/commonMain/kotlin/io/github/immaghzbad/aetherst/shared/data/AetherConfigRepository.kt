@@ -121,10 +121,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             appLogLevel = runCatching { AetherLogLevel.valueOf(appLogLevelStr) }.getOrDefault(AetherLogLevel.INFO),
             coreLogLevel = runCatching { AetherLogLevel.valueOf(coreLogLevelStr) }.getOrDefault(AetherLogLevel.INFO),
             peer = settings.getString("${prefix}peer", ""),
+            wgPeer = settings.getString("${prefix}wg_peer", ""),
             keepaliveEnabled = settings.getBoolean("${prefix}keepalive_enabled", true),
             keepalive = settings.getInt("${prefix}keepalive", 5),
             validateSecs = settings.getInt("${prefix}validate_secs", 10),
             reconnectSecs = settings.getInt("${prefix}reconnect_secs", 2),
+            wgEndpointCooldownSecs = settings.getInt("${prefix}wg_endpoint_cooldown_secs", 300),
             noProfileRetry = settings.getBoolean("${prefix}no_profile_retry", false),
             tlsGroups = settings.getString("${prefix}tls_groups", ""),
             mtu = settings.getInt("${prefix}mtu", 1100),
@@ -193,7 +195,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
 
     private fun enforceWireGuardConstraints(cfg: AetherConfig): AetherConfig {
         var out = cfg
-        val isWgFamily = out.protocol == AetherProtocol.WG || out.protocol == AetherProtocol.GOOL || out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool"
+        val isWgFamily = out.protocol == AetherProtocol.WG || out.protocol == AetherProtocol.GOOL || (out.psiphonEnabled && (out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool"))
         if (isWgFamily && !out.httpProxyEnabled) {
             out = out.copy(httpProxyEnabled = true)
         }
@@ -202,6 +204,9 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         }
         if ((out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool") && out.psiphonChainMode == PsiphonChainMode.FALLBACK) {
             out = out.copy(psiphonChainMode = PsiphonChainMode.AUTO)
+        }
+        if (out.protocol == AetherProtocol.MASQUE && out.psiphonEnabled) {
+            out = out.copy(psiphonMasqueOrder = "masque_first")
         }
         return out
     }
@@ -307,10 +312,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}app_log_level", cfg.appLogLevel.name)
         settings.putString("${prefix}core_log_level", cfg.coreLogLevel.name)
         settings.putString("${prefix}peer", cfg.peer)
+        settings.putString("${prefix}wg_peer", cfg.wgPeer)
         settings.putBoolean("${prefix}keepalive_enabled", cfg.keepaliveEnabled)
         settings.putInt("${prefix}keepalive", cfg.keepalive)
         settings.putInt("${prefix}validate_secs", cfg.validateSecs)
         settings.putInt("${prefix}reconnect_secs", cfg.reconnectSecs)
+        settings.putInt("${prefix}wg_endpoint_cooldown_secs", cfg.wgEndpointCooldownSecs)
         settings.putBoolean("${prefix}no_profile_retry", cfg.noProfileRetry)
         settings.putString("${prefix}tls_groups", cfg.tlsGroups)
         settings.putInt("${prefix}mtu", cfg.mtu)
@@ -401,23 +408,53 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         val current = _config.value
         var updated = when (presetId) {
             "custom" -> loadManualConfig()
-            "bypass_udp" -> current.copy(
-                presetId = "bypass_udp",
-                protocol = AetherProtocol.MASQUE,
-                noise = AetherNoise.FIREWALL,
-                scanMode = AetherScanMode.BALANCED,
-                h2Mode = true,
-                h2Fragment = true,
-                echEnabled = true,
+            "turbo" -> current.copy(
+                presetId = "turbo",
+                protocol = AetherProtocol.WG,
+                noise = AetherNoise.BALANCED,
+                scanMode = AetherScanMode.TURBO,
+                echEnabled = false,
+                h2Mode = false,
+                h2Fragment = false,
+                noDataCheck = true,
+                tlsGroups = "",
                 fragmentSize = "16-32",
                 fragmentDelay = "2-10",
-                noDataCheck = false,
-                tlsGroups = "",
-                mtu = 1100,
+                mtu = 1420,
                 connectionMode = ConnectionMode.TUNNEL
             )
-            "ironclad_stealth" -> current.copy(
-                presetId = "ironclad_stealth",
+            "thorough" -> current.copy(
+                presetId = "thorough",
+                protocol = AetherProtocol.MASQUE,
+                noise = AetherNoise.FIREWALL,
+                scanMode = AetherScanMode.THOROUGH,
+                echEnabled = true,
+                h2Mode = true,
+                h2Fragment = false,
+                noDataCheck = false,
+                tlsGroups = "",
+                fragmentSize = "16-32",
+                fragmentDelay = "2-10",
+                mtu = 1350,
+                connectionMode = ConnectionMode.TUNNEL
+            )
+            "stealth" -> current.copy(
+                presetId = "stealth",
+                protocol = AetherProtocol.MASQUE,
+                noise = AetherNoise.LIGHT,
+                scanMode = AetherScanMode.STEALTH,
+                echEnabled = true,
+                h2Mode = true,
+                h2Fragment = true,
+                noDataCheck = false,
+                tlsGroups = "",
+                fragmentSize = "16-32",
+                fragmentDelay = "2-10",
+                mtu = 1320,
+                connectionMode = ConnectionMode.TUNNEL
+            )
+            "ironclad" -> current.copy(
+                presetId = "ironclad",
                 protocol = AetherProtocol.MASQUE,
                 noise = AetherNoise.GFW,
                 scanMode = AetherScanMode.IRONCLAD,
@@ -426,18 +463,9 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 h2Fragment = false,
                 noDataCheck = false,
                 tlsGroups = "",
-                mtu = 1100,
-                connectionMode = ConnectionMode.TUNNEL
-            )
-            "turbo_wg" -> current.copy(
-                presetId = "turbo_wg",
-                protocol = AetherProtocol.WG,
-                noise = AetherNoise.BALANCED,
-                scanMode = AetherScanMode.TURBO,
-                noDataCheck = true,
-                h2Mode = false,
-                h2Fragment = false,
-                mtu = 1100,
+                fragmentSize = "16-32",
+                fragmentDelay = "2-10",
+                mtu = 1280,
                 connectionMode = ConnectionMode.TUNNEL
             )
             else -> current

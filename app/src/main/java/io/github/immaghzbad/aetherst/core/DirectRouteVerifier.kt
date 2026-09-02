@@ -35,6 +35,7 @@ object DirectRouteVerifier {
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val lastApiRequestAt = AtomicLong(0)
     private val apiMutex = Mutex()
+    private val clientCache = ConcurrentHashMap<javax.net.SocketFactory, okhttp3.OkHttpClient>()
 
     fun verify(domain: String, network: Network, networkType: String) {
         val normalizedDomain = domain.trim().trimEnd('.').lowercase(Locale.ROOT)
@@ -115,11 +116,13 @@ object DirectRouteVerifier {
 
     private fun fetch(network: Network, endpoint: String, parser: (JSONObject) -> ExitInfo?): ExitInfo? {
         return try {
-            val client = NetworkClient.instance.newBuilder()
-                .socketFactory(network.socketFactory)
-                .connectTimeout(6000, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(6000, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .build()
+            val client = clientCache.getOrPut(network.socketFactory) {
+                NetworkClient.instance.newBuilder()
+                    .socketFactory(network.socketFactory)
+                    .connectTimeout(6000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    .readTimeout(6000, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    .build()
+            }
 
             val request = Request.Builder()
                 .url(endpoint)

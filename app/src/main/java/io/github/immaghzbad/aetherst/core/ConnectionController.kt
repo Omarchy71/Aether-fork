@@ -161,6 +161,34 @@ class ConnectionController private constructor(context: Context) : ConnectionCon
             baseRx = if (rawRx == TrafficStats.UNSUPPORTED.toLong() || rawRx < 0) 0L else rawRx
             if (psiphonSupported) {
                 psiphonChaining = true
+                if (effectiveConfig.protocol == AetherProtocol.MASQUE) {
+                    LogRepository.i("[Controller] Psiphon MASQUE forced masque-first (ignoring chainMode=${effectiveConfig.psiphonChainMode} order=${effectiveConfig.psiphonMasqueOrder})")
+                    if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
+                        throw IllegalStateException("Core failed direct MASQUE")
+                    }
+                    if (status.value == ConnectionStatus.RUNNING) {
+                        notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
+                    }
+                    val httpUpstream = "http://127.0.0.1:${effectiveConfig.httpPort}"
+                    runNativeBounded<Unit>(30000L, "Psiphon.start") { PsiphonController.start(appContext, effectiveConfig, upstream = httpUpstream) }
+                    if (PsiphonController.isRunning()) {
+                        if (awaitPsiphonStable()) {
+                            ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
+                            LogRepository.i("[Controller] Psiphon over MASQUE ready via ${ActiveProxyProvider.psiphonProxyUrl}")
+                            try { val intent = Intent().setClassName(appContext.packageName, "io.github.immaghzbad.aetherst.service.AetherVpnService").apply { action = "io.github.immaghzbad.aetherst.SWITCH_HEV"; putExtra("host", "127.0.0.1"); putExtra("port", 3080) }; appContext.startService(intent) } catch (_: Exception) {}
+                            notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                        } else {
+                            LogRepository.w("[Controller] Psiphon not connected over MASQUE via http, keeping direct MASQUE")
+                            ActiveProxyProvider.psiphonProxyUrl = null
+                            PsiphonController.stop()
+                            notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                        }
+                    } else {
+                        ActiveProxyProvider.psiphonProxyUrl = null
+                        notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                    }
+                    return
+                }
                 when (effectiveConfig.psiphonChainMode) {
                     PsiphonChainMode.ALWAYS -> {
                         val isWireGuardFamily = effectiveConfig.protocol == AetherProtocol.WG || effectiveConfig.protocol == AetherProtocol.GOOL

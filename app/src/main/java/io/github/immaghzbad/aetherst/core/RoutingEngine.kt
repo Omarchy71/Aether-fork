@@ -14,6 +14,9 @@ enum class MatchType {
     IPV4,
     IPV6,
     CIDR,
+    PORT,
+    PRIVATE,
+    FULL,
     DNS_CACHE,
     SNI,
     HTTP_HOST,
@@ -43,6 +46,16 @@ class RoutingEngine(rules: List<RoutingRule>) {
         }
     )
     private val containsDomainRules = compiledRules.any { !it.normalizedPattern.startsWith("ip:") }
+    private val privateNetworks = listOf(
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "100.64.0.0/10",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10"
+    )
 
     fun hasDomainRules(): Boolean = containsDomainRules
 
@@ -59,6 +72,7 @@ class RoutingEngine(rules: List<RoutingRule>) {
         val key = "$destinationIp:$destinationPort:$normalizedDomain:$normalizedSni:$normalizedHost"
         return decisionCache[key] ?: resolveInternal(
             destinationIp,
+            destinationPort,
             normalizedDomain,
             normalizedSni,
             normalizedHost
@@ -67,11 +81,14 @@ class RoutingEngine(rules: List<RoutingRule>) {
 
     private fun resolveInternal(
         destinationIp: String,
+        destinationPort: Int,
         resolvedDomain: String?,
         tlsSni: String?,
         httpHost: String?
     ): RoutingDecision {
         matchIpRules(destinationIp)?.let { return it }
+        matchPortRules(destinationPort)?.let { return it }
+        matchPrivate(destinationIp)?.let { return it }
         resolvedDomain?.let { matchDomainRules(it, MatchType.DNS_CACHE)?.let { decision -> return decision } }
         tlsSni?.let { matchDomainRules(it, MatchType.SNI)?.let { decision -> return decision } }
         httpHost?.let { matchDomainRules(it, MatchType.HTTP_HOST)?.let { decision -> return decision } }
@@ -95,11 +112,49 @@ class RoutingEngine(rules: List<RoutingRule>) {
         return null
     }
 
+    private fun matchPortRules(port: Int): RoutingDecision? {
+        for (rule in compiledRules) {
+            val pattern = rule.normalizedPattern
+            if (!pattern.startsWith("port:")) continue
+            val value = pattern.removePrefix("port:")
+            if (matchesPort(port, value)) {
+                return RoutingDecision(rule.source.mode, rule.source, MatchType.PORT, null)
+            }
+        }
+        return null
+    }
+
+    private fun matchPrivate(ip: String): RoutingDecision? {
+        val address = parseNumericAddress(ip) ?: return null
+        for (rule in compiledRules) {
+            if (rule.normalizedPattern != "private") continue
+            for (cidr in privateNetworks) {
+                if (matchesIp(address, cidr)) {
+                    return RoutingDecision(rule.source.mode, rule.source, MatchType.PRIVATE, null)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun matchesPort(port: Int, pattern: String): Boolean {
+        val trimmed = pattern.trim()
+        if (trimmed.contains("-")) {
+            val parts = trimmed.split("-", limit = 2)
+            val start = parts[0].toIntOrNull() ?: return false
+            val end = parts[1].toIntOrNull() ?: return false
+            return port in start..end
+        }
+        val p = trimmed.toIntOrNull() ?: return false
+        return port == p
+    }
+
     private fun matchDomainRules(domain: String, sourceType: MatchType): RoutingDecision? {
         for (rule in compiledRules) {
             val pattern = rule.normalizedPattern
-            if (pattern.startsWith("ip:")) continue
+            if (pattern.startsWith("ip:") || pattern == "private" || pattern.startsWith("port:")) continue
             val matched = when {
+                pattern.startsWith("full:") -> domain == pattern.removePrefix("full:")
                 pattern.startsWith("keyword:") -> domain.contains(pattern.removePrefix("keyword:"))
                 pattern.startsWith("regexp:") -> rule.regex?.containsMatchIn(domain) == true
                 pattern.startsWith("domain:") -> matchesDomain(domain, pattern.removePrefix("domain:"))
@@ -107,6 +162,7 @@ class RoutingEngine(rules: List<RoutingRule>) {
             }
             if (!matched) continue
             val type = when {
+                pattern.startsWith("full:") -> MatchType.FULL
                 pattern.startsWith("keyword:") -> MatchType.KEYWORD
                 pattern.startsWith("regexp:") -> MatchType.REGEX
                 domain == pattern.removePrefix("domain:") -> MatchType.DOMAIN
@@ -126,8 +182,11 @@ class RoutingEngine(rules: List<RoutingRule>) {
             null
         }
         val priority = when {
+            normalized == "private" -> 650
+            normalized.startsWith("port:") -> 620
             normalized.startsWith("ip:") && !normalized.contains('/') -> 600
             normalized.startsWith("ip:") -> 500
+            normalized.startsWith("full:") -> 450
             normalized.startsWith("domain:") -> 400
             normalized.startsWith("keyword:") -> 200
             normalized.startsWith("regexp:") -> 100

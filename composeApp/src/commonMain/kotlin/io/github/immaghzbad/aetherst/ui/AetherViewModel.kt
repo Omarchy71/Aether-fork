@@ -176,28 +176,36 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
 
     fun updateConfig(newConfig: AetherConfig) {
         val oldConfig = config.value
-        val isUiOnly = oldConfig.copy(connectButtonStyle = newConfig.connectButtonStyle, appLanguage = newConfig.appLanguage) == newConfig
+        if (oldConfig.psiphonEnabled && !newConfig.httpProxyEnabled && oldConfig.httpProxyEnabled) {
+            showToast(localizedToast { TOAST_DISABLE_PSIPHON_FIRST }, true)
+            return
+        }
+        var effectiveNewConfig = newConfig
+        if (!effectiveNewConfig.psiphonEnabled && oldConfig.psiphonEnabled) {
+            effectiveNewConfig = effectiveNewConfig.copy(psiphonChainOuter = "", psiphonMasqueOrder = "masque_first")
+        }
+        val isUiOnly = oldConfig.copy(connectButtonStyle = effectiveNewConfig.connectButtonStyle, appLanguage = effectiveNewConfig.appLanguage) == effectiveNewConfig
         if (!isUiOnly && !requireDisconnected()) return
-        if (oldConfig.protocol == AetherProtocol.ZERO_TRUST && newConfig.protocol != AetherProtocol.ZERO_TRUST) {
+        if (oldConfig.protocol == AetherProtocol.ZERO_TRUST && effectiveNewConfig.protocol != AetherProtocol.ZERO_TRUST) {
             _scrollToZeroTrust.value = false
         }
-        repository.updateConfig(newConfig)
-        val needsRestart = oldConfig.connectionMode != newConfig.connectionMode ||
-                oldConfig.tunnelAllApps != newConfig.tunnelAllApps ||
-                oldConfig.protocol != newConfig.protocol ||
-                oldConfig.ipMode != newConfig.ipMode ||
-                oldConfig.mtu != newConfig.mtu ||
-                oldConfig.tunnelEngine != newConfig.tunnelEngine ||
-                oldConfig.ipv6Leak != newConfig.ipv6Leak ||
-                oldConfig.socksPort != newConfig.socksPort ||
-                oldConfig.socksHost != newConfig.socksHost ||
-                oldConfig.psiphonEnabled != newConfig.psiphonEnabled ||
-                oldConfig.psiphonChainMode != newConfig.psiphonChainMode ||
-                oldConfig.psiphonViaAether != newConfig.psiphonViaAether ||
-                oldConfig.psiphonEgressRegion != newConfig.psiphonEgressRegion ||
-                oldConfig.psiphonSocksPort != newConfig.psiphonSocksPort ||
-                oldConfig.psiphonChainOuter != newConfig.psiphonChainOuter ||
-                oldConfig.psiphonMasqueOrder != newConfig.psiphonMasqueOrder
+        repository.updateConfig(effectiveNewConfig)
+        val needsRestart = oldConfig.connectionMode != effectiveNewConfig.connectionMode ||
+                oldConfig.tunnelAllApps != effectiveNewConfig.tunnelAllApps ||
+                oldConfig.protocol != effectiveNewConfig.protocol ||
+                oldConfig.ipMode != effectiveNewConfig.ipMode ||
+                oldConfig.mtu != effectiveNewConfig.mtu ||
+                oldConfig.tunnelEngine != effectiveNewConfig.tunnelEngine ||
+                oldConfig.ipv6Leak != effectiveNewConfig.ipv6Leak ||
+                oldConfig.socksPort != effectiveNewConfig.socksPort ||
+                oldConfig.socksHost != effectiveNewConfig.socksHost ||
+                oldConfig.psiphonEnabled != effectiveNewConfig.psiphonEnabled ||
+                oldConfig.psiphonChainMode != effectiveNewConfig.psiphonChainMode ||
+                oldConfig.psiphonViaAether != effectiveNewConfig.psiphonViaAether ||
+                oldConfig.psiphonEgressRegion != effectiveNewConfig.psiphonEgressRegion ||
+                oldConfig.psiphonSocksPort != effectiveNewConfig.psiphonSocksPort ||
+                oldConfig.psiphonChainOuter != effectiveNewConfig.psiphonChainOuter ||
+                oldConfig.psiphonMasqueOrder != effectiveNewConfig.psiphonMasqueOrder
         if (needsRestart) {
             restartConnection()
         }
