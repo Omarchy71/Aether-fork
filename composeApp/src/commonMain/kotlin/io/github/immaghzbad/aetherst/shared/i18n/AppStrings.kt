@@ -30,6 +30,9 @@ interface AppStrings {
     val SWIPE_TO_CONNECT: String
     val SWIPE_TO_DISCONNECT: String
     val SWIPE_TO_RECONNECT: String
+    val TAP_TO_CONNECT: String
+    val TAP_TO_DISCONNECT: String
+    val TAP_TO_RECONNECT: String
     val CONNECTING_DOTS: String
     val CONNECT: String
     val DISCONNECT: String
@@ -298,6 +301,8 @@ interface AppStrings {
     val ABOUT_ARCH_HEV_DESC: String
     val ABOUT_ARCH_SOCKS: String
     val ABOUT_ARCH_SOCKS_DESC: String
+    val ABOUT_ARCH_PSIPHON: String
+    val ABOUT_ARCH_PSIPHON_DESC: String
     val ABOUT_LINK_MAINTAINER: String
     val ABOUT_LINK_TELEGRAM: String
     val ABOUT_LINK_TELEGRAM_SUB: String
@@ -305,6 +310,8 @@ interface AppStrings {
     val ABOUT_LINK_AETHER_SUB: String
     val ABOUT_LINK_HEV: String
     val ABOUT_LINK_HEV_SUB: String
+    val ABOUT_LINK_PSIPHON: String
+    val ABOUT_LINK_PSIPHON_SUB: String
     val ABOUT_FOOTER_BUILT: String
     val ABOUT_FOOTER_BY: String
     val ABOUT_FOOTER_DESC: String
@@ -732,6 +739,31 @@ interface AppStrings {
     val CRASH_GENERATED_BY: String
     val UPDATE_DOWNLOAD_NOW: String
     val UPDATE_REMIND_LATER: String
+    val AUTODETECT_TAB_CONNECTION: String
+    val AUTODETECT_TAB_DNS: String
+    val AUTODETECT_START_SCAN: String
+    val AUTODETECT_START_DESC: String
+    val AUTODETECT_CANCEL_SCAN: String
+    val DNS_SECTION_GLOBAL: String
+    val DNS_SECTION_IRAN: String
+    val DNS_SECTION_CUSTOM: String
+    val DNS_INCLUDE_IPV6: String
+    val DNS_INCLUDE_IPV6_SUB: String
+    val DNS_CUSTOM_PLACEHOLDER: String
+    val DNS_SCAN_START: String
+    val DNS_SCANNING: String
+    val DNS_BEST_RESULT: String
+    val DNS_APPLY_TITLE: String
+    val DNS_APPLY_DESC: String
+    val DNS_APPLY_YES: String
+    val DNS_APPLY_NO: String
+    val DNS_RETEST: String
+    val DNS_CURRENT_TUNNEL: String
+    val DNS_MS: String
+    val DNS_OPTIMIZE: String
+    val DNS_EMPTY_SELECTION: String
+    val DNS_APPLIED: String
+    val TOAST_DNS_APPLIED: String
 }
 
 val LocalAppStrings = compositionLocalOf<AppStrings> { StringsEn }

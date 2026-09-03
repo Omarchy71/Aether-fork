@@ -162,7 +162,148 @@ class ConnectionController private constructor(context: Context) : ConnectionCon
             if (psiphonSupported) {
                 psiphonChaining = true
                 if (effectiveConfig.protocol == AetherProtocol.MASQUE) {
-                    LogRepository.i("[Controller] Psiphon MASQUE forced masque-first (ignoring chainMode=${effectiveConfig.psiphonChainMode} order=${effectiveConfig.psiphonMasqueOrder})")
+                    val masqueOrder = effectiveConfig.psiphonMasqueOrder.lowercase().trim()
+                    if (masqueOrder == "psiphon_first") {
+                        LogRepository.i("[Controller] Psiphon MASQUE order=psiphon-first -> starting Psiphon direct first")
+                        runNativeBounded<Unit>(30000L, "Psiphon.start") { PsiphonController.start(appContext, effectiveConfig, upstream = config.upstreamProxy.takeIf { config.upstreamProxyEnabled && it.isNotBlank() }) }
+                        if (PsiphonController.isRunning()) {
+                            if (awaitPsiphonStable()) {
+                                LogRepository.i("[Controller] Psiphon settled (stable), proceeding to chain core")
+                                effectiveConfig = effectiveConfig.copy(upstreamProxyEnabled = true, upstreamProxy = PsiphonController.getUpstreamProxy())
+                                ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
+                                LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
+                                if (status.value == ConnectionStatus.RUNNING) {
+                                    notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
+                                }
+                                psiphonChaining = false
+                                if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
+                                    throw IllegalStateException("Core failed via psiphon chain")
+                                }
+                            } else {
+                                LogRepository.e("[Controller] Psiphon not connected/stable over MASQUE - chain requires Psiphon, aborting")
+                                ActiveProxyProvider.psiphonProxyUrl = null
+                                PsiphonController.stop()
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon not connected/stable over MASQUE")
+                            }
+                        } else {
+                            LogRepository.e("[Controller] Psiphon failed to start over MASQUE - chain requires Psiphon, aborting")
+                            ActiveProxyProvider.psiphonProxyUrl = null
+                            psiphonChaining = false
+                            runCatching { runner.stop() }
+                            throw IllegalStateException("Psiphon failed to start over MASQUE")
+                        }
+                        return
+                    }
+                    if (masqueOrder == "auto") {
+                        LogRepository.i("[Controller] Psiphon MASQUE order=auto -> racing MASQUE direct against Psiphon direct, winner completes the chain")
+                        val raceWinner = coroutineScope {
+                            val masqueLeg = async {
+                                try {
+                                    startAetherInternal(effectiveConfig, bindAddress, attemptId)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    false
+                                }
+                            }
+                            val psiphonLeg = async {
+                                try {
+                                    val started = runNativeBounded<Unit>(30000L, "Psiphon.race") { PsiphonController.start(appContext, effectiveConfig, upstream = config.upstreamProxy.takeIf { config.upstreamProxyEnabled && it.isNotBlank() }) } != null && PsiphonController.isRunning()
+                                    if (!started) return@async false
+                                    awaitPsiphonStable()
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    false
+                                }
+                            }
+                            var masqueOk = false
+                            var psiphonOk = false
+                            var masqueDone = false
+                            var psiphonDone = false
+                            while (!masqueOk && !psiphonOk && (!masqueDone || !psiphonDone)) {
+                                if (activeAttemptId.get() != attemptId) {
+                                    masqueLeg.cancel()
+                                    psiphonLeg.cancel()
+                                    return@coroutineScope "stale"
+                                }
+                                if (!masqueDone && masqueLeg.isCompleted) {
+                                    masqueDone = true
+                                    masqueOk = runCatching { masqueLeg.await() }.getOrDefault(false)
+                                }
+                                if (!psiphonDone && psiphonLeg.isCompleted) {
+                                    psiphonDone = true
+                                    psiphonOk = runCatching { psiphonLeg.await() }.getOrDefault(false)
+                                }
+                                if (!masqueOk && !psiphonOk) delay(500.milliseconds)
+                            }
+                            masqueLeg.cancel()
+                            psiphonLeg.cancel()
+                            when {
+                                masqueOk -> "masque"
+                                psiphonOk -> "psiphon"
+                                else -> null
+                            }
+                        }
+                        if (raceWinner == "stale") return
+                        if (raceWinner == "masque") {
+                            LogRepository.i("[Controller] Race won by MASQUE direct, completing masque-first chain")
+                            runCatching { PsiphonController.stop() }
+                            delay(500.milliseconds)
+                            if (status.value == ConnectionStatus.RUNNING) {
+                                notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
+                            }
+                            val httpUpstream = "http://127.0.0.1:${effectiveConfig.httpPort}"
+                            runNativeBounded<Unit>(30000L, "Psiphon.start") { PsiphonController.start(appContext, effectiveConfig, upstream = httpUpstream) }
+                            if (PsiphonController.isRunning()) {
+                                if (awaitPsiphonStable()) {
+                                    ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
+                                    LogRepository.i("[Controller] Psiphon over MASQUE ready via ${ActiveProxyProvider.psiphonProxyUrl}")
+                                    try { val intent = Intent().setClassName(appContext.packageName, "io.github.immaghzbad.aetherst.service.AetherVpnService").apply { action = "io.github.immaghzbad.aetherst.SWITCH_HEV"; putExtra("host", "127.0.0.1"); putExtra("port", 3080) }; appContext.startService(intent) } catch (_: Exception) {}
+                                    notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                                } else {
+                                    LogRepository.e("[Controller] Psiphon not connected over MASQUE via http - chain requires Psiphon, aborting")
+                                    ActiveProxyProvider.psiphonProxyUrl = null
+                                    PsiphonController.stop()
+                                    psiphonChaining = false
+                                    runCatching { runner.stop() }
+                                    throw IllegalStateException("Psiphon not connected over MASQUE")
+                                }
+                            } else {
+                                LogRepository.e("[Controller] Psiphon failed to start over MASQUE - chain requires Psiphon, aborting")
+                                ActiveProxyProvider.psiphonProxyUrl = null
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon failed to start over MASQUE")
+                            }
+                            return
+                        }
+                        if (raceWinner == "psiphon") {
+                            LogRepository.i("[Controller] Race won by Psiphon direct, completing psiphon-first chain")
+                            runCatching { runner.stop() }
+                            delay(500.milliseconds)
+                            effectiveConfig = effectiveConfig.copy(upstreamProxyEnabled = true, upstreamProxy = PsiphonController.getUpstreamProxy())
+                            ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
+                            LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
+                            if (status.value == ConnectionStatus.RUNNING) {
+                                notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
+                            }
+                            psiphonChaining = false
+                            if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
+                                throw IllegalStateException("Core failed via psiphon chain")
+                            }
+                            return
+                        }
+                        LogRepository.e("[Controller] MASQUE auto race failed on both legs - chain requires a winner, aborting")
+                        ActiveProxyProvider.psiphonProxyUrl = null
+                        PsiphonController.stop()
+                        psiphonChaining = false
+                        runCatching { runner.stop() }
+                        throw IllegalStateException("MASQUE auto race failed on both legs")
+                    }
+                    LogRepository.i("[Controller] Psiphon MASQUE order=masque-first (chainMode=${effectiveConfig.psiphonChainMode} order=${effectiveConfig.psiphonMasqueOrder})")
                     if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {
                         throw IllegalStateException("Core failed direct MASQUE")
                     }
@@ -178,14 +319,19 @@ class ConnectionController private constructor(context: Context) : ConnectionCon
                             try { val intent = Intent().setClassName(appContext.packageName, "io.github.immaghzbad.aetherst.service.AetherVpnService").apply { action = "io.github.immaghzbad.aetherst.SWITCH_HEV"; putExtra("host", "127.0.0.1"); putExtra("port", 3080) }; appContext.startService(intent) } catch (_: Exception) {}
                             notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
                         } else {
-                            LogRepository.w("[Controller] Psiphon not connected over MASQUE via http, keeping direct MASQUE")
+                            LogRepository.e("[Controller] Psiphon not connected over MASQUE via http - chain requires Psiphon, aborting")
                             ActiveProxyProvider.psiphonProxyUrl = null
                             PsiphonController.stop()
-                            notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                            psiphonChaining = false
+                            runCatching { runner.stop() }
+                            throw IllegalStateException("Psiphon not connected over MASQUE")
                         }
                     } else {
+                        LogRepository.e("[Controller] Psiphon failed to start over MASQUE - chain requires Psiphon, aborting")
                         ActiveProxyProvider.psiphonProxyUrl = null
-                        notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                        psiphonChaining = false
+                        runCatching { runner.stop() }
+                        throw IllegalStateException("Psiphon failed to start over MASQUE")
                     }
                     return
                 }
@@ -249,8 +395,11 @@ class ConnectionController private constructor(context: Context) : ConnectionCon
                                     }
                                 }
                             } else {
+                                LogRepository.e("[Controller] Psiphon failed to start over ${effectiveConfig.protocol} - chain requires Psiphon, aborting")
                                 ActiveProxyProvider.psiphonProxyUrl = null
-                                notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon failed to start over ${effectiveConfig.protocol}")
                             }
                         } else {
                             LogRepository.i("[Controller] Psiphon ALWAYS mode -> psiphon-first chain")
@@ -299,7 +448,44 @@ class ConnectionController private constructor(context: Context) : ConnectionCon
                             if (activeAttemptId.get() != attemptId) return
                             notifyStatusChanged(appContext, ConnectionStatus.STARTING)
                         }
-                        if (directSuccess) return
+                        if (directSuccess) {
+                            LogRepository.i("[Controller] Direct aether ready, chaining Psiphon over it via http://127.0.0.1:${effectiveConfig.httpPort}")
+                            notifyStatusChanged(appContext, ConnectionStatus.VALIDATING)
+                            var psiphonReady = false
+                            try {
+                                val httpUpstream = "http://127.0.0.1:${effectiveConfig.httpPort}"
+                                val started = runNativeBounded<Unit>(30000L, "Psiphon.bg") { PsiphonController.start(appContext, effectiveConfig, upstream = httpUpstream) } != null && PsiphonController.isRunning()
+                                if (started) {
+                                    var waitPsiphon = 0
+                                    while (waitPsiphon < 30 && !PsiphonController.isConnected()) { delay(1000.milliseconds); waitPsiphon++ }
+                                    var stableWait = 0
+                                    while (stableWait < 25 && !PsiphonController.stableFor(10000)) { delay(1000.milliseconds); stableWait++ }
+                                    psiphonReady = PsiphonController.isConnected() && PsiphonController.stableFor(10000)
+                                }
+                            } catch (_: Exception) {}
+                            if (psiphonReady) {
+                                ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
+                                LogRepository.i("[Controller] Psiphon over direct ready via ${ActiveProxyProvider.psiphonProxyUrl}")
+                                try {
+                                    val intent = Intent().setClassName(appContext.packageName, "io.github.immaghzbad.aetherst.service.AetherVpnService").apply {
+                                        action = "io.github.immaghzbad.aetherst.SWITCH_HEV"
+                                        putExtra("host", "127.0.0.1")
+                                        putExtra("port", 3080)
+                                    }
+                                    appContext.startService(intent)
+                                } catch (_: Exception) {}
+                                psiphonChaining = false
+                                notifyStatusChanged(appContext, ConnectionStatus.RUNNING)
+                                return
+                            } else {
+                                LogRepository.e("[Controller] Psiphon not ready after direct aether - chain requires Psiphon, aborting")
+                                PsiphonController.stop()
+                                ActiveProxyProvider.psiphonProxyUrl = null
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon not ready after direct aether")
+                            }
+                        }
                         if (isWireGuardFamilyFallback) {
                             LogRepository.w("[Controller] Direct ${effectiveConfig.protocol} failed, WireGuard cannot be chained over Psiphon SOCKS (code 7 UDP); failing")
                             throw IllegalStateException("WireGuard family cannot fallback via Psiphon SOCKS")
@@ -323,12 +509,19 @@ class ConnectionController private constructor(context: Context) : ConnectionCon
                                 ActiveProxyProvider.psiphonProxyUrl = PsiphonController.getUpstreamProxy()
                                 LogRepository.i("[Controller] Psiphon active, chaining via ${effectiveConfig.upstreamProxy} outer=${effectiveConfig.protocol}")
                             } else {
-                                LogRepository.w("[Controller] Psiphon not connected/stable, using direct")
+                                LogRepository.e("[Controller] Psiphon not connected/stable - chain requires Psiphon, aborting")
                                 ActiveProxyProvider.psiphonProxyUrl = null
                                 PsiphonController.stop()
+                                psiphonChaining = false
+                                runCatching { runner.stop() }
+                                throw IllegalStateException("Psiphon not connected/stable")
                             }
                         } else {
+                            LogRepository.e("[Controller] Psiphon failed to start in fallback - chain requires Psiphon, aborting")
                             ActiveProxyProvider.psiphonProxyUrl = null
+                            psiphonChaining = false
+                            runCatching { runner.stop() }
+                            throw IllegalStateException("Psiphon failed to start in fallback")
                         }
                         psiphonChaining = false
                         if (!startAetherInternal(effectiveConfig, bindAddress, attemptId)) {

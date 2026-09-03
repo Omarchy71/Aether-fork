@@ -33,6 +33,7 @@ private val IosPurple = AppPalette.accentVariant
 private const val UserGithubUrl = "https://github.com/immaghzbad"
 private const val AetherRepositoryUrl = "https://github.com/CluvexStudio/Aether"
 private const val HevRepositoryUrl = "https://github.com/heiher/hev-socks5-tunnel"
+private const val PsiphonRepositoryUrl = "https://github.com/Psiphon-Labs/psiphon-tunnel-core"
 private const val DeveloperTelegramUrl = "https://t.me/PowerSigma"
 
 @Composable
@@ -113,6 +114,11 @@ fun AboutUsScreen(
                         title = strings.ABOUT_ARCH_SOCKS,
                         description = strings.ABOUT_ARCH_SOCKS_DESC
                     )
+                    AppDivider()
+                    InfoRow(
+                        title = strings.ABOUT_ARCH_PSIPHON,
+                        description = strings.ABOUT_ARCH_PSIPHON_DESC
+                    )
                 }
             }
             item {
@@ -144,6 +150,13 @@ fun AboutUsScreen(
                         title = strings.ABOUT_LINK_HEV,
                         subtitle = strings.ABOUT_LINK_HEV_SUB,
                         onClick = { uriHandler.openUri(HevRepositoryUrl) }
+                    )
+                    AppDivider()
+                    IosActionRow(
+                        iconBg = IosActiveGreen.copy(alpha = 0.16f),
+                        title = strings.ABOUT_LINK_PSIPHON,
+                        subtitle = strings.ABOUT_LINK_PSIPHON_SUB,
+                        onClick = { uriHandler.openUri(PsiphonRepositoryUrl) }
                     )
                 }
             }

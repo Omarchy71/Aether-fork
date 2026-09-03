@@ -30,13 +30,14 @@
 
 ## 📱 Versions & Platforms
 
-- **Android Client:** `v1.6.7` (Latest Stable)
+- **Android Client:** `v1.6.8` (Latest Stable)
 - **Windows Client:** `v1.1.1` (First Public Release)
 
 ## ✨ Features
 
 - 🛡️ **Stealth Connectivity:** Specifically optimized to bypass protocol fingerprinting and DPI.
 - 🚀 **Advanced Transports:** Comprehensive support for **MASQUE**, **WireGuard**, **Gool (WG-in-WG)**, and **Cloudflare Zero Trust**.
+- 🔗 **Psiphon Chain:** Optional second layer routing traffic via Psiphon for a non-Iran exit IP, chainable over MASQUE, WireGuard, or Gool with Auto, Fallback, and Always modes.
 - 📡 **Intelligent Scanning:** Real-time gateway discovery with data-plane validation before connection.
 - ⚡ **Native Performance:** Powered by a high-throughput core for low latency and high bandwidth.
 - 🖥️ **Multi-Platform UI:** Clean, iOS-inspired dashboard built with **Compose Multiplatform** for a seamless experience on both mobile and desktop.
@@ -58,6 +59,9 @@ A specialized nested WireGuard configuration. By wrapping one WireGuard tunnel i
 ### ☁️ Cloudflare Zero Trust (Teams)
 Enterprise-grade security for individuals and organizations. It allows you to route your traffic through Cloudflare's global network using Gateway filtering and Service Tokens, ensuring zero-trust access control.
 
+### 🔗 Psiphon Chain
+An optional second layer built on the open-source Psiphon tunnel core. It routes traffic via Psiphon to obtain a non-Iran exit IP and can chain over MASQUE, WireGuard, or Gool. Chain modes include Auto, Fallback, and Always, with a selectable egress region and local endpoints on `127.0.0.1:3080` (SOCKS) and `127.0.0.1:1820` (HTTP).
+
 ---
 
 ## 🏗️ Technical Architecture
@@ -68,11 +72,17 @@ The orchestration layer responsible for:
 - Dynamic gateway health checks.
 - Multi-protocol handling (MASQUE, WG).
 
-### [HEV SOCKS5 Tunnel](https://github.com/heiher/hev-socks5-tunnel)
+### [HEV SOCKS5 Tunnel v2.17.1](https://github.com/heiher/hev-socks5-tunnel/releases/tag/2.17.1)
 The native bridge between the system and Aether (Android Native):
 - Mature user-space TCP/IP stack.
 - Zero-copy packet processing.
 - Efficient UDP over SOCKS5 translation.
+
+### [Psiphon Tunnel Core v2.0.41](https://github.com/Psiphon-Labs/psiphon-tunnel-core/releases/tag/v2.0.41)
+The optional second-layer circumvention engine:
+- Open-source Psiphon client core for restricted networks.
+- Provides foreign exit IPs with selectable egress region.
+- Chains over the Aether transports (MASQUE, WG, Gool).
 
 ### Compose Multiplatform UI
 A unified UI layer sharing logic between Android and Desktop:
@@ -114,6 +124,7 @@ This project uses the following open-source resources:
 - [flag-icons](https://github.com/lipis/flag-icons) — Country flag icons for multi-language and region UI elements.
 - [Vazirmatn](https://github.com/rastikerdar/vazirmatn) — Open-source Persian (Farsi) typeface used for RTL language support.
 - [Inter](https://github.com/rsms/inter) — Open-source English typeface used for the interface typeface.
+- [psiphon-tunnel-core v2.0.41](https://github.com/Psiphon-Labs/psiphon-tunnel-core/releases/tag/v2.0.41) — Open-source Psiphon client core powering the optional Psiphon Chain layer.
 
 ---
 <p align="center">

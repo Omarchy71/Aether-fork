@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,13 +45,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,6 +72,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.immaghzbad.aetherst.platform.PlatformContext
 import io.github.immaghzbad.aetherst.platform.isDesktop
 import io.github.immaghzbad.aetherst.shared.data.AutoDetectRepository
+import io.github.immaghzbad.aetherst.shared.data.DnsBenchmarkPhase
+import io.github.immaghzbad.aetherst.shared.data.DnsBenchmarkRepository
+import io.github.immaghzbad.aetherst.shared.data.DnsProbeResult
 import io.github.immaghzbad.aetherst.shared.i18n.LocalAppStrings
 import io.github.immaghzbad.aetherst.shared.model.AetherNoise
 import io.github.immaghzbad.aetherst.shared.model.AetherProtocol
@@ -93,22 +102,35 @@ fun AutoDetectScreen(
     onBack: () -> Unit,
     onApplyResult: (AutoDetectResult) -> Unit,
     platformContext: PlatformContext,
-    bottomContentPadding: Dp = 0.dp
+    bottomContentPadding: Dp = 0.dp,
+    initialSection: Int = 0,
+    tunnelDns: String = "",
+    onApplyDns: (String) -> Unit = {},
+    onCopy: (String) -> Unit = {}
 ) {
     val strings = LocalAppStrings.current
     val state by AutoDetectRepository.state.collectAsStateWithLifecycle()
+    var selectedTab by remember(initialSection) { androidx.compose.runtime.mutableIntStateOf(initialSection.coerceIn(0, 1)) }
 
     val retest: () -> Unit = {
         AutoDetectRepository.reset()
         AutoDetectRepository.startDetection(platformContext)
     }
 
-    LaunchedEffect(Unit) {
+    val startScan: () -> Unit = {
+        AutoDetectRepository.reset()
         AutoDetectRepository.startDetection(platformContext)
     }
 
+    val cancelScan: () -> Unit = {
+        AutoDetectRepository.cancel()
+    }
+
     DisposableEffect(Unit) {
-        onDispose { AutoDetectRepository.cancel() }
+        onDispose {
+            AutoDetectRepository.cancel()
+            DnsBenchmarkRepository.cancel()
+        }
     }
 
     val scaleFactor = remember { 1f }
@@ -131,6 +153,7 @@ fun AutoDetectScreen(
         ) {
             IconButton(onClick = {
                 AutoDetectRepository.cancel()
+                DnsBenchmarkRepository.cancel()
                 onBack()
             }, modifier = Modifier.size((40 * scaleFactor).dp)) {
                 Icon(
@@ -159,139 +182,185 @@ fun AutoDetectScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = (16 * scaleFactor).dp,
-                end = (16 * scaleFactor).dp,
-                bottom = bottomContentPadding + (24 * scaleFactor).dp,
-                top = (4 * scaleFactor).dp
-            ),
-            verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
-        ) {
-            if (state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.COMPLETE && state.phase != AutoDetectPhase.ERROR) {
-                item {
-                    AutoDetectProgressCard(state, scaleFactor)
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = (16 * scaleFactor).dp).background(IosCardBg, RoundedCornerShape(10.dp)).padding(2.dp)) {
+            listOf(strings.AUTODETECT_TAB_CONNECTION, strings.AUTODETECT_TAB_DNS).forEachIndexed { index, title ->
+                val isSelected = selectedTab == index
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (isSelected) IosActiveBlue else Color.Transparent).clickable { selectedTab = index }.padding(vertical = (8 * scaleFactor).dp), contentAlignment = Alignment.Center) {
+                    Text(title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, color = if (isSelected) Color.White else IosSecondaryLabel, fontSize = (13 * scaleFactor).sp)
                 }
             }
+        }
+        Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
 
-            if (state.currentStep.isNotEmpty() && state.phase != AutoDetectPhase.COMPLETE) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = IosActiveBlue.copy(alpha = 0.1f))
+        if (selectedTab == 0) {
+            ConnectionSection(state, startScan, cancelScan, retest, onApplyResult, platformContext, scaleFactor, bottomContentPadding)
+        } else {
+            DnsSection(tunnelDns, onApplyDns, onCopy, scaleFactor, bottomContentPadding)
+        }
+    }
+}
+
+@Composable
+private fun ConnectionSection(
+    state: AutoDetectState,
+    startScan: () -> Unit,
+    cancelScan: () -> Unit,
+    retest: () -> Unit,
+    onApplyResult: (AutoDetectResult) -> Unit,
+    platformContext: PlatformContext,
+    scaleFactor: Float,
+    bottomContentPadding: Dp
+) {
+    val strings = LocalAppStrings.current
+    val isRunning = state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.COMPLETE && state.phase != AutoDetectPhase.ERROR
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = (16 * scaleFactor).dp,
+            end = (16 * scaleFactor).dp,
+            bottom = bottomContentPadding + (24 * scaleFactor).dp,
+            top = (4 * scaleFactor).dp
+        ),
+        verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
+    ) {
+        if (state.phase == AutoDetectPhase.IDLE) {
+            item {
+                ConnectionStartCard(startScan, scaleFactor)
+            }
+        }
+        if (isRunning) {
+            item {
+                AutoDetectProgressCard(state, scaleFactor)
+            }
+            item {
+                Button(
+                    onClick = cancelScan,
+                    modifier = Modifier.fillMaxWidth().height((48 * scaleFactor).dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = IosErrorRed, contentColor = Color.White)
+                ) {
+                    Text(strings.AUTODETECT_CANCEL_SCAN, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
+                }
+            }
+        }
+
+        if (state.currentStep.isNotEmpty() && state.phase != AutoDetectPhase.COMPLETE && state.phase != AutoDetectPhase.IDLE) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = IosActiveBlue.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding((14 * scaleFactor).dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding((14 * scaleFactor).dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size((18 * scaleFactor).dp),
-                                color = IosActiveBlue,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
-                            Text(
-                                text = localizedAutoDetectStep(state.currentStep, strings),
-                                color = IosActiveBlue,
-                                fontSize = (13 * scaleFactor).sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        CircularProgressIndicator(
+                            modifier = Modifier.size((18 * scaleFactor).dp),
+                            color = IosActiveBlue,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+                        Text(
+                            text = localizedAutoDetectStep(state.currentStep, strings),
+                            color = IosActiveBlue,
+                            fontSize = (13 * scaleFactor).sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
+        }
 
-            if (state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.ERROR) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_NETWORK_ENV, scaleFactor)
-                    NetworkFingerprintCard(state, scaleFactor)
-                }
-            }
-
-            if (state.protocolResults.isNotEmpty()) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_PROTOCOL_LATENCY, scaleFactor)
-                }
-                items(state.protocolResults) { result ->
-                    ProtocolProbeRow(result, scaleFactor)
-                }
-            }
-
-            if (state.phase == AutoDetectPhase.COMPLETE && state.finalResult != null && state.protocolResults.any { it.status == ProbeStatus.SUCCESS }) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_PROTOCOL_RESULTS, scaleFactor)
-                    Text(
-                        text = strings.AUTODETECT_RANKED_BY_QUALITY,
-                        color = IosSecondaryLabel,
-                        fontSize = (11 * scaleFactor).sp,
-                        modifier = Modifier.padding(start = 4.dp, bottom = (8 * scaleFactor).dp)
-                    )
-                }
-                val base = state.finalResult!!
-                items(
-                    state.protocolResults
-                        .filter { it.status == ProbeStatus.SUCCESS }
-                        .sortedBy { it.latencyMs }
-                ) { result ->
-                    ProtocolResultRankRow(
-                        rank = state.protocolResults.filter { it.status == ProbeStatus.SUCCESS }.sortedBy { it.latencyMs }.indexOf(result) + 1,
-                        probe = result,
-                        onApply = { onApplyResult(buildResultForProtocol(result.protocol, base)) },
-                        scaleFactor = scaleFactor
-                    )
-                }
-                items(state.protocolResults.filter { it.status != ProbeStatus.SUCCESS }) { result ->
-                    ProtocolProbeRow(result, scaleFactor)
-                }
-            }
-
-            if (state.mtuResult.status != ProbeStatus.IDLE) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_MTU, scaleFactor)
-                    MtuProbeRow(state.mtuResult, scaleFactor)
-                }
-            }
-
-            if (state.noiseResults.isNotEmpty()) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_OBFUSCATION, scaleFactor)
-                }
-                items(state.noiseResults) { result ->
-                    NoiseProbeRow(result, scaleFactor)
-                }
-            }
-
-            if (state.scanModeResults.isNotEmpty()) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_SCAN_STRATEGIES, scaleFactor)
-                }
-                items(state.scanModeResults) { result ->
-                    ScanModeProbeRow(result, scaleFactor)
-                }
-            }
-
-            if (state.phase == AutoDetectPhase.COMPLETE && state.finalResult != null) {
-                item {
-                    SectionHeader(strings.AUTODETECT_SECTION_RECOMMENDED, scaleFactor)
-                    AutoDetectFinalResult(state.finalResult!!, onApplyResult, retest, scaleFactor)
-                }
-            }
-
-            if (state.phase == AutoDetectPhase.ERROR) {
-                item {
-                    ErrorCard(state.error, retest, scaleFactor)
-                }
-            }
-
+        if (state.phase != AutoDetectPhase.IDLE && state.phase != AutoDetectPhase.ERROR) {
             item {
-                Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+                SectionHeader(strings.AUTODETECT_SECTION_NETWORK_ENV, scaleFactor)
+                NetworkFingerprintCard(state, scaleFactor)
             }
+        }
+
+        if (state.protocolResults.isNotEmpty()) {
+            item {
+                SectionHeader(strings.AUTODETECT_SECTION_PROTOCOL_LATENCY, scaleFactor)
+            }
+            items(state.protocolResults) { result ->
+                ProtocolProbeRow(result, scaleFactor)
+            }
+        }
+
+        val completedResult = state.finalResult
+        if (state.phase == AutoDetectPhase.COMPLETE && completedResult != null && state.protocolResults.any { it.status == ProbeStatus.SUCCESS }) {
+            item {
+                SectionHeader(strings.AUTODETECT_SECTION_PROTOCOL_RESULTS, scaleFactor)
+                Text(
+                    text = strings.AUTODETECT_RANKED_BY_QUALITY,
+                    color = IosSecondaryLabel,
+                    fontSize = (11 * scaleFactor).sp,
+                    modifier = Modifier.padding(start = 4.dp, bottom = (8 * scaleFactor).dp)
+                )
+            }
+            val base = completedResult
+            items(
+                state.protocolResults
+                    .filter { it.status == ProbeStatus.SUCCESS }
+                    .sortedBy { it.latencyMs }
+            ) { result ->
+                ProtocolResultRankRow(
+                    rank = state.protocolResults.filter { it.status == ProbeStatus.SUCCESS }.sortedBy { it.latencyMs }.indexOf(result) + 1,
+                    probe = result,
+                    onApply = { onApplyResult(buildResultForProtocol(result.protocol, base)) },
+                    scaleFactor = scaleFactor
+                )
+            }
+            items(state.protocolResults.filter { it.status != ProbeStatus.SUCCESS }) { result ->
+                ProtocolProbeRow(result, scaleFactor)
+            }
+        }
+
+        if (state.mtuResult.status != ProbeStatus.IDLE) {
+            item {
+                SectionHeader(strings.AUTODETECT_SECTION_MTU, scaleFactor)
+                MtuProbeRow(state.mtuResult, scaleFactor)
+            }
+        }
+
+        if (state.noiseResults.isNotEmpty()) {
+            item {
+                SectionHeader(strings.AUTODETECT_SECTION_OBFUSCATION, scaleFactor)
+            }
+            items(state.noiseResults) { result ->
+                NoiseProbeRow(result, scaleFactor)
+            }
+        }
+
+        if (state.scanModeResults.isNotEmpty()) {
+            item {
+                SectionHeader(strings.AUTODETECT_SECTION_SCAN_STRATEGIES, scaleFactor)
+            }
+            items(state.scanModeResults) { result ->
+                ScanModeProbeRow(result, scaleFactor)
+            }
+        }
+
+        if (state.phase == AutoDetectPhase.COMPLETE && completedResult != null) {
+            item {
+                SectionHeader(strings.AUTODETECT_SECTION_RECOMMENDED, scaleFactor)
+                AutoDetectFinalResult(completedResult, onApplyResult, retest, scaleFactor)
+            }
+        }
+
+        if (state.phase == AutoDetectPhase.ERROR) {
+            item {
+                ErrorCard(state.error, retest, scaleFactor)
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
         }
     }
 }
@@ -827,6 +896,354 @@ private fun ErrorCard(error: String?, onRetry: () -> Unit, scaleFactor: Float) {
                 modifier = Modifier.fillMaxWidth().height((48 * scaleFactor).dp)
             ) {
                 Text(strings.AUTODETECT_RETRY_DETECTION, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionStartCard(onStart: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = IosCardBg)
+    ) {
+        Column(modifier = Modifier.padding((20 * scaleFactor).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier.size((56 * scaleFactor).dp).clip(CircleShape).background(IosActiveBlue.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.AutoAwesome, null, tint = IosActiveBlue, modifier = Modifier.size((28 * scaleFactor).dp))
+            }
+            Spacer(modifier = Modifier.height((14 * scaleFactor).dp))
+            Text(strings.AUTODETECT_START_DESC, color = IosSecondaryLabel, fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height((16 * scaleFactor).dp))
+            Button(
+                onClick = onStart,
+                modifier = Modifier.fillMaxWidth().height((52 * scaleFactor).dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue, contentColor = Color.White)
+            ) {
+                Text(strings.AUTODETECT_START_SCAN, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DnsSection(tunnelDns: String, onApplyDns: (String) -> Unit, onCopy: (String) -> Unit, scaleFactor: Float, bottomContentPadding: Dp) {
+    val strings = LocalAppStrings.current
+    val dnsState by DnsBenchmarkRepository.state.collectAsStateWithLifecycle()
+    var customText by remember(dnsState.customDns) { mutableStateOf(dnsState.customDns) }
+    var applyDismissed by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(dnsState.bestDnsList) {
+        if (dnsState.bestDnsList.isNotEmpty()) applyDismissed = false
+    }
+    val isRunning = dnsState.phase == DnsBenchmarkPhase.RUNNING
+    val hasSelection = DnsBenchmarkRepository.activeEntries().isNotEmpty()
+    val showResultsOnly = !isRunning && dnsState.results.isNotEmpty()
+    val sortedResults = dnsState.results.sortedBy { if (it.status == ProbeStatus.SUCCESS) it.medianMs else Long.MAX_VALUE }
+    val copyText = if (dnsState.bestDnsList.isNotEmpty()) dnsState.bestDnsList else sortedResults.filter { it.status == ProbeStatus.SUCCESS }.map { it.ip }.joinToString(",")
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f)) {
+            if (isRunning) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(
+                        start = (16 * scaleFactor).dp,
+                        end = (16 * scaleFactor).dp,
+                        top = (4 * scaleFactor).dp,
+                        bottom = (12 * scaleFactor).dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
+                ) {
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = IosCardBg)) {
+                        Column(modifier = Modifier.padding((16 * scaleFactor).dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(strings.DNS_SCANNING, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
+                                Text("${dnsState.progressPercent}%", color = IosActiveBlue, fontWeight = FontWeight.ExtraBold, fontSize = (14 * scaleFactor).sp)
+                            }
+                            Spacer(modifier = Modifier.height((10 * scaleFactor).dp))
+                            LinearProgressIndicator(
+                                progress = { dnsState.progressPercent / 100f },
+                                modifier = Modifier.fillMaxWidth().height((6 * scaleFactor).dp).clip(RoundedCornerShape(3.dp)),
+                                color = IosActiveBlue,
+                                trackColor = IosGroupBg
+                            )
+                            if (dnsState.currentStep.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+                                Text(dnsState.currentStep, color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
+                            }
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = (16 * scaleFactor).dp,
+                        end = (16 * scaleFactor).dp,
+                        top = (4 * scaleFactor).dp,
+                        bottom = (12 * scaleFactor).dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy((12 * scaleFactor).dp)
+                ) {
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = IosCardBg)) {
+                            Row(modifier = Modifier.fillMaxWidth().padding((16 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(strings.DNS_INCLUDE_IPV6, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (14 * scaleFactor).sp)
+                                    Text(strings.DNS_INCLUDE_IPV6_SUB, color = IosSecondaryLabel, fontSize = (11 * scaleFactor).sp)
+                                }
+                                Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+                                Switch(
+                                    checked = dnsState.includeIpv6,
+                                    onCheckedChange = { DnsBenchmarkRepository.setIncludeIpv6(it) },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = IosActiveGreen, uncheckedThumbColor = Color.White, uncheckedTrackColor = IosSecondaryLabel.copy(alpha = 0.4f))
+                                )
+                            }
+                        }
+                    }
+                    if (tunnelDns.isNotBlank()) {
+                        item {
+                            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = IosGroupBg)) {
+                                Column(modifier = Modifier.padding((14 * scaleFactor).dp)) {
+                                    Text(strings.DNS_CURRENT_TUNNEL, color = IosSecondaryLabel, fontSize = (10 * scaleFactor).sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(tunnelDns, color = IosActiveBlue, fontSize = (12 * scaleFactor).sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+                    if (!showResultsOnly) {
+                        item {
+                            SectionHeader(strings.DNS_SECTION_GLOBAL, scaleFactor)
+                        }
+                        val visibleGlobal = DnsBenchmarkRepository.globalServers.filter { dnsState.includeIpv6 || !it.isIpv6 }
+                        items(visibleGlobal, key = { it.id }) { entry ->
+                            DnsEntryRow(entry.id, entry.name, entry.ip, entry.isIpv6, dnsState.enabledIds.contains(entry.id), { DnsBenchmarkRepository.toggleServer(entry.id) }, scaleFactor)
+                        }
+                        item {
+                            SectionHeader(strings.DNS_SECTION_IRAN, scaleFactor)
+                        }
+                        items(DnsBenchmarkRepository.iranServers, key = { it.id }) { entry ->
+                            DnsEntryRow(entry.id, entry.name, entry.ip, entry.isIpv6, dnsState.enabledIds.contains(entry.id), { DnsBenchmarkRepository.toggleServer(entry.id) }, scaleFactor)
+                        }
+                        item {
+                            SectionHeader(strings.DNS_SECTION_CUSTOM, scaleFactor)
+                            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = IosCardBg)) {
+                                Column(modifier = Modifier.padding((14 * scaleFactor).dp)) {
+                                    OutlinedTextField(
+                                        value = customText,
+                                        onValueChange = {
+                                            customText = it
+                                            DnsBenchmarkRepository.setCustomDns(it)
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        placeholder = { Text(strings.DNS_CUSTOM_PLACEHOLDER, color = IosSecondaryLabel.copy(alpha = 0.6f)) },
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = (13 * scaleFactor).sp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = IosActiveBlue, unfocusedBorderColor = IosSecondaryLabel.copy(alpha = 0.3f), cursorColor = IosActiveBlue),
+                                        maxLines = 3
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (showResultsOnly) {
+                        item {
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    SectionHeader(strings.DNS_BEST_RESULT, scaleFactor)
+                                }
+                                OutlinedButton(
+                                    onClick = { DnsBenchmarkRepository.reset() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = IosSecondaryLabel),
+                                    border = BorderStroke(1.dp, IosSecondaryLabel.copy(alpha = 0.4f)),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(strings.EDIT, fontWeight = FontWeight.Bold, fontSize = (12 * scaleFactor).sp)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = { if (copyText.isNotEmpty()) onCopy(copyText) },
+                                    enabled = copyText.isNotEmpty(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = IosActiveBlue),
+                                    border = BorderStroke(1.dp, IosActiveBlue.copy(alpha = 0.4f)),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(strings.LOGS_COPY, fontWeight = FontWeight.Bold, fontSize = (12 * scaleFactor).sp)
+                                }
+                            }
+                        }
+                        items(sortedResults, key = { it.id + it.ip }) { result ->
+                            DnsResultRow(result, { onCopy(result.ip) }, scaleFactor)
+                        }
+                    }
+                    if (dnsState.phase == DnsBenchmarkPhase.COMPLETE && dnsState.bestDnsList.isNotEmpty() && !applyDismissed) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = IosActiveGreen.copy(alpha = 0.1f)),
+                                border = BorderStroke(1.dp, IosActiveGreen.copy(alpha = 0.4f))
+                            ) {
+                                Column(modifier = Modifier.padding((16 * scaleFactor).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(strings.DNS_APPLY_TITLE, color = Color.White, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp, textAlign = TextAlign.Center)
+                                    Spacer(modifier = Modifier.height((6 * scaleFactor).dp))
+                                    Text(strings.DNS_APPLY_DESC, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, textAlign = TextAlign.Center)
+                                    Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+                                    Text(dnsState.bestDnsList, color = IosActiveGreen, fontWeight = FontWeight.Bold, fontSize = (13 * scaleFactor).sp, textAlign = TextAlign.Center)
+                                    Spacer(modifier = Modifier.height((14 * scaleFactor).dp))
+                                    Button(
+                                        onClick = {
+                                            onApplyDns(dnsState.bestDnsList)
+                                            applyDismissed = true
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height((50 * scaleFactor).dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = IosActiveGreen, contentColor = Color.White)
+                                    ) {
+                                        Text(strings.DNS_APPLY_YES, fontWeight = FontWeight.Bold, fontSize = (14 * scaleFactor).sp)
+                                    }
+                                    Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+                                    OutlinedButton(
+                                        onClick = { applyDismissed = true },
+                                        modifier = Modifier.fillMaxWidth().height((44 * scaleFactor).dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = IosSecondaryLabel),
+                                        border = BorderStroke(1.dp, IosSecondaryLabel.copy(alpha = 0.4f))
+                                    ) {
+                                        Text(strings.DNS_APPLY_NO, fontWeight = FontWeight.SemiBold, fontSize = (13 * scaleFactor).sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (dnsState.phase == DnsBenchmarkPhase.ERROR) {
+                        item {
+                            val message = if (dnsState.error == "empty") strings.DNS_EMPTY_SELECTION else (dnsState.error ?: strings.AUTODETECT_UNKNOWN_ERROR)
+                            ErrorCard(message, { DnsBenchmarkRepository.reset() }, scaleFactor)
+                        }
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height((8 * scaleFactor).dp))
+                    }
+                }
+            }
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(
+                start = (16 * scaleFactor).dp,
+                end = (16 * scaleFactor).dp,
+                top = (4 * scaleFactor).dp,
+                bottom = bottomContentPadding + (12 * scaleFactor).dp
+            )
+        ) {
+            if (isRunning) {
+                Button(
+                    onClick = { DnsBenchmarkRepository.cancel() },
+                    modifier = Modifier.fillMaxWidth().height((52 * scaleFactor).dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = IosErrorRed, contentColor = Color.White)
+                ) {
+                    Text(strings.AUTODETECT_CANCEL_SCAN, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+                }
+            } else {
+                Button(
+                    onClick = { DnsBenchmarkRepository.startScan() },
+                    enabled = hasSelection,
+                    modifier = Modifier.fillMaxWidth().height((52 * scaleFactor).dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = IosActiveGreen, contentColor = Color.White, disabledContainerColor = IosSecondaryLabel.copy(alpha = 0.3f))
+                ) {
+                    Text(if (dnsState.results.isEmpty()) strings.DNS_SCAN_START else strings.DNS_RETEST, fontWeight = FontWeight.Bold, fontSize = (15 * scaleFactor).sp)
+                }
+                if (!hasSelection) {
+                    Spacer(modifier = Modifier.height((6 * scaleFactor).dp))
+                    Text(strings.DNS_EMPTY_SELECTION, color = IosErrorRed, fontSize = (12 * scaleFactor).sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DnsEntryRow(id: String, name: String, ip: String, isIpv6: Boolean, enabled: Boolean, onToggle: () -> Unit, scaleFactor: Float) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = if (enabled) IosCardBg else IosCardBg.copy(alpha = 0.5f)),
+        border = if (enabled) BorderStroke(1.dp, IosActiveBlue.copy(alpha = 0.35f)) else null
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding((14 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size((10 * scaleFactor).dp).clip(CircleShape).background(if (enabled) IosActiveGreen else IosSecondaryLabel.copy(alpha = 0.4f))
+            )
+            Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (14 * scaleFactor).sp)
+                    if (isIpv6) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = IosActiveBlue.copy(alpha = 0.2f)) {
+                            Text("IPv6", color = IosActiveBlue, fontSize = (9 * scaleFactor).sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                }
+                Text(ip, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp)
+            }
+            if (enabled) {
+                Icon(Icons.Default.CheckCircle, null, tint = IosActiveGreen, modifier = Modifier.size((20 * scaleFactor).dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DnsResultRow(result: DnsProbeResult, onCopy: () -> Unit, scaleFactor: Float) {
+    val strings = LocalAppStrings.current
+    val statusColor = if (result.status == ProbeStatus.SUCCESS) IosActiveGreen else IosErrorRed
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = IosCardBg)) {
+        Row(modifier = Modifier.fillMaxWidth().padding((14 * scaleFactor).dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size((10 * scaleFactor).dp).clip(CircleShape).background(statusColor))
+            Spacer(modifier = Modifier.width((12 * scaleFactor).dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(result.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (14 * scaleFactor).sp)
+                    if (result.isIpv6) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = IosActiveBlue.copy(alpha = 0.2f)) {
+                            Text("IPv6", color = IosActiveBlue, fontSize = (9 * scaleFactor).sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                }
+                Text(result.ip, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp)
+                if (result.status == ProbeStatus.SUCCESS) {
+                    Text(
+                        strings.DNS_MS.format(result.medianMs) + " · " + result.successCount + "/" + result.totalCount,
+                        color = IosActiveGreen,
+                        fontSize = (11 * scaleFactor).sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                } else {
+                    Text(strings.AUTODETECT_CONNECTION_FAILED, color = IosErrorRed, fontSize = (11 * scaleFactor).sp)
+                }
+            }
+            if (result.status == ProbeStatus.SUCCESS) {
+                Text(strings.DNS_MS.format(result.medianMs), color = statusColor, fontWeight = FontWeight.ExtraBold, fontSize = (14 * scaleFactor).sp)
+            } else {
+                Icon(Icons.Default.Error, null, tint = IosErrorRed, modifier = Modifier.size((20 * scaleFactor).dp))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onCopy,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = IosActiveBlue),
+                border = BorderStroke(1.dp, IosActiveBlue.copy(alpha = 0.4f)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(strings.LOGS_COPY, fontWeight = FontWeight.Bold, fontSize = (11 * scaleFactor).sp)
             }
         }
     }

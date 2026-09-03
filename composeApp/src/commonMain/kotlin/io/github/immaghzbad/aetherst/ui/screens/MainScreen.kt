@@ -115,6 +115,7 @@ private sealed class Screen(val route: String, val tabIndex: Int?) {
     object SplitTunneling : Screen("split", null)
     object RoutingRules : Screen("routing", null)
     object AutoDetect : Screen("autodetect", null)
+    object AutoDetectDns : Screen("autodetect_dns", null)
     object SpeedTest : Screen("speedtest", null)
 }
 
@@ -297,7 +298,26 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                         navController.popBackStack()
                     },
                     platformContext = platformContext,
-                    bottomContentPadding = 0.dp
+                    bottomContentPadding = 0.dp,
+                    initialSection = 0,
+                    tunnelDns = config.dnsList,
+                    onApplyDns = { dns -> viewModel.applyDnsList(dns) },
+                    onCopy = { viewModel.copyToClipboard(it) }
+                )
+            }
+            composable(Screen.AutoDetectDns.route) {
+                AutoDetectScreen(
+                    onBack = { navController.popBackStack() },
+                    onApplyResult = { result ->
+                        viewModel.applyAutoDetectResult(result)
+                        navController.popBackStack()
+                    },
+                    platformContext = platformContext,
+                    bottomContentPadding = 0.dp,
+                    initialSection = 1,
+                    tunnelDns = config.dnsList,
+                    onApplyDns = { dns -> viewModel.applyDnsList(dns) },
+                    onCopy = { viewModel.copyToClipboard(it) }
                 )
             }
             composable(Screen.RoutingRules.route) {
@@ -372,6 +392,7 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                         onOpenSplitTunneling = { navController.navigate(Screen.SplitTunneling.route) },
                         onOpenRoutingRules = { navController.navigate(Screen.RoutingRules.route) },
                         onOpenAutoDetect = { navController.navigate(Screen.AutoDetect.route) },
+                        onOpenDnsOptimizer = { navController.navigate(Screen.AutoDetectDns.route) },
                         onOpenSpeedTest = { navController.navigate(Screen.SpeedTest.route) },
                         onResetAll = { viewModel.resetAllSettings() },
                         onExportBackup = { viewModel.exportFullBackup() },

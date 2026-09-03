@@ -95,6 +95,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
     init {
         LogRepository.initialize(getSettings(platformContext))
         io.github.immaghzbad.aetherst.shared.data.SpeedTestRepository.initialize(getSettings(platformContext))
+        io.github.immaghzbad.aetherst.shared.data.DnsBenchmarkRepository.initialize(getSettings(platformContext))
         LogRepository.i("Initializing AetherST Multiplatform UI...", "AetherSystem")
         ConnectionController.getInstance(platformContext)
         observeConnectionStatus()
@@ -182,7 +183,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         }
         var effectiveNewConfig = newConfig
         if (!effectiveNewConfig.psiphonEnabled && oldConfig.psiphonEnabled) {
-            effectiveNewConfig = effectiveNewConfig.copy(psiphonChainOuter = "", psiphonMasqueOrder = "masque_first")
+            effectiveNewConfig = effectiveNewConfig.copy(psiphonChainOuter = "", psiphonMasqueOrder = "auto")
         }
         val isUiOnly = oldConfig.copy(connectButtonStyle = effectiveNewConfig.connectButtonStyle, appLanguage = effectiveNewConfig.appLanguage) == effectiveNewConfig
         if (!isUiOnly && !requireDisconnected()) return
@@ -507,6 +508,14 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
             restartConnection()
         }
         showToast(localizedToast { TOAST_AUTODETECT_APPLIED })
+    }
+
+    fun applyDnsList(dnsList: String) {
+        if (!requireDisconnected()) return
+        val normalized = dnsList.split(",").map { it.trim() }.filter { it.isNotEmpty() }.joinToString(",")
+        if (normalized.isBlank()) return
+        updateConfig(config.value.copy(presetId = "custom", dnsList = normalized))
+        showToast(localizedToast { TOAST_DNS_APPLIED.format(normalized) })
     }
 
     private fun requireDisconnected(): Boolean {

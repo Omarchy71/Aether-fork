@@ -404,7 +404,8 @@ fun DashboardScreen(
                             onAdminCancelResetKey = if (showAdminRequiredDialog) 1 else 0,
                             modifier = Modifier.fillMaxWidth(),
                             scaleFactor = scaleFactor,
-                            onDraggingChanged = onSwipeDragging
+                            onDraggingChanged = onSwipeDragging,
+                            isSwipeMode = config.connectButtonStyle != "capsule"
                         )
                     } else {
                         val minDim = if (screenWidth < screenHeight) screenWidth else screenHeight
@@ -1535,7 +1536,8 @@ fun WindowsSwipeSwitch(
     scaleFactor: Float = 1f,
     onAdminCancelResetKey: Int = 0,
     onRecover: () -> Unit = {},
-    onDraggingChanged: (Boolean) -> Unit = {}
+    onDraggingChanged: (Boolean) -> Unit = {},
+    isSwipeMode: Boolean = true
 ) {
     val strings = LocalAppStrings.current
     val isConnected = connectionStatus == ConnectionStatus.RUNNING
@@ -1570,9 +1572,9 @@ fun WindowsSwipeSwitch(
         ConnectionStatus.DATAPLANE_VALIDATED, ConnectionStatus.SOCKS_READY, ConnectionStatus.TUN_ACTIVE -> strings.CONNECTING_DOTS
         ConnectionStatus.RECONNECTING -> strings.STATUS_RECONNECTING
         ConnectionStatus.STOPPING -> strings.STATUS_SWIPE_FORCE_STOP
-        ConnectionStatus.RUNNING -> strings.SWIPE_TO_DISCONNECT
-        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> strings.SWIPE_TO_RECONNECT
-        ConnectionStatus.STOPPED -> strings.SWIPE_TO_CONNECT
+        ConnectionStatus.RUNNING -> if (isSwipeMode) strings.SWIPE_TO_DISCONNECT else strings.TAP_TO_DISCONNECT
+        ConnectionStatus.ERROR, ConnectionStatus.FAILED -> if (isSwipeMode) strings.SWIPE_TO_RECONNECT else strings.TAP_TO_RECONNECT
+        ConnectionStatus.STOPPED -> if (isSwipeMode) strings.SWIPE_TO_CONNECT else strings.TAP_TO_CONNECT
     }
     val hintTransition = rememberInfiniteTransition(label = "hint")
     val hintShift by hintTransition.animateFloat(
@@ -2025,7 +2027,7 @@ private fun PsiphonOptionsSheet(
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Text(when (config.psiphonChainOuter) { "wg" -> strings.PSIPHON_SHEET_OUTER_DESC_WG ; "gool" -> strings.PSIPHON_SHEET_OUTER_DESC_GOOL ; else -> strings.PSIPHON_SHEET_OUTER_DESC_MASQUE }, color = IosSecondaryLabel, fontSize = (12 * scaleFactor).sp, lineHeight = (16 * scaleFactor).sp)
                 }
-                if (config.psiphonChainOuter == "masque" && config.protocol != AetherProtocol.MASQUE) {
+                if (config.protocol == AetherProtocol.MASQUE && config.psiphonEnabled) {
                     AppDivider()
                     val orderOptions = listOf("Psiphon first", "MASQUE first", "Auto")
                     val orderValues = listOf("psiphon_first", "masque_first", "auto")

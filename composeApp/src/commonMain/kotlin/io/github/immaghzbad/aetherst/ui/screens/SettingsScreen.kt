@@ -158,6 +158,7 @@ fun SettingsScreen(
     onOpenSplitTunneling: () -> Unit,
     onOpenRoutingRules: () -> Unit,
     onOpenAutoDetect: () -> Unit = {},
+    onOpenDnsOptimizer: () -> Unit = {},
     onOpenSpeedTest: () -> Unit = {},
     onRequestBatteryOptimization: () -> Unit,
     onOpenVpnSettings: () -> Unit = {},
@@ -199,7 +200,8 @@ fun SettingsScreen(
             onOptimizeMtu = onOptimizeMtu,
             isOptimizingMtu = isOptimizingMtu,
             onShowToast = onShowToast,
-            bottomContentPadding = bottomContentPadding
+            bottomContentPadding = bottomContentPadding,
+            onOpenDnsOptimizer = onOpenDnsOptimizer
         )
         return
     }
@@ -257,7 +259,7 @@ private fun CategoryCard(icon: ImageVector, iconBg: Color, title: String, subtit
 }
 
 @Composable
-private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryOptimized: Boolean, onBack: () -> Unit, onUpdateConfig: (AetherConfig) -> Unit, onUpdateTunnelEngine: (TunnelEngine) -> Unit, onApplyPreset: (String) -> Unit, onOpenSplitTunneling: () -> Unit, onOpenRoutingRules: () -> Unit, onRequestBatteryOptimization: () -> Unit, onOpenVpnSettings: () -> Unit, onResetAll: () -> Unit, onExportBackup: () -> Unit, onImportBackup: () -> Unit, onOptimizeMtu: () -> Unit, isOptimizingMtu: Boolean, onShowToast: (String, Boolean) -> Unit, bottomContentPadding: Dp) {
+private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryOptimized: Boolean, onBack: () -> Unit, onUpdateConfig: (AetherConfig) -> Unit, onUpdateTunnelEngine: (TunnelEngine) -> Unit, onApplyPreset: (String) -> Unit, onOpenSplitTunneling: () -> Unit, onOpenRoutingRules: () -> Unit, onRequestBatteryOptimization: () -> Unit, onOpenVpnSettings: () -> Unit, onResetAll: () -> Unit, onExportBackup: () -> Unit, onImportBackup: () -> Unit, onOptimizeMtu: () -> Unit, isOptimizingMtu: Boolean, onShowToast: (String, Boolean) -> Unit, bottomContentPadding: Dp, onOpenDnsOptimizer: () -> Unit = {}) {
     var showResetDialog by remember { mutableStateOf(false) }
     var showAdvancedZt by remember { mutableStateOf(false) }
     val isAndroid = remember { try { Class.forName("android.os.Build"); true } catch(_: Throwable) { false } }
@@ -290,7 +292,7 @@ private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryO
                 SettingsPage.CONNECTION -> item { ConnectionPage(config, isAndroid, onUpdateConfig, onUpdateTunnelEngine, onOpenSplitTunneling, onOpenRoutingRules) }
                 SettingsPage.PROTOCOL -> item { ProtocolPage(config, onUpdateConfig, onOptimizeMtu, isOptimizingMtu) }
                 SettingsPage.ZEROTRUST -> item { ZeroTrustPage(config, showAdvancedZt, onUpdateConfig) { showAdvancedZt = it } }
-                SettingsPage.NETWORK -> item { NetworkPage(config, onUpdateConfig, onShowToast) }
+                SettingsPage.NETWORK -> item { NetworkPage(config, onUpdateConfig, onShowToast, onOpenDnsOptimizer) }
                 SettingsPage.SECURITY -> item { SecurityPage(config, isAndroid, isBatteryOptimized, onUpdateConfig, onRequestBatteryOptimization) }
                 SettingsPage.DIAGNOSTICS -> item { DiagnosticsPage(config, onUpdateConfig) }
                 SettingsPage.HEV_ENGINE -> item { HevEnginePage(config, onUpdateConfig) }
@@ -310,23 +312,23 @@ private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryO
         IosPresetItem(icon = Icons.Default.Bolt, iconBg = AppPalette.statusScanning, title = strings.PRESETS_TURBO, subtitle = strings.PRESETS_TURBO_SUB, isActive = config.presetId == "turbo", onClick = { onApplyPreset("turbo"); onShowToast(strings.PRESETS_TURBO, false) })
         Row(modifier = Modifier.fillMaxWidth().padding(start = 58.dp, end = 16.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             androidx.compose.foundation.layout.Box(modifier = Modifier.background(AppPalette.statusScanning.copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text(strings.PRESET_CHIP_SPEED, color = AppPalette.statusScanning, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1420", color = IosSecondaryLabel, fontSize = 10.sp) }
+            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1320", color = IosSecondaryLabel, fontSize = 10.sp) }
             if (config.presetId == "turbo") androidx.compose.foundation.layout.Box(modifier = Modifier.background(Color(0xFFFFD700).copy(alpha = 0.2f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("Recommended", color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
         }
         AppDivider(); IosPresetItem(icon = Icons.Default.Search, iconBg = AppPalette.accent, title = strings.PRESETS_THOROUGH, subtitle = strings.PRESETS_THOROUGH_SUB, isActive = config.presetId == "thorough", onClick = { onApplyPreset("thorough"); onShowToast(strings.PRESETS_THOROUGH, false) })
         Row(modifier = Modifier.fillMaxWidth().padding(start = 58.dp, end = 16.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             androidx.compose.foundation.layout.Box(modifier = Modifier.background(AppPalette.accent.copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text(strings.PRESET_CHIP_STABLE, color = AppPalette.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1350", color = IosSecondaryLabel, fontSize = 10.sp) }
+            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1320", color = IosSecondaryLabel, fontSize = 10.sp) }
         }
         AppDivider(); IosPresetItem(icon = Icons.Default.VisibilityOff, iconBg = AppPalette.accentVariant, title = strings.PRESETS_STEALTH, subtitle = strings.PRESETS_STEALTH_SUB, isActive = config.presetId == "stealth", onClick = { onApplyPreset("stealth"); onShowToast(strings.PRESETS_STEALTH, false) })
         Row(modifier = Modifier.fillMaxWidth().padding(start = 58.dp, end = 16.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             androidx.compose.foundation.layout.Box(modifier = Modifier.background(AppPalette.accentVariant.copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text(strings.PRESET_CHIP_STEALTH, color = AppPalette.accentVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1320", color = IosSecondaryLabel, fontSize = 10.sp) }
+            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1330", color = IosSecondaryLabel, fontSize = 10.sp) }
         }
         AppDivider(); IosPresetItem(icon = Icons.Default.Shield, iconBg = IosActiveBlue, title = strings.PRESETS_IRONCLAD, subtitle = strings.PRESETS_IRONCLAD_SUB, isActive = config.presetId == "ironclad", onClick = { onApplyPreset("ironclad"); onShowToast(strings.PRESETS_IRONCLAD, false) })
         Row(modifier = Modifier.fillMaxWidth().padding(start = 58.dp, end = 16.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             androidx.compose.foundation.layout.Box(modifier = Modifier.background(AppPalette.statusError.copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text(strings.PRESET_CHIP_IRONCLAD, color = AppPalette.statusError, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1280", color = IosSecondaryLabel, fontSize = 10.sp) }
+            androidx.compose.foundation.layout.Box(modifier = Modifier.background(IosGroupBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("MTU 1330", color = IosSecondaryLabel, fontSize = 10.sp) }
         }
         AppDivider(); IosPresetItem(icon = Icons.Default.Tune, iconBg = AppPalette.textSecondary, title = strings.PRESETS_CUSTOM, subtitle = strings.PRESETS_CUSTOM_SUB, isActive = config.presetId == "custom", onClick = { onApplyPreset("custom"); onShowToast(strings.PRESETS_CUSTOM, false) })
     } }
@@ -474,14 +476,14 @@ private fun SettingsSubPage(page: SettingsPage, config: AetherConfig, isBatteryO
     }
 }
 
-@Composable private fun NetworkPage(config: AetherConfig, onUpdateConfig: (AetherConfig) -> Unit, onShowToast: (String, Boolean) -> Unit = { _, _ -> }) {
+@Composable private fun NetworkPage(config: AetherConfig, onUpdateConfig: (AetherConfig) -> Unit, onShowToast: (String, Boolean) -> Unit = { _, _ -> }, onOpenDnsOptimizer: () -> Unit = {}) {
     val strings = LocalAppStrings.current
     val httpLocked = config.psiphonEnabled
     IosGroupCard { Column {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { IosIconBadge(icon = Icons.Default.Language, backgroundColor = IosActiveBlue); Spacer(modifier = Modifier.width(12.dp)); IosInputField(label = strings.SOCKS5_HOST, value = config.socksHost, onValueChange = { onUpdateConfig(config.copy(socksHost = it)) }, modifier = Modifier.weight(1f), placeholder = "127.0.0.1", testTag = "socks_host_input"); Spacer(modifier = Modifier.width(10.dp)); IosInputField(label = strings.SOCKS_PORT, value = config.socksPort, onValueChange = { onUpdateConfig(config.copy(socksPort = it)) }, modifier = Modifier.width(75.dp), placeholder = "1819", keyboardType = KeyboardType.Number, testTag = "socks_port_input"); Spacer(modifier = Modifier.width(8.dp)); IosInputField(label = strings.HTTP_PORT, value = config.httpPort, onValueChange = { onUpdateConfig(config.copy(httpPort = it)) }, modifier = Modifier.width(75.dp), placeholder = "1820", keyboardType = KeyboardType.Number, testTag = "http_port_input") }
         AppDivider(); androidx.compose.foundation.layout.Box(modifier = if (httpLocked) Modifier.fillMaxWidth().clickable { onShowToast(strings.TOAST_DISABLE_PSIPHON_FIRST, true) } else Modifier.fillMaxWidth()) { IosSwitchRow(icon = Icons.Default.Http, iconBg = IosActiveBlue, title = strings.INTERNAL_HTTP_PROXY, subtitle = if (httpLocked) strings.INTERNAL_HTTP_PROXY_LOCKED_BY_PSIPHON else strings.INTERNAL_HTTP_PROXY_SUB, checked = config.httpProxyEnabled, enabled = !httpLocked, onCheckedChange = { if (httpLocked && !it) { onShowToast(strings.TOAST_DISABLE_PSIPHON_FIRST, true); return@IosSwitchRow }; onUpdateConfig(config.copy(httpProxyEnabled = it)) }, testTag = "switch_http_proxy_enabled") }; AppDivider()
         IosInputFieldRow(icon = Icons.Default.Code, iconBg = IosSecondaryLabel, label = strings.TLS_KEY_GROUPS, value = config.tlsGroups, onValueChange = { onUpdateConfig(config.copy(tlsGroups = it)) }, placeholder = "P-256:X25519:P-384", testTag = "tls_groups_input"); AppDivider()
-        IosInputFieldRow(icon = Icons.Default.Dns, iconBg = IosActiveBlue, label = if (isDesktop) strings.TUNNEL_DNS_DESKTOP else strings.TUNNEL_DNS, value = config.dnsList, onValueChange = { onUpdateConfig(config.copy(dnsList = it.replace(Regex("\\s*,\\s*"), ","))) }, placeholder = "1.1.1.1,1.0.0.1", testTag = "dns_list_input"); AppDivider()
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) { Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) { IosIconBadge(icon = Icons.Default.Dns, backgroundColor = IosActiveBlue); Spacer(modifier = Modifier.width(12.dp)); IosInputField(label = if (isDesktop) strings.TUNNEL_DNS_DESKTOP else strings.TUNNEL_DNS, value = config.dnsList, onValueChange = { onUpdateConfig(config.copy(dnsList = it.replace(Regex("\\s*,\\s*"), ","))) }, modifier = Modifier.weight(1f), placeholder = "1.1.1.1,1.0.0.1", testTag = "dns_list_input") }; Spacer(modifier = Modifier.width(8.dp)); Button(onClick = onOpenDnsOptimizer, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = IosActiveBlue.copy(alpha = 0.15f), contentColor = IosActiveBlue), contentPadding = PaddingValues(horizontal = 16.dp)) { Text(strings.DNS_OPTIMIZE, fontSize = 13.sp, fontWeight = FontWeight.Bold) } }; AppDivider()
         if (isDesktop) {
             Row(modifier = Modifier.fillMaxWidth().background(AppPalette.statusConnected.copy(alpha = 0.08f)).padding(10.dp), verticalAlignment = Alignment.Top) {
                 Icon(Icons.Default.Info, null, tint = AppPalette.statusConnected, modifier = Modifier.size(16.dp))
