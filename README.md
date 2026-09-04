@@ -30,7 +30,7 @@
 
 ## 📱 Versions & Platforms
 
-- **Android Client:** `v1.6.8` (Latest Stable)
+- **Android Client:** `v1.6.9` (Latest Stable)
 - **Windows Client:** `v1.1.1` (First Public Release)
 
 ## ✨ Features
@@ -66,7 +66,7 @@ An optional second layer built on the open-source Psiphon tunnel core. It routes
 
 ## 🏗️ Technical Architecture
 
-### [Aether Core (v1.8.0)](https://github.com/CluvexStudio/Aether)
+### [Aether Core (v1.9.0)](https://github.com/CluvexStudio/Aether)
 The orchestration layer responsible for:
 - Encrypted tunnel management.
 - Dynamic gateway health checks.

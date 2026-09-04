@@ -514,7 +514,7 @@ class AetherViewModel(platformContext: PlatformContext) : ViewModel() {
         if (!requireDisconnected()) return
         val normalized = dnsList.split(",").map { it.trim() }.filter { it.isNotEmpty() }.joinToString(",")
         if (normalized.isBlank()) return
-        updateConfig(config.value.copy(presetId = "custom", dnsList = normalized))
+        updateConfig(config.value.copy(presetId = "custom", dnsList = normalized, dnsEnabled = true))
         showToast(localizedToast { TOAST_DNS_APPLIED.format(normalized) })
     }
 

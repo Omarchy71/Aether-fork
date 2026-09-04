@@ -165,12 +165,22 @@ interface AppStrings {
     val TLS_KEY_GROUPS: String
     val TUNNEL_DNS: String
     val TUNNEL_DNS_DESKTOP: String
+    val CUSTOM_DNS: String
+    val CUSTOM_DNS_SUB: String
     val FORCED_PEER_IP: String
     val KEEPALIVE_PACKETS: String
     val KEEPALIVE_ON_SUB: String
     val KEEPALIVE_OFF_SUB: String
     val KEEPALIVE_INTERVAL: String
     val VALIDATION_INTERVAL: String
+    val WG_PEER: String
+    val WIW_OUTER: String
+    val WIW_INNER: String
+    val WIW_SCAN: String
+    val WIW_SCAN_SUB: String
+    val MASQUE_INNER_MTU: String
+    val NETSTACK_TCP_RX: String
+    val NETSTACK_TCP_TX: String
     val STRICT_KILL_SWITCH: String
     val STRICT_KILL_SWITCH_SUB: String
     val KILL_SWITCH: String

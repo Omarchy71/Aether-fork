@@ -83,7 +83,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         val ipModeStr = settings.getString("${prefix}ip_mode", AetherIpMode.AUTO.name)
         val appLogLevelStr = settings.getString("${prefix}app_log_level", AetherLogLevel.INFO.name)
         val coreLogLevelStr = settings.getString("${prefix}core_log_level", AetherLogLevel.INFO.name)
-        val perfProfileStr = settings.getString("${prefix}perf_profile", AetherPerfProfile.MEDIUM.name)
+        val perfProfileStr = settings.getString("${prefix}perf_profile", AetherPerfProfile.AUTO.name)
         val connectionModeStr = settings.getString("${prefix}connection_mode", "")
         val legacyProxyOnly = settings.getBoolean("${prefix}proxy_only", false)
         
@@ -108,7 +108,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             ipMode = runCatching { AetherIpMode.valueOf(ipModeStr) }.getOrDefault(AetherIpMode.AUTO),
             echEnabled = settings.getBoolean("${prefix}ech_enabled", false),
             httpProxyEnabled = settings.getBoolean("${prefix}http_proxy_enabled", false),
-            perfProfile = runCatching { AetherPerfProfile.valueOf(perfProfileStr) }.getOrDefault(AetherPerfProfile.MEDIUM),
+            perfProfile = runCatching { AetherPerfProfile.valueOf(perfProfileStr) }.getOrDefault(AetherPerfProfile.AUTO),
             h2Mode = settings.getBoolean("${prefix}h2_mode", true),
             h2Fragment = settings.getBoolean("${prefix}h2_fragment", false),
             fragmentSize = settings.getString("${prefix}fragment_size", "16-32"),
@@ -122,6 +122,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             coreLogLevel = runCatching { AetherLogLevel.valueOf(coreLogLevelStr) }.getOrDefault(AetherLogLevel.INFO),
             peer = settings.getString("${prefix}peer", ""),
             wgPeer = settings.getString("${prefix}wg_peer", ""),
+            wiwOuter = settings.getString("${prefix}wiw_outer", ""),
+            wiwInner = settings.getString("${prefix}wiw_inner", ""),
+            wiwScan = settings.getBoolean("${prefix}wiw_scan", true),
+            masqueMtu = settings.getInt("${prefix}masque_mtu", 0),
+            netstackTcpRx = settings.getInt("${prefix}netstack_tcp_rx", 0),
+            netstackTcpTx = settings.getInt("${prefix}netstack_tcp_tx", 0),
             keepaliveEnabled = settings.getBoolean("${prefix}keepalive_enabled", true),
             keepalive = settings.getInt("${prefix}keepalive", 5),
             validateSecs = settings.getInt("${prefix}validate_secs", 10),
@@ -142,6 +148,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             useGateway = settings.getBoolean("${prefix}use_gateway", false),
             smartReconnect = settings.getBoolean("${prefix}smart_reconnect", true),
             reconnectRetryLimit = settings.getInt("${prefix}reconnect_retry_limit", 10),
+            dnsEnabled = settings.getBoolean("${prefix}dns_enabled", false),
             dnsList = settings.getString("${prefix}dns_list", "1.1.1.1,2606:4700:4700::1111"),
             shareHotspot = settings.getBoolean("${prefix}share_hotspot", false),
             upstreamProxy = settings.getString("${prefix}upstream_proxy", ""),
@@ -195,12 +202,8 @@ class AetherConfigRepository private constructor(private val settings: Settings)
 
     private fun enforceWireGuardConstraints(cfg: AetherConfig): AetherConfig {
         var out = cfg
-        val isWgFamily = out.protocol == AetherProtocol.WG || out.protocol == AetherProtocol.GOOL || (out.psiphonEnabled && (out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool"))
-        if (isWgFamily && !out.httpProxyEnabled) {
+        if (out.psiphonEnabled && !out.httpProxyEnabled) {
             out = out.copy(httpProxyEnabled = true)
-        }
-        if (isWgFamily && out.psiphonEgressRegion.isNotEmpty()) {
-            out = out.copy(psiphonEgressRegion = out.psiphonEgressRegion)
         }
         if ((out.psiphonChainOuter == "wg" || out.psiphonChainOuter == "gool") && out.psiphonChainMode == PsiphonChainMode.FALLBACK) {
             out = out.copy(psiphonChainMode = PsiphonChainMode.AUTO)
@@ -310,6 +313,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putString("${prefix}core_log_level", cfg.coreLogLevel.name)
         settings.putString("${prefix}peer", cfg.peer)
         settings.putString("${prefix}wg_peer", cfg.wgPeer)
+        settings.putString("${prefix}wiw_outer", cfg.wiwOuter)
+        settings.putString("${prefix}wiw_inner", cfg.wiwInner)
+        settings.putBoolean("${prefix}wiw_scan", cfg.wiwScan)
+        settings.putInt("${prefix}masque_mtu", cfg.masqueMtu.coerceIn(0, 9000))
+        settings.putInt("${prefix}netstack_tcp_rx", cfg.netstackTcpRx.coerceIn(0, 67108864))
+        settings.putInt("${prefix}netstack_tcp_tx", cfg.netstackTcpTx.coerceIn(0, 67108864))
         settings.putBoolean("${prefix}keepalive_enabled", cfg.keepaliveEnabled)
         settings.putInt("${prefix}keepalive", cfg.keepalive)
         settings.putInt("${prefix}validate_secs", cfg.validateSecs)
@@ -328,6 +337,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putBoolean("${prefix}use_gateway", cfg.useGateway)
         settings.putBoolean("${prefix}smart_reconnect", cfg.smartReconnect)
         settings.putInt("${prefix}reconnect_retry_limit", cfg.reconnectRetryLimit)
+        settings.putBoolean("${prefix}dns_enabled", cfg.dnsEnabled)
         settings.putString("${prefix}dns_list", cfg.dnsList)
         settings.putBoolean("${prefix}share_hotspot", cfg.shareHotspot)
         settings.putString("${prefix}upstream_proxy", cfg.upstreamProxy)
@@ -435,7 +445,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 scanMode = AetherScanMode.TURBO,
                 echEnabled = false,
                 httpProxyEnabled = false,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 noDataCheck = false,
                 tlsGroups = "",
@@ -467,7 +477,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 scanMode = AetherScanMode.STEALTH,
                 echEnabled = false,
                 httpProxyEnabled = true,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 noDataCheck = false,
                 tlsGroups = "",
@@ -483,7 +493,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 scanMode = AetherScanMode.STEALTH,
                 echEnabled = false,
                 httpProxyEnabled = true,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 noDataCheck = false,
                 tlsGroups = "",
@@ -519,6 +529,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
         settings.putBoolean("${p}quick_reconnect", cfg.quickReconnect)
         settings.putString("${p}peer", cfg.peer)
         settings.putString("${p}wg_peer", cfg.wgPeer)
+        settings.putString("${p}wiw_outer", cfg.wiwOuter)
+        settings.putString("${p}wiw_inner", cfg.wiwInner)
+        settings.putBoolean("${p}wiw_scan", cfg.wiwScan)
+        settings.putInt("${p}masque_mtu", cfg.masqueMtu.coerceIn(0, 9000))
+        settings.putInt("${p}netstack_tcp_rx", cfg.netstackTcpRx.coerceIn(0, 67108864))
+        settings.putInt("${p}netstack_tcp_tx", cfg.netstackTcpTx.coerceIn(0, 67108864))
         settings.putBoolean("${p}keepalive_enabled", cfg.keepaliveEnabled)
         settings.putInt("${p}keepalive", cfg.keepalive)
         settings.putInt("${p}validate_secs", cfg.validateSecs)
@@ -552,7 +568,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 ipMode = AetherIpMode.AUTO,
                 echEnabled = false,
                 httpProxyEnabled = false,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 fragmentSize = "16-32",
                 fragmentDelay = "2-10",
@@ -560,6 +576,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 quickReconnect = true,
                 peer = "",
                 wgPeer = "",
+                wiwOuter = "",
+                wiwInner = "",
+                wiwScan = true,
+                masqueMtu = 0,
+                netstackTcpRx = 0,
+                netstackTcpTx = 0,
                 keepaliveEnabled = true,
                 keepalive = 5,
                 validateSecs = 10,
@@ -576,7 +598,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 ipMode = AetherIpMode.AUTO,
                 echEnabled = false,
                 httpProxyEnabled = true,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 fragmentSize = "16-32",
                 fragmentDelay = "2-10",
@@ -584,6 +606,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 quickReconnect = true,
                 peer = "",
                 wgPeer = "",
+                wiwOuter = "",
+                wiwInner = "",
+                wiwScan = true,
+                masqueMtu = 0,
+                netstackTcpRx = 0,
+                netstackTcpTx = 0,
                 keepaliveEnabled = true,
                 keepalive = 5,
                 validateSecs = 10,
@@ -600,7 +628,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 ipMode = AetherIpMode.AUTO,
                 echEnabled = false,
                 httpProxyEnabled = true,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 fragmentSize = "16-32",
                 fragmentDelay = "2-10",
@@ -608,6 +636,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 quickReconnect = true,
                 peer = "",
                 wgPeer = "",
+                wiwOuter = "",
+                wiwInner = "",
+                wiwScan = true,
+                masqueMtu = 0,
+                netstackTcpRx = 0,
+                netstackTcpTx = 0,
                 keepaliveEnabled = true,
                 keepalive = 5,
                 validateSecs = 10,
@@ -624,7 +658,7 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 ipMode = AetherIpMode.AUTO,
                 echEnabled = false,
                 httpProxyEnabled = false,
-                h2Mode = false,
+                h2Mode = true,
                 h2Fragment = false,
                 fragmentSize = "16-32",
                 fragmentDelay = "2-10",
@@ -632,6 +666,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
                 quickReconnect = true,
                 peer = "",
                 wgPeer = "",
+                wiwOuter = "",
+                wiwInner = "",
+                wiwScan = true,
+                masqueMtu = 0,
+                netstackTcpRx = 0,
+                netstackTcpTx = 0,
                 keepaliveEnabled = true,
                 keepalive = 5,
                 validateSecs = 10,
@@ -664,6 +704,12 @@ class AetherConfigRepository private constructor(private val settings: Settings)
             quickReconnect = settings.getBoolean("${p}quick_reconnect", true),
             peer = settings.getString("${p}peer", ""),
             wgPeer = settings.getString("${p}wg_peer", ""),
+            wiwOuter = settings.getString("${p}wiw_outer", ""),
+            wiwInner = settings.getString("${p}wiw_inner", ""),
+            wiwScan = settings.getBoolean("${p}wiw_scan", true),
+            masqueMtu = settings.getInt("${p}masque_mtu", 0),
+            netstackTcpRx = settings.getInt("${p}netstack_tcp_rx", 0),
+            netstackTcpTx = settings.getInt("${p}netstack_tcp_tx", 0),
             keepaliveEnabled = settings.getBoolean("${p}keepalive_enabled", true),
             keepalive = settings.getInt("${p}keepalive", 5),
             validateSecs = settings.getInt("${p}validate_secs", 10),

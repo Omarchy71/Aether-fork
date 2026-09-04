@@ -105,8 +105,10 @@ class AetherProcessRunner(private val context: PlatformContext) {
             val command = mutableListOf(binaryPath, "--bind", bindAddress)
 
             val httpBindHost = bindAddress.substringBefore(':')
-            command.add("--http-proxy")
-            command.add("$httpBindHost:${config.httpPort}")
+            if (config.httpProxyEnabled) {
+                command.add("--http-proxy")
+                command.add("$httpBindHost:${config.httpPort}")
+            }
 
             val routingFile = writeRoutingFile(config)
             if (routingFile != null) {
@@ -157,10 +159,30 @@ class AetherProcessRunner(private val context: PlatformContext) {
             }
             if (config.noDataCheck) command.add("--no-data-check")
             if (config.quickReconnect) command.add("--quick-reconnect") else command.add("--no-quick-reconnect")
-            val effectivePeerForCmd = if ((config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) && config.wgPeer.isNotEmpty()) config.wgPeer else config.peer
+            val wiwOuter = if (config.protocol == AetherProtocol.GOOL) config.wiwOuter.trim() else ""
+            val wiwInner = if (config.protocol == AetherProtocol.GOOL) config.wiwInner.trim() else ""
+            val hasWiwManual = wiwOuter.isNotEmpty() || wiwInner.isNotEmpty()
+            val effectivePeerForCmd = if (!hasWiwManual && (config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) && config.wgPeer.isNotEmpty()) config.wgPeer else if (!hasWiwManual) config.peer else ""
             if (effectivePeerForCmd.isNotEmpty()) {
                 command.add("--peer")
                 command.add(effectivePeerForCmd)
+            }
+            if (!hasWiwManual && (config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) && effectivePeerForCmd.isNotEmpty()) {
+                command.add("--wg-peer")
+                command.add(effectivePeerForCmd)
+            }
+            if (config.protocol == AetherProtocol.GOOL) {
+                if (wiwOuter.isNotEmpty()) {
+                    command.add("--wiw-outer")
+                    command.add(wiwOuter)
+                }
+                if (wiwInner.isNotEmpty()) {
+                    command.add("--wiw-inner")
+                    command.add(wiwInner)
+                }
+                if (!hasWiwManual && config.wiwScan && effectivePeerForCmd.isEmpty()) {
+                    command.add("--wiw-scan")
+                }
             }
             if ((config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL)) {
                 command.add("--keepalive")
@@ -175,7 +197,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
             command.add("--reconnect-secs")
             command.add(config.reconnectSecs.toString())
             if (config.noProfileRetry) command.add("--no-profile-retry")
-            if (config.dnsList.isNotEmpty()) {
+            if (config.dnsEnabled && config.dnsList.isNotEmpty()) {
                 command.add("--dns")
                 command.add(config.dnsList)
             }
@@ -199,7 +221,7 @@ class AetherProcessRunner(private val context: PlatformContext) {
             if (config.h2Mode) env["AETHER_MASQUE_HTTP2"] = "1"
             if (config.echEnabled) env["AETHER_ECH"] = "auto"
             val httpPort = config.httpPort.toIntOrNull() ?: 1820
-            env["AETHER_HTTP_PROXY"] = "$httpBindHost:$httpPort"
+            if (config.httpProxyEnabled) env["AETHER_HTTP_PROXY"] = "$httpBindHost:$httpPort"
             if (config.h2Fragment) {
                 env["AETHER_MASQUE_H2_FRAGMENT"] = "1"
                 env["AETHER_MASQUE_H2_FRAGMENT_SIZE"] = config.fragmentSize
@@ -211,18 +233,29 @@ class AetherProcessRunner(private val context: PlatformContext) {
             }
             if (config.quickReconnect) env["AETHER_QUICK_RECONNECT"] = "1" else env["AETHER_QUICK_RECONNECT"] = "0"
             if (config.protocol == AetherProtocol.WG || config.protocol == AetherProtocol.GOOL) {
-                if (config.wgPeer.isNotEmpty()) env["AETHER_WG_PEER"] = config.wgPeer else if (config.peer.isNotEmpty()) env["AETHER_WG_PEER"] = config.peer
-                if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
+                if (!hasWiwManual) {
+                    if (config.wgPeer.isNotEmpty()) env["AETHER_WG_PEER"] = config.wgPeer else if (config.peer.isNotEmpty()) env["AETHER_WG_PEER"] = config.peer
+                    if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
+                }
+                if (config.protocol == AetherProtocol.GOOL) {
+                    if (wiwOuter.isNotEmpty()) env["AETHER_WIW_OUTER_PEER"] = wiwOuter
+                    if (wiwInner.isNotEmpty()) env["AETHER_WIW_INNER_PEER"] = wiwInner
+                    if (!hasWiwManual && config.wiwScan && effectivePeerForCmd.isEmpty()) env["AETHER_WIW_PEERS"] = "auto"
+                }
             } else {
                 if (config.peer.isNotEmpty()) env["AETHER_PEER"] = config.peer
             }
             env["AETHER_WG_KEEPALIVE"] = if (config.keepaliveEnabled) config.keepalive.toString() else "0"
             env["AETHER_WG_ENDPOINT_COOLDOWN_SECS"] = config.wgEndpointCooldownSecs.toString()
             env["AETHER_MASQUE_VALIDATE_SECS"] = config.validateSecs.toString()
+            env["AETHER_WG_VALIDATE_SECS"] = config.validateSecs.toString()
             env["AETHER_MASQUE_RECONNECT_SECS"] = config.reconnectSecs.toString()
             env["AETHER_WG_RECONNECT_SECS"] = config.reconnectSecs.toString()
             if (config.noProfileRetry) env["AETHER_WG_NO_PROFILE_RETRY"] = "1"
             if (config.tlsGroups.isNotEmpty()) env["AETHER_TLS_GROUPS"] = config.tlsGroups
+            if (config.masqueMtu > 0) env["AETHER_MASQUE_MTU"] = config.masqueMtu.toString()
+            if (config.netstackTcpRx > 0) env["AETHER_NETSTACK_TCP_RX"] = config.netstackTcpRx.toString()
+            if (config.netstackTcpTx > 0) env["AETHER_NETSTACK_TCP_TX"] = config.netstackTcpTx.toString()
             if (config.protocol == AetherProtocol.ZERO_TRUST) {
                 if (config.teamName.isNotEmpty()) env["AETHER_TEAM"] = config.teamName
                 when {
@@ -230,12 +263,14 @@ class AetherProcessRunner(private val context: PlatformContext) {
                     config.accessId.isNotEmpty() || config.accessSecret.isNotEmpty() -> {
                         env["AETHER_ACCESS_ID"] = config.accessId
                         env["AETHER_ACCESS_SECRET"] = config.accessSecret
+                        env["AETHER_ACCESS_CLIENT_ID"] = config.accessId
+                        env["AETHER_ACCESS_CLIENT_SECRET"] = config.accessSecret
                     }
                     config.accessEmail.isNotEmpty() -> env["AETHER_ACCESS_EMAIL"] = config.accessEmail
                 }
                 if (config.useGateway) env["AETHER_GATEWAY"] = "1"
             }
-            if (config.dnsList.isNotEmpty()) env["AETHER_DNS"] = config.dnsList
+            if (config.dnsEnabled && config.dnsList.isNotEmpty()) env["AETHER_DNS"] = config.dnsList
             if (config.upstreamProxyEnabled && config.upstreamProxy.isNotEmpty()) env["AETHER_UPSTREAM"] = config.upstreamProxy
             env["AETHER_ROUTE_SNIFF"] = if (config.routeSniffing) "1" else "0"
             env["AETHER_ROUTE_SNIFF_MS"] = config.sniffingTimeoutMs.toString()

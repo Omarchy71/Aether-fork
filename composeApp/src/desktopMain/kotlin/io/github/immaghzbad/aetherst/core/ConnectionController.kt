@@ -146,7 +146,7 @@ actual object ConnectionController {
             ).apply { start() }
             LogRepository.i("[Controller] Counting proxies started (socks=10808, http=10809) -> core $coreSocksPort")
             if (effectiveConfig.connectionMode == ConnectionMode.TUNNEL || effectiveConfig.connectionMode == ConnectionMode.SYSTEM_PROXY) {
-                val dnsUpstream = effectiveConfig.dnsList.ifEmpty { "1.1.1.1,1.0.0.1" }
+                val dnsUpstream = (if (effectiveConfig.dnsEnabled) effectiveConfig.dnsList else "").ifEmpty { "1.1.1.1,1.0.0.1" }
                 val tmpDns = LocalDnsServer(listenHost = "127.0.0.1", listenPort = 53, socksHost = "127.0.0.1", socksPort = coreSocksPort, upstreamList = dnsUpstream)
                 tmpDns.start()
                 if (tmpDns.isRunning()) {

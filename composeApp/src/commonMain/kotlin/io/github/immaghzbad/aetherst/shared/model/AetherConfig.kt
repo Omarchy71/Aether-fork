@@ -44,6 +44,7 @@ enum class AetherIpMode(val rawValue: String, val displayName: String) {
 
 @Serializable
 enum class AetherPerfProfile(val rawValue: String, val displayName: String) {
+    AUTO("auto", "Auto (Recommended)"),
     LOW("low", "Power Saver (Low CPU)"),
     MEDIUM("medium", "Balanced Performance"),
     HIGH("high", "Maximum Speed (High CPU)")
@@ -122,8 +123,8 @@ data class AetherConfig(
     val ipMode: AetherIpMode = AetherIpMode.AUTO,
     val echEnabled: Boolean = false,
     val httpProxyEnabled: Boolean = false,
-    val perfProfile: AetherPerfProfile = AetherPerfProfile.MEDIUM,
-    val h2Mode: Boolean = false,
+    val perfProfile: AetherPerfProfile = AetherPerfProfile.AUTO,
+    val h2Mode: Boolean = true,
     val h2Fragment: Boolean = false,
     val fragmentSize: String = "16-32",
     val fragmentDelay: String = "2-10",
@@ -136,6 +137,12 @@ data class AetherConfig(
     val coreLogLevel: AetherLogLevel = AetherLogLevel.INFO,
     val peer: String = "",
     val wgPeer: String = "",
+    val wiwOuter: String = "",
+    val wiwInner: String = "",
+    val wiwScan: Boolean = true,
+    val masqueMtu: Int = 0,
+    val netstackTcpRx: Int = 0,
+    val netstackTcpTx: Int = 0,
     val keepaliveEnabled: Boolean = true,
     val keepalive: Int = 5,
     val validateSecs: Int = 10,
@@ -163,6 +170,7 @@ data class AetherConfig(
     val smartReconnect: Boolean = true,
     val reconnectRetryLimit: Int = 10,
     val strictKillSwitch: Boolean = false,
+    val dnsEnabled: Boolean = false,
     val dnsList: String = "1.1.1.1,2606:4700:4700::1111",
     val shareHotspot: Boolean = false,
     val tunnelAllApps: Boolean = true,
