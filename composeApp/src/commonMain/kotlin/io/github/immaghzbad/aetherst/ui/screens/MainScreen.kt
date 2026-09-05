@@ -404,7 +404,9 @@ private fun DashboardContent(viewModel: AetherViewModel, scaleFactor: Float, pla
                         onShowToast = { msg: String, err: Boolean -> viewModel.showToast(msg, err) },
                         initialPage = if (zeroTrustOpen) SettingsPage.ZEROTRUST else null,
                         onSubPageClosed = { zeroTrustOpen = false },
-                        bottomContentPadding = totalNavBarHeight
+                        bottomContentPadding = totalNavBarHeight,
+                        loadAutoConnectSettings = { io.github.immaghzbad.aetherst.core.AutoConnectManager.loadSettings(platformContext) },
+                        saveAutoConnectSettings = { settings -> io.github.immaghzbad.aetherst.core.AutoConnectManager.saveSettings(platformContext, settings) }
                     )
                     Screen.Logs -> LogsScreen(
                         viewModel = viewModel,

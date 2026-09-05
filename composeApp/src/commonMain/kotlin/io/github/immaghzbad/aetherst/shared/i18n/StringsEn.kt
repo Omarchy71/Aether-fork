@@ -774,5 +774,18 @@ object StringsEn : AppStrings {
     override val DNS_EMPTY_SELECTION = "Select at least one DNS server"
     override val DNS_APPLIED = "Fastest DNS applied to Tunnel DNS"
     override val TOAST_DNS_APPLIED = "Tunnel DNS updated: %s"
+
+    override val CAT_AUTO_CONNECT = "Auto-Connect & Recovery"
+    override val CAT_AUTO_CONNECT_SUB = "Connect automatically, crash recovery"
+    override val AUTO_CONNECT_ON_START = "Auto-Connect on App Start"
+    override val AUTO_CONNECT_ON_START_SUB = "Restore connection when the app opens"
+    override val AUTO_CONNECT_ON_BOOT = "Auto-Connect on Device Restart"
+    override val AUTO_CONNECT_ON_BOOT_SUB = "Connect after device boots up"
+    override val AUTO_CONNECT_ON_NETWORK = "Auto-Connect on Network Change"
+    override val AUTO_CONNECT_ON_NETWORK_SUB = "Reconnect when Wi-Fi or mobile data changes"
+    override val AUTO_RESTART_ON_CRASH = "Auto Restart After Crash"
+    override val AUTO_RESTART_ON_CRASH_SUB = "Restart app automatically if it crashes"
+    override val AUTO_CONNECT_AFTER_CRASH = "Auto Connect After Crash Restart"
+    override val AUTO_CONNECT_AFTER_CRASH_SUB = "Restore VPN connection after crash restart"
 }
 

@@ -19,7 +19,7 @@ class DesktopSettings private constructor() : Settings {
         } else {
             System.getProperty("user.home") + "/.config"
         }
-        val dir = File(baseDir, "AetherST-Tunnel")
+        val dir = File(baseDir, "AetherY")
         if (!dir.exists()) dir.mkdirs()
         file = File(dir, "settings.properties")
     }

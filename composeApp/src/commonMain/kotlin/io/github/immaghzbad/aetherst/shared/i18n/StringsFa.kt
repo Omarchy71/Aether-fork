@@ -774,4 +774,17 @@ object StringsFa : AppStrings {
     override val DNS_APPLIED = "سریع‌ترین DNS به DNS تونل اعمال شد"
     override val DNS_OPTIMIZE = "بهینه‌سازی"
     override val TOAST_DNS_APPLIED = "DNS تونل به‌روز شد: %s"
+
+    override val CAT_AUTO_CONNECT = "اتصال خودکار و بازیابی"
+    override val CAT_AUTO_CONNECT_SUB = "اتصال خودکار، بازیابی از کرش"
+    override val AUTO_CONNECT_ON_START = "اتصال خودکار при باز شدن برنامه"
+    override val AUTO_CONNECT_ON_START_SUB = "اتصال قبلی رو برگردون وقتی برنامه باز می‌شه"
+    override val AUTO_CONNECT_ON_BOOT = "اتصال خودکار при روشن شدن گوشی"
+    override val AUTO_CONNECT_ON_BOOT_SUB = "بعد از روشن شدن گوشی وصل شو"
+    override val AUTO_CONNECT_ON_NETWORK = "اتصال خودکار при تغییر شبکه"
+    override val AUTO_CONNECT_ON_NETWORK_SUB = "وقتی وای‌فای یا دیتا عوض می‌شه دوباره وصل شو"
+    override val AUTO_RESTART_ON_CRASH = "ریستارت خودکار بعد از کرش"
+    override val AUTO_RESTART_ON_CRASH_SUB = "برنامه رو خودش ریستارت کن اگه کرش کرد"
+    override val AUTO_CONNECT_AFTER_CRASH = "اتصال خودکار بعد از ریستارت کرش"
+    override val AUTO_CONNECT_AFTER_CRASH_SUB = "VPN رو بعد از ریستارت کرش برگردون"
 }
