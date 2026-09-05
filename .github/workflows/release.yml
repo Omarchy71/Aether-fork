@@ -49,7 +49,6 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
 
       - name: Update version name
         run: |
@@ -57,42 +56,40 @@ jobs:
           sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" app/build.gradle.kts
 
       - name: Build debug APKs
-        id: build
-        continue-on-error: true
-        run: ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build_output.log
+        run: ./gradlew assembleDebug --stacktrace
 
-      - name: Report build errors
-        if: steps.build.outcome == 'failure'
+      - name: Debug APK output
         run: |
-          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "## APK output tree" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -200 /tmp/build_output.log >> $GITHUB_STEP_SUMMARY
+          find app/build/outputs -type f >> $GITHUB_STEP_SUMMARY 2>&1 || echo "No outputs found"
           echo '```' >> $GITHUB_STEP_SUMMARY
-          exit 1
 
-      - name: Organize APKs
+      - name: Collect APKs
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           RELEASE_DIR="${{ github.workspace }}/release-artifacts"
           mkdir -p "$RELEASE_DIR"
-          cd app/build/outputs/apk/debug/
-          for apk in *.apk; do
-            [ -f "$apk" ] || continue
-            if [[ "$apk" == *"universal"* ]]; then
-              new_name="AetherY-${VERSION}-universal.apk"
-            elif [[ "$apk" == *"arm64-v8a"* ]]; then
-              new_name="AetherY-${VERSION}-arm64-v8a.apk"
-            elif [[ "$apk" == *"armeabi-v7a"* ]]; then
-              new_name="AetherY-${VERSION}-armeabi-v7a.apk"
-            elif [[ "$apk" == *"x86_64"* ]]; then
-              new_name="AetherY-${VERSION}-x86_64.apk"
+
+          find app/build/outputs -name "*.apk" -type f | while read apk; do
+            BASENAME=$(basename "$apk")
+            if [[ "$BASENAME" == *"universal"* ]]; then
+              NEW_NAME="AetherY-${VERSION}-universal.apk"
+            elif [[ "$BASENAME" == *"arm64-v8a"* ]]; then
+              NEW_NAME="AetherY-${VERSION}-arm64-v8a.apk"
+            elif [[ "$BASENAME" == *"armeabi-v7a"* ]]; then
+              NEW_NAME="AetherY-${VERSION}-armeabi-v7a.apk"
+            elif [[ "$BASENAME" == *"x86_64"* ]]; then
+              NEW_NAME="AetherY-${VERSION}-x86_64.apk"
             else
-              new_name="AetherY-${VERSION}-$(basename $apk)"
+              NEW_NAME="AetherY-${VERSION}-${BASENAME}"
             fi
-            cp "$apk" "$RELEASE_DIR/$new_name"
-            echo "  -> $new_name"
+            cp "$apk" "$RELEASE_DIR/$NEW_NAME"
+            echo "Copied: $NEW_NAME"
           done
-          ls -la "$RELEASE_DIR/"
+
+          echo "## Release artifacts" >> $GITHUB_STEP_SUMMARY
+          ls -la "$RELEASE_DIR/" >> $GITHUB_STEP_SUMMARY 2>&1
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -102,6 +99,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: release-artifacts/*.apk
+          files: release-artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
