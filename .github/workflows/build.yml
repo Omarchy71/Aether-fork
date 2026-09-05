@@ -46,8 +46,8 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "## Generated Res accessors (TMP DEBUG)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          find composeApp/build/generated -name "Res.kt" 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
-          grep -rh -m2 "^package " $(find composeApp/build/generated -name "Res.kt" 2>/dev/null) 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+          find composeApp/build/generated -name "Res.kt" 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || true
+          grep -rh -m2 "^package " $(find composeApp/build/generated -name "Res.kt" 2>/dev/null) 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
           exit 1
 
