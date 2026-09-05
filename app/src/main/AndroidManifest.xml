@@ -90,8 +90,8 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="io.github.immaghzbad.aetherst.WIDGET_TOGGLE" />
-                <action android:name="io.github.immaghzbad.aetherst.WIDGET_CHANGE_PROTOCOL" />
+                <action android:name="com.aethery.vpn.WIDGET_TOGGLE" />
+                <action android:name="com.aethery.vpn.WIDGET_CHANGE_PROTOCOL" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
