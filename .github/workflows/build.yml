@@ -37,6 +37,14 @@ jobs:
         continue-on-error: true
         run: ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build_output.log
 
+      - name: TMP probe generated tree
+        if: always()
+        run: |
+          echo "### TMP PROBE generated tree"
+          find composeApp/build/generated -type f 2>/dev/null | head -80
+          echo "### TMP PROBE Res files anywhere"
+          find composeApp/build -iname "*res*.kt" 2>/dev/null | head -20
+
       - name: Report build result
         if: steps.build.outcome == 'failure'
         run: |
