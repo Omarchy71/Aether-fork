@@ -35,7 +35,26 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        id: build
+        run: |
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build.log
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Report build errors
+        if: failure() || steps.build.outputs.exit_code != '0'
+        run: |
+          echo "## Build Failed - Last 100 lines of output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -100 /tmp/build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          retention-days: 5
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
