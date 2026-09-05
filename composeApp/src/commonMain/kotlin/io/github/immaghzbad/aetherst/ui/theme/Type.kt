@@ -1,10 +1,10 @@
 package io.github.immaghzbad.aetherst.shared.ui.theme
 
-import aetherst_tunnel.composeapp.generated.resources.Inter_Bold
-import aetherst_tunnel.composeapp.generated.resources.Inter_Regular
-import aetherst_tunnel.composeapp.generated.resources.Res
-import aetherst_tunnel.composeapp.generated.resources.Vazirmatn_Bold
-import aetherst_tunnel.composeapp.generated.resources.Vazirmatn_Regular
+import aethery.composeapp.generated.resources.Inter_Bold
+import aethery.composeapp.generated.resources.Inter_Regular
+import aethery.composeapp.generated.resources.Res
+import aethery.composeapp.generated.resources.Vazirmatn_Bold
+import aethery.composeapp.generated.resources.Vazirmatn_Regular
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontFamily
