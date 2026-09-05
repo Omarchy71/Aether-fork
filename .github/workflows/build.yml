@@ -33,4 +33,19 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        id: build
+        continue-on-error: true
+        run: ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build_output.log
+
+      - name: Capture build errors
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -150 /tmp/build_output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+      - name: Build succeeded
+        if: steps.build.outcome == 'success'
+        run: echo "## Build Succeeded" >> $GITHUB_STEP_SUMMARY
