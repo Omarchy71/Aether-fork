@@ -51,13 +51,19 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
-      - name: Update version name
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" app/build.gradle.kts
-
       - name: Build debug APKs
-        run: ./gradlew assembleDebug --stacktrace
+        id: build
+        continue-on-error: true
+        run: ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build_output.log
+
+      - name: Report build result
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -200 /tmp/build_output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit 1
 
       - name: Organize APKs
         run: |

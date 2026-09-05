@@ -37,15 +37,17 @@ jobs:
         continue-on-error: true
         run: ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build_output.log
 
-      - name: Capture build errors
+      - name: Report build result
         if: steps.build.outcome == 'failure'
         run: |
           echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -150 /tmp/build_output.log >> $GITHUB_STEP_SUMMARY
+          tail -200 /tmp/build_output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           exit 1
 
       - name: Build succeeded
         if: steps.build.outcome == 'success'
-        run: echo "## Build Succeeded" >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo "## Build Succeeded" >> $GITHUB_STEP_SUMMARY
+          find app/build/outputs/apk -name "*.apk" -type f | while read f; do echo "  $f"; done
