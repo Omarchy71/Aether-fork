@@ -50,6 +50,8 @@ class DesktopSettings private constructor() : Settings {
     override fun putBoolean(key: String, value: Boolean) { props.setProperty(key, value.toString()); save() }
     override fun getInt(key: String, defaultValue: Int): Int = props.getProperty(key, defaultValue.toString()).toIntOrNull() ?: defaultValue
     override fun putInt(key: String, value: Int) { props.setProperty(key, value.toString()); save() }
+    override fun getLong(key: String, defaultValue: Long): Long = props.getProperty(key, defaultValue.toString()).toLongOrNull() ?: defaultValue
+    override fun putLong(key: String, value: Long) { props.setProperty(key, value.toString()); save() }
     override fun getStringSet(key: String, defaultValue: Set<String>): Set<String> {
         val value = props.getProperty(key) ?: return defaultValue
         return value.split(",").filter { it.isNotEmpty() }.toSet()
