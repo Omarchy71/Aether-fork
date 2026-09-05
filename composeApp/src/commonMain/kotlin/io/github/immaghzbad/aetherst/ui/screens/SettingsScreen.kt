@@ -696,11 +696,14 @@ private fun encodeUpstreamCredential(s: String): String = s.replace("@", "%40").
             icon = Icons.Default.Wifi,
             iconBg = AppPalette.accentVariant,
             title = strings.AUTO_CONNECT_ON_NETWORK,
-            subtitle = strings.AUTO_CONNECT_ON_NETWORK_SUB,
+            subtitle = if (isAndroid) strings.AUTO_CONNECT_ON_NETWORK_SUB else "Only available on Android",
             checked = settings.autoConnectOnNetwork,
+            enabled = isAndroid,
             onCheckedChange = {
-                settings = settings.copy(autoConnectOnNetwork = it)
-                saveAutoConnectSettings(settings)
+                if (isAndroid) {
+                    settings = settings.copy(autoConnectOnNetwork = it)
+                    saveAutoConnectSettings(settings)
+                }
             },
             testTag = "switch_auto_connect_network"
         )

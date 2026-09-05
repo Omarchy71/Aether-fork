@@ -8,9 +8,13 @@ import io.github.immaghzbad.aetherst.shared.data.LogRepository
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
-            LogRepository.i("[BootReceiver] Boot completed, checking auto-connect")
-            AutoConnectManager.handleBootCompleted(context)
+        when (intent?.action) {
+            Intent.ACTION_BOOT_COMPLETED,
+            "android.intent.action.QUICKBOOT_POWERON",
+            "com.htc.intent.action.QUICKBOOT_POWERON" -> {
+                LogRepository.i("[BootReceiver] Boot completed, checking auto-connect")
+                AutoConnectManager.handleBootCompleted(context)
+            }
         }
     }
 }

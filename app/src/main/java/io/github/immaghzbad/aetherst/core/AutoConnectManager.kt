@@ -16,19 +16,18 @@ import kotlinx.coroutines.launch
 
 object AutoConnectManager {
 
-    private const val PREF_PREFIX = "auto_connect_"
-    private const val PREF_AUTO_CONNECT_ON_START = "${PREF_PREFIX}on_start"
-    private const val PREF_AUTO_CONNECT_ON_BOOT = "${PREF_PREFIX}on_boot"
-    private const val PREF_AUTO_CONNECT_ON_NETWORK = "${PREF_PREFIX}on_network"
-    private const val PREF_AUTO_RESTART_ON_CRASH = "${PREF_PREFIX}restart_crash"
-    private const val PREF_AUTO_CONNECT_AFTER_CRASH = "${PREF_PREFIX}after_crash"
-    private const val PREF_MANUAL_DISCONNECT = "${PREF_PREFIX}manual_disconnect"
-    private const val PREF_CRASH_COUNT = "${PREF_PREFIX}crash_count"
-    private const val PREF_CRASH_WINDOW_START = "${PREF_PREFIX}crash_window_start"
+    private val PREF_AUTO_CONNECT_ON_START = AutoConnectSettings.PREF_AUTO_CONNECT_ON_START
+    private val PREF_AUTO_CONNECT_ON_BOOT = AutoConnectSettings.PREF_AUTO_CONNECT_ON_BOOT
+    private val PREF_AUTO_CONNECT_ON_NETWORK = AutoConnectSettings.PREF_AUTO_CONNECT_ON_NETWORK
+    private val PREF_AUTO_RESTART_ON_CRASH = AutoConnectSettings.PREF_AUTO_RESTART_ON_CRASH
+    private val PREF_AUTO_CONNECT_AFTER_CRASH = AutoConnectSettings.PREF_AUTO_CONNECT_AFTER_CRASH
+    private val PREF_MANUAL_DISCONNECT = AutoConnectSettings.PREF_MANUAL_DISCONNECT
+    private val PREF_CRASH_COUNT = AutoConnectSettings.PREF_CRASH_COUNT
+    private val PREF_CRASH_WINDOW_START = AutoConnectSettings.PREF_CRASH_WINDOW_START
+    private val PREF_CRASH_RESTART_PENDING = AutoConnectSettings.PREF_CRASH_RESTART_PENDING
+    private val PREF_CRASH_AUTOCONNECT_PENDING = AutoConnectSettings.PREF_CRASH_AUTOCONNECT_PENDING
 
-    private const val MAX_CRASH_RETRIES = 3
-    private const val CRASH_WINDOW_MS = 60_000L
-    private const val NETWORK_DEBOUNCE_MS = 3000L
+    private const val NETWORK_DEBOUNCE_MS = AutoConnectSettings.NETWORK_DEBOUNCE_MS
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var networkDebounceJob: Job? = null
@@ -63,6 +62,16 @@ object AutoConnectManager {
         return prefs.getBoolean(PREF_MANUAL_DISCONNECT, false)
     }
 
+    private fun isActiveOrBusy(status: ConnectionStatus): Boolean {
+        return status == ConnectionStatus.RUNNING ||
+            status == ConnectionStatus.TUN_ACTIVE ||
+            status == ConnectionStatus.STARTING ||
+            status == ConnectionStatus.VALIDATING ||
+            status == ConnectionStatus.DATAPLANE_VALIDATED ||
+            status == ConnectionStatus.SOCKS_READY ||
+            status == ConnectionStatus.RECONNECTING
+    }
+
     fun handleAppStart(context: Context) {
         val s = loadSettings(context)
         if (!s.autoConnectOnStart) return
@@ -70,8 +79,7 @@ object AutoConnectManager {
             LogRepository.i("[AutoConnect] Skipping: manual disconnect active")
             return
         }
-        val status = ConnectionController.status.value
-        if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.TUN_ACTIVE) return
+        if (isActiveOrBusy(ConnectionController.status.value)) return
         LogRepository.i("[AutoConnect] Auto-connecting on app start")
         AetherVpnService.startVpn(context)
     }
@@ -91,54 +99,102 @@ object AutoConnectManager {
         val s = loadSettings(context)
         if (!s.autoConnectOnNetwork) return
         if (isManualDisconnect(context)) return
-        val status = ConnectionController.status.value
-        if (status == ConnectionStatus.RUNNING || status == ConnectionStatus.TUN_ACTIVE) return
-        if (status == ConnectionStatus.CONNECTING || status == ConnectionStatus.RECONNECTING) return
+        if (isActiveOrBusy(ConnectionController.status.value)) return
 
         networkDebounceJob?.cancel()
         networkDebounceJob = scope.launch {
             delay(NETWORK_DEBOUNCE_MS)
-            val cur = ConnectionController.status.value
-            if (cur == ConnectionStatus.RUNNING || cur == ConnectionStatus.TUN_ACTIVE) return@launch
-            if (cur == ConnectionStatus.CONNECTING || cur == ConnectionStatus.RECONNECTING) return@launch
+            if (isActiveOrBusy(ConnectionController.status.value)) return@launch
             if (isManualDisconnect(context)) return@launch
+            // Re-read settings after debounce: user may have disabled meanwhile.
+            if (!loadSettings(context).autoConnectOnNetwork) return@launch
             LogRepository.i("[AutoConnect] Auto-connecting on network change")
             AetherVpnService.startVpn(context)
         }
     }
 
-    fun shouldRecoverFromCrash(context: Context): Boolean {
-        val s = loadSettings(context)
-        if (!s.autoRestartOnCrash) return false
-
+    /**
+     * Called from the crash handler. Records the crash, applies the crash-loop
+     * guard, and persists pending-recovery flags synchronously so the next
+     * launch can act on them. Returns (restartAllowed, autoConnectWanted).
+     */
+    fun recordCrashAndGetRecoveryFlags(context: Context): Pair<Boolean, Boolean> {
         val prefs = getSettings(PlatformContext(context))
+        val autoRestartOnCrash = prefs.getBoolean(PREF_AUTO_RESTART_ON_CRASH, false)
+        val autoConnectAfterCrash = prefs.getBoolean(PREF_AUTO_CONNECT_AFTER_CRASH, false)
         val now = System.currentTimeMillis()
-        var crashCount = prefs.getInt(PREF_CRASH_COUNT, 0)
-        var windowStart = prefs.getLong(PREF_CRASH_WINDOW_START, 0L)
+        val decision = CrashRecoveryPolicy.nextState(
+            crashCount = prefs.getInt(PREF_CRASH_COUNT, 0),
+            windowStart = prefs.getLong(PREF_CRASH_WINDOW_START, 0L),
+            now = now
+        )
+        prefs.putInt(PREF_CRASH_COUNT, decision.newCrashCount)
+        prefs.putLong(PREF_CRASH_WINDOW_START, decision.newWindowStart)
 
-        if (now - windowStart > CRASH_WINDOW_MS) {
-            windowStart = now
-            crashCount = 1
-        } else {
-            crashCount++
-        }
+        if (!autoRestartOnCrash) return Pair(false, false)
 
-        prefs.putInt(PREF_CRASH_COUNT, crashCount)
-        prefs.putLong(PREF_CRASH_WINDOW_START, windowStart)
-
-        if (crashCount > MAX_CRASH_RETRIES) {
-            LogRepository.e("[AutoConnect] Crash loop detected ($crashCount in window). Disabling auto-restart.")
+        if (decision.crashLoopDetected) {
+            LogRepository.e("[AutoConnect] Crash loop detected (${decision.newCrashCount} in window). Disabling auto-restart.")
             prefs.putBoolean(PREF_AUTO_RESTART_ON_CRASH, false)
             prefs.putInt(PREF_CRASH_COUNT, 0)
-            return false
+            persistPendingFlagsSync(context, restartPending = false, autoConnectPending = false)
+            return Pair(false, false)
         }
 
-        LogRepository.i("[AutoConnect] Crash recovery: attempt $crashCount/$MAX_CRASH_RETRIES")
-        return true
+        LogRepository.i("[AutoConnect] Crash recovery: attempt ${decision.newCrashCount}/${AutoConnectSettings.MAX_CRASH_RETRIES}")
+        persistPendingFlagsSync(context, restartPending = true, autoConnectPending = autoConnectAfterCrash)
+        return Pair(true, autoConnectAfterCrash)
+    }
+
+    fun shouldRecoverFromCrash(context: Context): Boolean {
+        return recordCrashAndGetRecoveryFlags(context).first
     }
 
     fun shouldAutoConnectAfterCrash(context: Context): Boolean {
         return loadSettings(context).autoConnectAfterCrash
+    }
+
+    /**
+     * Called once on next app start. Consumes (reads + clears) the pending
+     * flags written by the crash handler. Returns (restartWasPending,
+     * autoConnectWasPending).
+     */
+    fun consumeCrashPending(context: Context): Pair<Boolean, Boolean> {
+        val prefs = getSettings(PlatformContext(context))
+        val restart = prefs.getBoolean(PREF_CRASH_RESTART_PENDING, false)
+        val autoConnect = prefs.getBoolean(PREF_CRASH_AUTOCONNECT_PENDING, false)
+        if (restart || autoConnect) {
+            prefs.putBoolean(PREF_CRASH_RESTART_PENDING, false)
+            prefs.putBoolean(PREF_CRASH_AUTOCONNECT_PENDING, false)
+        }
+        return Pair(restart, autoConnect)
+    }
+
+    /**
+     * Handles post-crash recovery on app start. Must be called before
+     * [handleAppStart] so a crash-driven connect isn't duplicated.
+     * Returns true if it triggered a connect.
+     */
+    fun handleCrashRecovery(context: Context): Boolean {
+        val (restartPending, autoConnectPending) = consumeCrashPending(context)
+        if (!restartPending) return false
+        val s = loadSettings(context)
+        if (!s.autoRestartOnCrash) {
+            LogRepository.i("[AutoConnect] Crash restart was pending but auto-restart is now disabled; skipping")
+            return false
+        }
+        if (!autoConnectPending || !s.autoConnectAfterCrash) {
+            LogRepository.i("[AutoConnect] App restarted after crash (no auto-connect requested)")
+            return false
+        }
+        if (isManualDisconnect(context)) {
+            LogRepository.i("[AutoConnect] Skipping post-crash connect: manual disconnect active")
+            return false
+        }
+        if (isActiveOrBusy(ConnectionController.status.value)) return true
+        LogRepository.i("[AutoConnect] Auto-connecting after crash restart")
+        AetherVpnService.startVpn(context)
+        return true
     }
 
     fun clearCrashCount(context: Context) {
@@ -149,5 +205,21 @@ object AutoConnectManager {
 
     fun clearManualDisconnect(context: Context) {
         setManualDisconnect(context, false)
+    }
+
+    /**
+     * Synchronous commit of pending flags. The Settings wrapper uses apply()
+     * (async) which may not survive process death, so the crash path writes
+     * directly with commit(). No secrets are stored here — booleans only.
+     */
+    private fun persistPendingFlagsSync(context: Context, restartPending: Boolean, autoConnectPending: Boolean) {
+        try {
+            context.getSharedPreferences("aether_settings", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(PREF_CRASH_RESTART_PENDING, restartPending)
+                .putBoolean(PREF_CRASH_AUTOCONNECT_PENDING, autoConnectPending)
+                .commit()
+        } catch (_: Exception) {
+        }
     }
 }

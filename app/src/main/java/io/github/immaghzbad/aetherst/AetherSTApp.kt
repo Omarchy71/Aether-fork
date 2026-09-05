@@ -29,13 +29,27 @@ class AetherSTApp : Application() {
             ConnectionController.getInstance(this).submitLoginCode(code)
         }
 
-        handleAutoConnectOnStart()
+        handleCrashRecoveryAndAutoConnect()
     }
 
-    private fun handleAutoConnectOnStart() {
+    private fun handleCrashRecoveryAndAutoConnect() {
         applicationScope.launch {
             delay(1500L)
-            AutoConnectManager.handleAppStart(this@AetherSTApp)
+            // Crash recovery first so a crash-driven connect isn't duplicated
+            // by the regular app-start auto-connect below.
+            val recovered = try {
+                AutoConnectManager.handleCrashRecovery(this@AetherSTApp)
+            } catch (e: Exception) {
+                LogRepository.w("[AutoConnect] Crash recovery failed: ${e.message}")
+                false
+            }
+            if (!recovered) {
+                try {
+                    AutoConnectManager.handleAppStart(this@AetherSTApp)
+                } catch (e: Exception) {
+                    LogRepository.w("[AutoConnect] App-start auto-connect failed: ${e.message}")
+                }
+            }
         }
     }
 
@@ -55,19 +69,14 @@ class AetherSTApp : Application() {
                 val pw = PrintWriter(sw)
                 throwable.printStackTrace(pw)
                 val stackTrace = sw.toString()
-                val crashLog = "Thread: ${thread.name}\n\nException: ${throwable.localizedMessage}\n\nStack Trace:\n$stackTrace"
+                // Never log secrets: only thread name + exception class/message.
+                val crashLog = "Thread: ${thread.name}\n\nException: ${throwable.javaClass.name}: ${throwable.localizedMessage}\n\nStack Trace:\n$stackTrace"
                 val file = File(cacheDir, "last_crash.log")
-                file.writeText(crashLog)
+                file.writeText(crashLog.take(32_768))
 
-                val shouldRestart = AutoConnectManager.shouldRecoverFromCrash(this)
-                val shouldAutoConnect = AutoConnectManager.shouldAutoConnectAfterCrash(this)
-                val prefsFile = File(filesDir, "../shared_prefs/aether_settings.xml")
-                if (prefsFile.exists()) {
-                    val existing = prefsFile.readText()
-                    val newPrefs = existing
-                        .replace("</map>", "  <boolean name=\"__crash_restart_pending\" value=\"$shouldRestart\" />\n  <boolean name=\"__crash_auto_connect_pending\" value=\"$shouldAutoConnect\" />\n</map>")
-                    prefsFile.writeText(newPrefs)
-                }
+                // Persist recovery flags synchronously (commit, not apply) so
+                // they survive process death. Booleans only — no secrets.
+                AutoConnectManager.recordCrashAndGetRecoveryFlags(this)
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
