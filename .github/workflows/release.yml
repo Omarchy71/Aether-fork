@@ -61,7 +61,7 @@ jobs:
         continue-on-error: true
         run: ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/build_output.log
 
-      - name: Report build result
+      - name: Report build errors
         if: steps.build.outcome == 'failure'
         run: |
           echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
@@ -70,40 +70,28 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           exit 1
 
-      - name: Find and organize APKs
+      - name: Organize APKs
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           RELEASE_DIR="${{ github.workspace }}/release-artifacts"
           mkdir -p "$RELEASE_DIR"
-
-          echo "## Finding APKs" >> $GITHUB_STEP_SUMMARY
-          find app/build/outputs -name "*.apk" -type f 2>&1 | while read apk; do
-            BASENAME=$(basename "$apk")
-            if [[ "$BASENAME" == *"universal"* ]]; then
-              NEW_NAME="AetherY-${VERSION}-universal.apk"
-            elif [[ "$BASENAME" == *"arm64-v8a"* ]]; then
-              NEW_NAME="AetherY-${VERSION}-arm64-v8a.apk"
-            elif [[ "$BASENAME" == *"armeabi-v7a"* ]]; then
-              NEW_NAME="AetherY-${VERSION}-armeabi-v7a.apk"
-            elif [[ "$BASENAME" == *"x86_64"* ]]; then
-              NEW_NAME="AetherY-${VERSION}-x86_64.apk"
+          cd app/build/outputs/apk/debug/
+          for apk in *.apk; do
+            [ -f "$apk" ] || continue
+            if [[ "$apk" == *"universal"* ]]; then
+              new_name="AetherY-${VERSION}-universal.apk"
+            elif [[ "$apk" == *"arm64-v8a"* ]]; then
+              new_name="AetherY-${VERSION}-arm64-v8a.apk"
+            elif [[ "$apk" == *"armeabi-v7a"* ]]; then
+              new_name="AetherY-${VERSION}-armeabi-v7a.apk"
+            elif [[ "$apk" == *"x86_64"* ]]; then
+              new_name="AetherY-${VERSION}-x86_64.apk"
             else
-              NEW_NAME="AetherY-${VERSION}-${BASENAME}"
+              new_name="AetherY-${VERSION}-$(basename $apk)"
             fi
-            cp "$apk" "$RELEASE_DIR/$NEW_NAME"
-            echo "  $apk -> $NEW_NAME"
-            echo "- $NEW_NAME" >> $GITHUB_STEP_SUMMARY
+            cp "$apk" "$RELEASE_DIR/$new_name"
+            echo "  -> $new_name"
           done
-
-          APK_COUNT=$(ls "$RELEASE_DIR"/*.apk 2>/dev/null | wc -l)
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "## WARNING: No APKs found!" >> $GITHUB_STEP_SUMMARY
-            echo "Checking all build outputs:" >> $GITHUB_STEP_SUMMARY
-            find app/build -name "*.apk" -type f >> $GITHUB_STEP_SUMMARY || echo "None found"
-            echo "Build outputs directory:" >> $GITHUB_STEP_SUMMARY
-            find app/build/outputs -type f >> $GITHUB_STEP_SUMMARY || echo "No outputs dir"
-          fi
-
           ls -la "$RELEASE_DIR/"
 
       - name: Create GitHub Release
