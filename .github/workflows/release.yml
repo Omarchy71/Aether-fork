@@ -32,8 +32,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Accept Android SDK licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Install NDK
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;30.0.15729638" || true
@@ -41,58 +40,59 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Decode Keystore
-        env:
-          ENCODED_STRING: ${{ secrets.KEYSTORE_BASE64 }}
+      - name: Determine version
+        id: version
         run: |
-          mkdir -p app/src/main
-          echo $ENCODED_STRING | base64 --decode > app/src/main/release.jks
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
 
-      - name: Build Multi-APK with Gradle
-        env:
-          KEYSTORE_FILE: src/main/release.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
-
-      - name: Organize & Rename APKs
-        id: rename_apks
+      - name: Update version name
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" app/build.gradle.kts
+
+      - name: Build debug APKs
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Organize APKs
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
           RELEASE_DIR="${{ github.workspace }}/release-artifacts"
           mkdir -p "$RELEASE_DIR"
-          cd app/build/outputs/apk/release/
-          
+          cd app/build/outputs/apk/debug/
+
           for apk in *.apk; do
             [ -f "$apk" ] || continue
             if [[ "$apk" == *"universal"* ]]; then
-              new_name="AetherST-Tunnel-${TAG_NAME}-universal.apk"
+              new_name="AetherY-${VERSION}-universal.apk"
             elif [[ "$apk" == *"arm64-v8a"* ]]; then
-              new_name="AetherST-Tunnel-${TAG_NAME}-arm64-v8a.apk"
+              new_name="AetherY-${VERSION}-arm64-v8a.apk"
             elif [[ "$apk" == *"armeabi-v7a"* ]]; then
-              new_name="AetherST-Tunnel-${TAG_NAME}-armeabi-v7a.apk"
+              new_name="AetherY-${VERSION}-armeabi-v7a.apk"
             elif [[ "$apk" == *"x86_64"* ]]; then
-              new_name="AetherST-Tunnel-${TAG_NAME}-x86_64.apk"
+              new_name="AetherY-${VERSION}-x86_64.apk"
             else
-              new_name="AetherST-Tunnel-${TAG_NAME}-$(echo $apk | rev | cut -d'-' -f2- | rev).apk"
+              new_name="AetherY-${VERSION}-$(basename $apk)"
             fi
             cp "$apk" "$RELEASE_DIR/$new_name"
             echo "  -> $new_name"
           done
-          
+
           ls -la "$RELEASE_DIR/"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-artifacts/*.apk
-          generate_release_notes: true
+          tag_name: v${{ steps.version.outputs.version }}
+          name: AetherY v${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
+          generate_release_notes: true
+          files: release-artifacts/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cleanup Sensitive Data
-        if: always()
-        run: rm -f app/src/main/release.jks
