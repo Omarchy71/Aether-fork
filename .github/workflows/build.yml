@@ -44,6 +44,10 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           tail -200 /tmp/build_output.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "### TMP PROBE generated tree" | tee -a $GITHUB_STEP_SUMMARY
+          find composeApp/build/generated -type f 2>/dev/null | head -80 | tee -a $GITHUB_STEP_SUMMARY
+          echo "### TMP PROBE Res files anywhere" | tee -a $GITHUB_STEP_SUMMARY
+          find composeApp/build -iname "*res*.kt" 2>/dev/null | head -20 | tee -a $GITHUB_STEP_SUMMARY
           exit 1
 
       - name: Build succeeded
